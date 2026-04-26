@@ -1,0 +1,75 @@
+/**
+ * Self-hosted Whitney (.otf). Ensure your license permits web use.
+ * Fallback: Source Sans 3 (--font-sans in styles.css).
+ */
+@font-face {
+  font-family: Whitney;
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/fonts/whitney/whitneylight.otf') format('opentype');
+}
+
+@font-face {
+  font-family: Whitney;
+  font-style: italic;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/fonts/whitney/whitneylightitalic.otf') format('opentype');
+}
+
+@font-face {
+  font-family: Whitney;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/whitney/whitneybook.otf') format('opentype');
+}
+
+@font-face {
+  font-family: Whitney;
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/whitney/whitneybookitalic.otf') format('opentype');
+}
+
+@font-face {
+  font-family: Whitney;
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/whitney/whitneymedium.otf') format('opentype');
+}
+
+@font-face {
+  font-family: Whitney;
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/whitney/whitneymediumitalic.otf') format('opentype');
+}
+
+@font-face {
+  font-family: Whitney;
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/whitney/whitneysemibold.otf') format('opentype');
+}
+
+@font-face {
+  font-family: Whitney;
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/whitney/WhitneySemiboldItalic.otf') format('opentype');
+}
+
+@font-face {
+  font-family: Whitney;
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/whitney/whitneybold.otf') format('opentype');
+}

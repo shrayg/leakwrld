@@ -1,41 +1,67 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Secrets / local config
+.env
+.env.*
+!.env.example
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# Runtime / logs
+*.log
+server.out.log
+server.err.log
+cookies.txt
+cookies_*.txt
+STRIPE_SETUP.md
 
-# testing
-/coverage
+# Stray duplicate analytics / sessions (canonical paths use TBW_DATA_DIR / `data/`)
+_data/
 
-# next.js
-/.next/
-/out/
+# Media folders (keep private / large files)
+Streamer Wins/
+Points Game/
+Dick Reactions/
+Tit Flashing/
+Ass Flashing/
 
-# production
-/build
-
-# misc
+# OS
 .DS_Store
-*.pem
+Thumbs.db
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
+# Generated thumbnail cache
+thumbnails/
 
-# env files (can opt-in for committing if needed)
-.env*
+# Temp / upload staging
+bunkr_tmp/
 
-# vercel
-.vercel
+# Credentials
+superteam-agent-credentials.md
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# Misc scripts / docs (not part of the site)
+bobby_files.py
+osu_maps_recommendation.py
+reddit-redgifs-growth-strategy.md
+Backlink_Action_Plan.docx
+bunkr_upload.sh
+bunkr_urls.txt
+
+# Binaries
+rclone
+rclone.exe
+rclone.1
+
+# Misc scripts / artifacts not part of the site
+admin_user.py
+REDDIT_ANALYSIS_REPORT.md
+CUserslardDesktopfeet_list.json
+b310c64bc9072650dab368ce25fd495f.txt
+script.js.bak
+script_header.tmp
+
+# Node
+node_modules/
+
+# Vite React build output
+client/dist/
+
+# Workspace artifacts from migration/exploration
+.next/
+reference-pornyard/
+tsconfig.tsbuildinfo

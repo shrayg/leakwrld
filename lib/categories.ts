@@ -1,0 +1,16 @@
+export const platformCategories = [
+  { slug: "nsfw-straight", label: "NSFW Straight" },
+  { slug: "alt-and-goth", label: "Alt and Goth" },
+  { slug: "petitie", label: "Petitie" },
+  { slug: "teen-18-plus", label: "Teen (18+ only)" },
+  { slug: "milf", label: "MILF" },
+  { slug: "asian", label: "Asian" },
+  { slug: "ebony", label: "Ebony" },
+  { slug: "hentai", label: "Hentai" },
+  { slug: "yuri", label: "Yuri" },
+  { slug: "yaoi", label: "Yaoi" },
+  { slug: "nip-slips", label: "Nip Slips" },
+  { slug: "omegle", label: "Omegle" },
+  { slug: "of-leaks", label: "OF Leaks" },
+  { slug: "premium-leaks", label: "Premium Leaks" },
+] as const;

@@ -1,0 +1,84 @@
+{
+  "primitive": {
+    "color": {
+      "brand": {
+        "primary": {
+          "$value": "#f3c669"
+        }
+      },
+      "neutral": {
+        "n100": {
+          "$value": "#ffffff"
+        }
+      },
+      "background": {
+        "bg0": {
+          "$value": "#303030"
+        }
+      },
+      "text": {
+        "text0": {
+          "$value": "#000000"
+        },
+        "text1": {
+          "$value": "#ffffff"
+        }
+      }
+    },
+    "spacing": {
+      "s0": {
+        "$value": "1px"
+      },
+      "s2": {
+        "$value": "48px"
+      }
+    },
+    "radius": {
+      "r0": {
+        "$value": "2px"
+      }
+    },
+    "shadow": {
+      "sh0": {
+        "$value": "rgba(0, 0, 0, 0.2) 0px 0px 0px 0px, rgba(0, 0, 0, 0.14) 0px 0px 0px 0px, rgba(0, 0, 0, 0.12) 0px 0px 0px 0px"
+      }
+    },
+    "fontFamily": {
+      "f0": {
+        "$value": "Whitney"
+      },
+      "f1": {
+        "$value": "Times New Roman"
+      }
+    }
+  },
+  "semantic": {
+    "color": {
+      "action": {
+        "primary": {
+          "$value": "{primitive.color.brand.primary}"
+        }
+      },
+      "surface": {
+        "default": {
+          "$value": "{primitive.color.background.bg0}"
+        }
+      },
+      "text": {
+        "body": {
+          "$value": "{primitive.color.text.text0}"
+        }
+      }
+    },
+    "radius": {
+      "control": {
+        "$value": "{primitive.radius.r0}"
+      }
+    },
+    "shadow": {
+      "elevated": {
+        "$value": "{primitive.shadow.sh0}"
+      }
+    }
+  }
+}

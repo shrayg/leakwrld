@@ -1,0 +1,17 @@
+/* shadcn/ui Theme — extracted from https://hanime.tv/home */
+/* Paste into your globals.css */
+
+@layer base {
+  :root {
+    --background: 0 0% 19%;
+    --foreground: 0 0% 0%;
+    --primary: 40 85% 68%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 1 77% 55%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 220 1% 58%;
+    --muted-foreground: 0 0% 100%;
+    --border: 0 0% 93%;
+    --radius: 8px;
+  }
+}

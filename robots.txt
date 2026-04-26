@@ -1,0 +1,23 @@
+User-agent: *
+Allow: /
+Allow: /preview-media
+Allow: /thumbnail
+Disallow: /admin/
+Disallow: /api/
+Disallow: /media
+
+Sitemap: https://pornyard.xyz/sitemap.xml
+
+# Crawl-delay: 1
+
+# Key pages for indexing:
+# /                    - Homepage
+# /categories          - All categories
+# /omegle-wins         - Omegle wins, reactions
+# /irl-dick-flashing   - IRL dick flashing
+# /tiktok-porn         - TikTok porn, leaks
+# /snapchat-leaks      - Snapchat content
+# /foot-fetish         - Feet content
+# /blog                - SEO blog articles
+# /shorts              - TikTok-style shorts
+# /live-cams           - Live cam streams

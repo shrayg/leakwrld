@@ -1,0 +1,46 @@
+# Git history (1.9GB — not needed in Docker image)
+.git/
+
+# Secrets / local config
+.env
+.env.*
+
+# Runtime / logs
+*.log
+server.out.log
+server.err.log
+cookies.txt
+cookies_*.txt
+STRIPE_SETUP.md
+
+# Local user DB/data files are required at runtime in this deploy target.
+
+# Media folders (keep private / large files)
+Streamer Wins/
+Points Game/
+Dick Reactions/
+Tit Flashing/
+Ass Flashing/
+
+# Video thumbnails (loaded from R2 at runtime, not needed in image)
+thumbnails/*.mp4.jpg
+thumbnails/*.mov.jpg
+thumbnails/*.MP4.jpg
+thumbnails/generated/
+
+# Dev/docs files
+*.docx
+*.py
+*.md
+!README.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp / download dirs
+discord_temp/
+bunkr_tmp/
+
+# Node
+node_modules/
