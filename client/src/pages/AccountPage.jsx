@@ -1,0 +1,337 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { disconnectProvider, fetchAccount, fetchConnectUrl, updateAccount } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
+
+const PRIMARY_TABS = ['profile', 'referrals'];
+const CONTENT_TABS = ['videos', 'photos', 'gifs', 'about'];
+
+function toUsd(cents) {
+  return `$${(Math.max(0, Number(cents) || 0) / 100).toFixed(2)}`;
+}
+
+function toNum(v) {
+  return Number(v || 0).toLocaleString();
+}
+
+export function AccountPage() {
+  const { refresh: refreshAuth } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [account, setAccount] = useState(null);
+  const [error, setError] = useState('');
+  const [primaryTab, setPrimaryTab] = useState('profile');
+  const [contentTab, setContentTab] = useState('videos');
+  const [isEditing, setIsEditing] = useState(false);
+  const [providerPending, setProviderPending] = useState({});
+  const [providerMessage, setProviderMessage] = useState('');
+  const [saveMessage, setSaveMessage] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+
+  const [form, setForm] = useState({
+    username: '',
+    displayName: '',
+    avatarUrl: '',
+    bannerUrl: '',
+    bio: '',
+    twitterUrl: '',
+    instagramUrl: '',
+    websiteUrl: '',
+    followersCount: 0,
+    videoViews: 0,
+    rank: 0,
+  });
+
+  const loadAccount = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetchAccount();
+      if (!res.ok || !res.data?.authed) {
+        setAccount(false);
+        if (res.status >= 500) setError('Unable to load account right now.');
+        return;
+      }
+      setAccount(res.data);
+      const p = res.data.profile || {};
+      setForm({
+        username: res.data.username || '',
+        displayName: p.display_name || res.data.username || '',
+        avatarUrl: p.avatar_url || '',
+        bannerUrl: p.banner_url || '',
+        bio: p.bio || '',
+        twitterUrl: p.twitter_url || '',
+        instagramUrl: p.instagram_url || '',
+        websiteUrl: p.website_url || '',
+        followersCount: Number(p.followers_count || 0),
+        videoViews: Number(p.video_views || 0),
+        rank: Number(p.rank || 0),
+      });
+    } catch {
+      setError('Network error while loading account.');
+      setAccount(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    document.title = 'Account — Pornwrld';
+    loadAccount();
+    return () => {
+      document.title = 'Pornwrld';
+    };
+  }, [loadAccount]);
+
+  const mediaList = useMemo(() => {
+    const p = account?.profile || {};
+    if (contentTab === 'photos') return Array.isArray(p.photos) ? p.photos : [];
+    if (contentTab === 'gifs') return Array.isArray(p.gifs) ? p.gifs : [];
+    return Array.isArray(p.videos) ? p.videos : [];
+  }, [account, contentTab]);
+
+  async function saveProfile(e) {
+    e.preventDefault();
+    if (!account) return;
+    setProfileSaving(true);
+    setSaveMessage('');
+    try {
+      const res = await updateAccount({
+        username: form.username.trim(),
+        displayName: form.displayName.trim(),
+        avatarUrl: form.avatarUrl.trim(),
+        bannerUrl: form.bannerUrl.trim(),
+        bio: form.bio,
+        twitterUrl: form.twitterUrl.trim(),
+        instagramUrl: form.instagramUrl.trim(),
+        websiteUrl: form.websiteUrl.trim(),
+        followersCount: form.followersCount,
+        videoViews: form.videoViews,
+        rank: form.rank,
+      });
+      if (!res.ok) {
+        setSaveMessage(res.data?.error || 'Unable to save profile.');
+        return;
+      }
+      setSaveMessage('Profile updated.');
+      setIsEditing(false);
+      await loadAccount();
+      await refreshAuth();
+    } catch {
+      setSaveMessage('Network error while saving profile.');
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function connect(provider) {
+    setProviderPending((prev) => ({ ...prev, [provider]: true }));
+    setProviderMessage('');
+    try {
+      const res = await fetchConnectUrl(provider);
+      if (!res.ok || !res.data?.url) {
+        setProviderMessage(res.data?.error || `Unable to connect ${provider}.`);
+        return;
+      }
+      window.location.href = res.data.url;
+    } catch {
+      setProviderMessage(`Network error while connecting ${provider}.`);
+    } finally {
+      setProviderPending((prev) => ({ ...prev, [provider]: false }));
+    }
+  }
+
+  async function disconnect(provider) {
+    setProviderPending((prev) => ({ ...prev, [provider]: true }));
+    setProviderMessage('');
+    try {
+      const res = await disconnectProvider(provider);
+      if (!res.ok) {
+        setProviderMessage(res.data?.error || `Unable to disconnect ${provider}.`);
+        return;
+      }
+      await loadAccount();
+      setProviderMessage(`${provider} disconnected.`);
+    } catch {
+      setProviderMessage(`Network error while disconnecting ${provider}.`);
+    } finally {
+      setProviderPending((prev) => ({ ...prev, [provider]: false }));
+    }
+  }
+
+  async function copyReferral() {
+    const url = account?.referral?.url;
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setSaveMessage('Referral link copied.');
+    } catch {
+      setSaveMessage('Could not copy referral link.');
+    }
+  }
+
+  if (loading) {
+    return <div className="account-profile-page"><div className="account-profile-shell"><p>Loading account...</p></div></div>;
+  }
+
+  if (!account) {
+    return (
+      <div className="account-profile-page">
+        <div className="account-profile-shell">
+          <h2>Account</h2>
+          {error ? <p className="account-profile-alert">{error}</p> : null}
+          <div className="account-profile-auth-actions">
+            <Link to="/login" className="account-profile-btn account-profile-btn--gold">Log in</Link>
+            <Link to="/signup" className="account-profile-btn account-profile-btn--ghost">Create account</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const profile = account.profile || {};
+  const providers = account.providers || {};
+
+  return (
+    <div className="account-profile-page">
+      <section className="account-profile-hero">
+        <div
+          className="account-profile-banner"
+          style={{
+            backgroundImage: form.bannerUrl ? `url(${form.bannerUrl})` : undefined,
+          }}
+        />
+        <div className="account-profile-shell">
+          <div className="account-profile-header-row">
+            <div className="account-profile-avatar-wrap">
+              <img src={form.avatarUrl || '/images/face.png'} className="account-profile-avatar" alt="Profile" />
+            </div>
+            <div className="account-profile-head-copy">
+              <h1>{form.displayName || form.username}</h1>
+              <p>@{form.username}</p>
+            </div>
+            <div className="account-profile-head-actions">
+              <button type="button" className="account-profile-btn account-profile-btn--ghost" onClick={() => setIsEditing((v) => !v)}>
+                Edit Profile
+              </button>
+              <button type="button" className="account-profile-btn account-profile-btn--follow">Follow</button>
+            </div>
+          </div>
+          <div className="account-profile-stats">
+            <div><strong>{toNum(form.followersCount)}</strong><span>Followers</span></div>
+            <div><strong>{toNum(form.videoViews)}</strong><span>Video Views</span></div>
+            <div><strong>#{toNum(form.rank || 0)}</strong><span>Rank</span></div>
+          </div>
+        </div>
+      </section>
+
+      <div className="account-profile-shell">
+        <div className="account-profile-primary-tabs">
+          {PRIMARY_TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={primaryTab === tab ? 'is-active' : ''}
+              onClick={() => setPrimaryTab(tab)}
+            >
+              {tab === 'referrals' ? 'Referral Program' : 'Profile'}
+            </button>
+          ))}
+        </div>
+
+        {primaryTab === 'profile' ? (
+          <>
+            <div className="account-profile-content-tabs">
+              {CONTENT_TABS.map((tab) => (
+                <button key={tab} type="button" className={contentTab === tab ? 'is-active' : ''} onClick={() => setContentTab(tab)}>
+                  {tab[0].toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {contentTab === 'about' ? (
+              <section className="account-profile-about">
+                <h3>About</h3>
+                <p>{form.bio || 'No bio yet.'}</p>
+                <h4>Links</h4>
+                <ul>
+                  {form.twitterUrl ? <li><a href={form.twitterUrl} target="_blank" rel="noopener noreferrer">Twitter</a></li> : null}
+                  {form.instagramUrl ? <li><a href={form.instagramUrl} target="_blank" rel="noopener noreferrer">Instagram</a></li> : null}
+                  {form.websiteUrl ? <li><a href={form.websiteUrl} target="_blank" rel="noopener noreferrer">Website</a></li> : null}
+                  {!form.twitterUrl && !form.instagramUrl && !form.websiteUrl ? <li>No links added.</li> : null}
+                </ul>
+              </section>
+            ) : (
+              <section className="account-profile-grid">
+                {mediaList.length ? mediaList.map((item, idx) => (
+                  <a key={idx} href={item.url} target="_blank" rel="noopener noreferrer" className="account-profile-grid-card">
+                    <div className="account-profile-grid-thumb" />
+                    <p>{item.title || 'Untitled'}</p>
+                    <span>{toNum(item.views || 0)} views</span>
+                  </a>
+                )) : <p className="account-profile-muted">No {contentTab} yet.</p>}
+              </section>
+            )}
+
+            {isEditing ? (
+              <form className="account-profile-edit" onSubmit={saveProfile}>
+                <h3>Edit profile</h3>
+                <label>Username (can change once every 7 days)<input value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} minLength={3} maxLength={24} required /></label>
+                <label>Display name<input value={form.displayName} onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))} maxLength={80} /></label>
+                <label>Profile picture URL<input value={form.avatarUrl} onChange={(e) => setForm((f) => ({ ...f, avatarUrl: e.target.value }))} /></label>
+                <label>Banner URL<input value={form.bannerUrl} onChange={(e) => setForm((f) => ({ ...f, bannerUrl: e.target.value }))} /></label>
+                <label>About me<textarea value={form.bio} onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))} rows={4} /></label>
+                <label>Twitter URL<input value={form.twitterUrl} onChange={(e) => setForm((f) => ({ ...f, twitterUrl: e.target.value }))} /></label>
+                <label>Instagram URL<input value={form.instagramUrl} onChange={(e) => setForm((f) => ({ ...f, instagramUrl: e.target.value }))} /></label>
+                <label>Website URL<input value={form.websiteUrl} onChange={(e) => setForm((f) => ({ ...f, websiteUrl: e.target.value }))} /></label>
+                <div className="account-profile-edit-grid">
+                  <label>Followers<input type="number" min={0} value={form.followersCount} onChange={(e) => setForm((f) => ({ ...f, followersCount: Number(e.target.value || 0) }))} /></label>
+                  <label>Video views<input type="number" min={0} value={form.videoViews} onChange={(e) => setForm((f) => ({ ...f, videoViews: Number(e.target.value || 0) }))} /></label>
+                  <label>Rank<input type="number" min={0} value={form.rank} onChange={(e) => setForm((f) => ({ ...f, rank: Number(e.target.value || 0) }))} /></label>
+                </div>
+                <div className="account-profile-edit-actions">
+                  <button type="submit" disabled={profileSaving}>{profileSaving ? 'Saving...' : 'Save changes'}</button>
+                  <button type="button" onClick={() => setIsEditing(false)}>Cancel</button>
+                </div>
+              </form>
+            ) : null}
+          </>
+        ) : (
+          <section className="account-profile-referrals">
+            <h3>Referral Program</h3>
+            <div className="account-profile-ref-card">
+              <p><strong>Your code:</strong> {account.referral?.code || '—'}</p>
+              <p><strong>Referred members:</strong> {toNum(account.referral?.count || 0)}</p>
+              <p><strong>Referred spend:</strong> {toUsd(account.referral?.referredSpendCents || 0)}</p>
+              <p><strong>Current goal:</strong> {toNum(account.referral?.count || 0)} / {toNum(account.referral?.goal || 1)}</p>
+              <div className="account-profile-edit-actions">
+                <button type="button" onClick={copyReferral}>Copy referral link</button>
+                <a href={account.referral?.url || '#'} target="_blank" rel="noopener noreferrer">Open link</a>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="account-profile-providers">
+          <h3>Connected Accounts</h3>
+          {['discord', 'google'].map((provider) => (
+            <div key={provider} className="account-profile-provider-row">
+              <div>
+                <strong>{provider[0].toUpperCase() + provider.slice(1)}</strong>
+                <span>{providers[provider] ? 'Connected' : 'Not connected'}</span>
+              </div>
+              <div>
+                <button type="button" onClick={() => connect(provider)} disabled={providerPending[provider]}>
+                  {providerPending[provider] ? 'Working...' : providers[provider] ? 'Reconnect' : 'Connect'}
+                </button>
+                {providers[provider] ? <button type="button" onClick={() => disconnect(provider)} disabled={providerPending[provider]}>Disconnect</button> : null}
+              </div>
+            </div>
+          ))}
+        </section>
+
+        {saveMessage ? <p className="account-profile-muted">{saveMessage}</p> : null}
+        {providerMessage ? <p className="account-profile-muted">{providerMessage}</p> : null}
+      </div>
+    </div>
+  );
+}

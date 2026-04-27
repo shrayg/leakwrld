@@ -7,18 +7,18 @@ import { cn } from '../../lib/utils';
 const buttonVariants = cva('ui-btn', {
   variants: {
     variant: {
-      default: 'ui-btn--default',
+      default: 'ui-btn--default inline-flex items-center justify-center',
       destructive: 'ui-btn--destructive',
-      outline: 'ui-btn--outline',
+      outline: 'ui-btn--outline border border-[color:color-mix(in_srgb,var(--color-primary)_28%,transparent)]',
       secondary: 'ui-btn--secondary',
       ghost: 'ui-btn--ghost',
       link: 'ui-btn--link',
     },
     size: {
-      default: 'ui-btn--default-size',
+      default: 'ui-btn--default-size h-10 px-4',
       sm: 'ui-btn--sm',
       lg: 'ui-btn--lg',
-      icon: 'ui-btn--icon',
+      icon: 'ui-btn--icon h-9 w-9',
     },
   },
   defaultVariants: {

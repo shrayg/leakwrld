@@ -43,7 +43,7 @@ export function BlogPage() {
   const [slug, setSlug] = useState(() => (location.hash ? location.hash.replace(/^#/, '') : ''));
 
   useEffect(() => {
-    document.title = 'Pornyard Blog — Omegle Wins, Adult Content Guides & News';
+    document.title = 'Pornwrld Blog — Omegle Wins, Adult Content Guides & News';
     function onHash() {
       setSlug(window.location.hash.replace(/^#/, ''));
     }
@@ -57,8 +57,11 @@ export function BlogPage() {
   if (html) {
     return (
       <main className="page-content blog-route">
-        <div className="blog-article-wrap hanime-blog-article">
-          <Link to="/blog" className="blog-back hanime-blog-back">
+        <div className="blog-article-wrap pornwrld-blog-article">
+          <Link
+            to="/blog"
+            className="mb-[clamp(12px,2vw,18px)] inline-flex text-sm font-semibold text-[var(--pornwrld-gold)] no-underline"
+          >
             &larr; All posts
           </Link>
           <div className="blog-article-inner" dangerouslySetInnerHTML={{ __html: html }} />
@@ -69,11 +72,14 @@ export function BlogPage() {
 
   return (
     <main className="page-content blog-route" id="blog-index">
-      <div className="blog-container hanime-blog-index">
-        <Link to="/" className="blog-back hanime-blog-back">
-          &larr; Back to Pornyard
+      <div className="blog-container pornwrld-blog-index">
+        <Link
+          to="/"
+          className="mb-[clamp(12px,2vw,18px)] inline-flex text-sm font-semibold text-[var(--pornwrld-gold)] no-underline"
+        >
+          &larr; Back to Pornwrld
         </Link>
-        <PageHero title="Pornyard blog" subtitle="Guides, news, and articles about Omegle wins, adult content, and more." />
+        <PageHero title="Pornwrld blog" subtitle="Guides, news, and articles about Omegle wins, adult content, and more." />
         <div className="blog-grid">
           {INDEX.map((post) => (
             <article key={post.slug} className="blog-card">

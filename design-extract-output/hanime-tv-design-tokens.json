@@ -4,17 +4,13 @@
     "version": "7.0.0",
     "spec": "https://design-tokens.github.io/community-group/format/",
     "source": "https://hanime.tv/home",
-    "generatedAt": "2026-04-20T21:17:01.438Z"
+    "generatedAt": "2026-04-27T03:14:05.732Z"
   },
   "primitive": {
     "color": {
       "brand": {
         "primary": {
           "$value": "#f3c669",
-          "$type": "color"
-        },
-        "secondary": {
-          "$value": "#e53935",
           "$type": "color"
         }
       },
@@ -24,47 +20,39 @@
           "$type": "color"
         },
         "n200": {
-          "$value": "#000000",
-          "$type": "color"
-        },
-        "n300": {
           "$value": "#424242",
           "$type": "color"
         },
-        "n400": {
-          "$value": "#9e9e9e",
+        "n300": {
+          "$value": "#000000",
           "$type": "color"
         },
-        "n500": {
+        "n400": {
           "$value": "#eeeeee",
           "$type": "color"
         },
-        "n600": {
-          "$value": "#303030",
-          "$type": "color"
-        },
-        "n700": {
+        "n500": {
           "$value": "#17181a",
           "$type": "color"
         },
-        "n800": {
-          "$value": "#616161",
-          "$type": "color"
-        },
-        "n900": {
+        "n600": {
           "$value": "#757575",
           "$type": "color"
         },
-        "n1000": {
+        "n700": {
+          "$value": "#303030",
+          "$type": "color"
+        },
+        "n800": {
+          "$value": "#939496",
+          "$type": "color"
+        },
+        "n900": {
           "$value": "#bdbdbd",
           "$type": "color"
         },
-        "n1100": {
+        "n1000": {
           "$value": "#212121",
-          "$type": "color"
-        },
-        "n1200": {
-          "$value": "#939496",
           "$type": "color"
         }
       },
@@ -83,10 +71,6 @@
         },
         "bg3": {
           "$value": "#212121",
-          "$type": "color"
-        },
-        "bg4": {
-          "$value": "#000000",
           "$type": "color"
         }
       },
@@ -108,23 +92,11 @@
           "$type": "color"
         },
         "text4": {
-          "$value": "#eeeeee",
+          "$value": "#bdbdbd",
           "$type": "color"
         },
         "text5": {
-          "$value": "#9e9e9e",
-          "$type": "color"
-        },
-        "text6": {
-          "$value": "#616161",
-          "$type": "color"
-        },
-        "text7": {
-          "$value": "#e53935",
-          "$type": "color"
-        },
-        "text8": {
-          "$value": "#bdbdbd",
+          "$value": "#eeeeee",
           "$type": "color"
         }
       }
@@ -139,51 +111,31 @@
         "$type": "dimension"
       },
       "s2": {
-        "$value": "30px",
-        "$type": "dimension"
-      },
-      "s3": {
         "$value": "48px",
         "$type": "dimension"
       },
-      "s4": {
-        "$value": "56px",
-        "$type": "dimension"
-      },
-      "s5": {
-        "$value": "64px",
-        "$type": "dimension"
-      },
-      "s6": {
+      "s3": {
         "$value": "80px",
         "$type": "dimension"
       },
-      "s7": {
+      "s4": {
         "$value": "96px",
         "$type": "dimension"
       },
-      "s8": {
+      "s5": {
         "$value": "120px",
         "$type": "dimension"
       },
-      "s9": {
+      "s6": {
         "$value": "165px",
         "$type": "dimension"
       },
-      "s10": {
+      "s7": {
         "$value": "220px",
         "$type": "dimension"
       },
-      "s11": {
-        "$value": "329px",
-        "$type": "dimension"
-      },
-      "s12": {
+      "s8": {
         "$value": "384px",
-        "$type": "dimension"
-      },
-      "s13": {
-        "$value": "450px",
         "$type": "dimension"
       }
     },
@@ -193,19 +145,7 @@
         "$type": "dimension"
       },
       "r1": {
-        "$value": "8px",
-        "$type": "dimension"
-      },
-      "r2": {
-        "$value": "28px",
-        "$type": "dimension"
-      },
-      "r3": {
         "$value": "50px",
-        "$type": "dimension"
-      },
-      "r4": {
-        "$value": "100px",
         "$type": "dimension"
       }
     },
@@ -215,31 +155,19 @@
         "$type": "shadow"
       },
       "sh1": {
-        "$value": "rgba(0, 0, 0, 0.2) 0px 2px 1px -1px, rgba(0, 0, 0, 0.14) 0px 1px 1px 0px, rgba(0, 0, 0, 0.12) 0px 1px 3px 0px",
-        "$type": "shadow"
-      },
-      "sh2": {
         "$value": "rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px",
         "$type": "shadow"
       },
-      "sh3": {
+      "sh2": {
         "$value": "rgba(0, 0, 0, 0.2) 0px 3px 3px -2px, rgba(0, 0, 0, 0.14) 0px 3px 4px 0px, rgba(0, 0, 0, 0.12) 0px 1px 8px 0px",
         "$type": "shadow"
       },
-      "sh4": {
-        "$value": "rgba(0, 0, 0, 0.2) 0px 2px 4px -1px, rgba(0, 0, 0, 0.14) 0px 4px 5px 0px, rgba(0, 0, 0, 0.12) 0px 1px 10px 0px",
-        "$type": "shadow"
-      },
-      "sh5": {
+      "sh3": {
         "$value": "rgba(0, 0, 0, 0.2) 0px 5px 5px -3px, rgba(0, 0, 0, 0.14) 0px 8px 10px 1px, rgba(0, 0, 0, 0.12) 0px 3px 14px 2px",
         "$type": "shadow"
       },
-      "sh6": {
+      "sh4": {
         "$value": "rgba(0, 0, 0, 0.2) 0px 11px 15px -7px, rgba(0, 0, 0, 0.14) 0px 24px 38px 3px, rgba(0, 0, 0, 0.12) 0px 9px 46px 8px",
-        "$type": "shadow"
-      },
-      "sh7": {
-        "$value": "rgba(23, 24, 26, 0.25) 0px 15px 20px 5px",
         "$type": "shadow"
       }
     },
@@ -260,10 +188,6 @@
         "primary": {
           "$value": "{primitive.color.brand.primary}",
           "$type": "color"
-        },
-        "secondary": {
-          "$value": "{primitive.color.brand.secondary}",
-          "$type": "color"
         }
       },
       "surface": {
@@ -283,9 +207,9 @@
       "body": {
         "$value": {
           "fontFamily": "Whitney",
-          "fontSize": "56px",
-          "fontWeight": "400",
-          "lineHeight": "56px"
+          "fontSize": "51.2px",
+          "fontWeight": "300",
+          "lineHeight": "57.6px"
         },
         "$type": "typography"
       }

@@ -12,7 +12,7 @@ export function NewReleasesPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    document.title = 'New releases — Pornyard';
+    document.title = 'New releases — Pornwrld';
     let cancelled = false;
     (async () => {
       setLoading(true);

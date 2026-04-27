@@ -7,7 +7,7 @@ const https = require('https');
 const WEBHOOK_URL = 'https://discord.com/api/webhooks/1492362757691936868/J3wYROtmRvOlEnljUu74LxtecA4cwU4FTBD-ytMG_kxuSYKtGOWdsYL3jvfZTzM1T9h-';
 
 const SEARCH_QUERIES = [
-  'url:pornyard.xyz',
+  'url:pornwrld.xyz',
   'url:redgifs.com/watch/cumbersomemediocreamericanshorthair',
   'url:redgifs.com/i/stainedzestybedlingtonterrier',
   'url:redgifs.com/watch/dapperprofusebongo',
@@ -100,7 +100,7 @@ async function scan() {
           timestamp: new Date(d.created_utc * 1000).toISOString(),
         };
         if (d.url) embed.fields.push({ name: 'Posted URL', value: d.url, inline: false });
-        if (selftext.includes('pornyard.xyz')) embed.fields.push({ name: '\u2705 Has Referral Link', value: 'Yes', inline: true });
+        if (selftext.includes('pornwrld.xyz')) embed.fields.push({ name: '\u2705 Has Referral Link', value: 'Yes', inline: true });
 
         await sendWebhook({ embeds: [embed] });
         await sleep(1500);

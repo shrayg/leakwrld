@@ -74,6 +74,22 @@ export async function fetchMe() {
   return apiJson('/api/me');
 }
 
+export async function fetchAccount() {
+  return apiJson('/api/account');
+}
+
+export async function updateAccount(payload) {
+  return apiPost('/api/account', payload);
+}
+
+export async function fetchConnectUrl(provider) {
+  return apiJson('/api/account/connect?provider=' + encodeURIComponent(provider));
+}
+
+export async function disconnectProvider(provider) {
+  return apiPost('/api/account/disconnect', { provider });
+}
+
 export async function fetchRandomVideos(params) {
   const q = new URLSearchParams(params || {});
   return apiJsonWithRetry('/api/random-videos?' + q.toString(), { retries: 2, retryDelayMs: 300 });
@@ -191,6 +207,10 @@ export async function postShortsLike(key, liked) {
 
 export async function fetchCams(limit = 5) {
   return apiJson('/api/cams?limit=' + encodeURIComponent(String(limit)));
+}
+
+export async function fetchLiveActivity() {
+  return apiJson('/api/live-activity');
 }
 
 export async function redeemAccessKey(accessKey) {

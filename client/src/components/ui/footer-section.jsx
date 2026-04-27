@@ -9,7 +9,7 @@ const footerLinks = [
     links: [
       { title: 'Categories', href: '/categories' },
       { title: 'Shorts', href: '/shorts' },
-      { title: 'Upload', href: '/upload' },
+      { title: 'Account', href: '/account' },
       { title: 'Premium', href: '/checkout' },
     ],
   },
@@ -27,12 +27,12 @@ const footerLinks = [
     links: [
       { title: 'Blog', href: '/blog' },
       { title: 'Changelog', href: '/changelog' },
-      { title: 'Help', href: 'https://t.me/pornyardxyz', external: true },
+      { title: 'Help', href: 'https://t.me/pornwrldxyz', external: true },
     ],
   },
   {
     label: 'Social Links',
-    links: [{ title: 'Telegram', href: 'https://t.me/pornyardxyz', icon: Send, external: true }],
+    links: [{ title: 'Telegram', href: 'https://t.me/pornwrldxyz', icon: Send, external: true }],
   },
 ];
 
@@ -85,11 +85,10 @@ export function FooterSection() {
         <AnimatedContainer className="site-footer-upgraded__brand">
           <div className="site-footer-upgraded__brand-mark">
             <FrameIcon className="site-footer-upgraded__brand-icon" />
-            <span>Pornyard</span>
+            <span>Pornwrld</span>
           </div>
           <p className="site-footer-upgraded__copy">
-            © {new Date().getFullYear()} Pornyard. Curated archive for Omegle-era wins, reaction clips, and creator
-            uploads.
+            © {new Date().getFullYear()} Pornwrld. Curated archive for short-form libraries, premium experiences, and social discovery.
           </p>
           <div className="site-footer-upgraded__meta">
             <span>
@@ -99,7 +98,7 @@ export function FooterSection() {
             <span>
               <CircleHelp className="footer-link-icon" />
               Need support?{' '}
-              <a href="https://t.me/pornyardxyz" target="_blank" rel="noopener noreferrer" className="site-footer-upgraded__meta-link">
+              <a href="https://t.me/pornwrldxyz" target="_blank" rel="noopener noreferrer" className="site-footer-upgraded__meta-link">
                 Telegram
               </a>
             </span>

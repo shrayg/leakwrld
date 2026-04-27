@@ -7,7 +7,6 @@
  * interface Theme {
  *   colors: {
     primary: string;
-    secondary: string;
     background: string;
     foreground: string;
     neutral50: string;
@@ -27,44 +26,36 @@
  *   fontSizes: {
     '17': string;
     '18': string;
-    '20': string;
     '24': string;
-    '26': string;
     '27': string;
-    '28': string;
     '32': string;
-    '56': string;
     '51.2': string;
+    '26.88': string;
+    '23.04': string;
     '19.2': string;
     '17.5': string;
+    '16.8': string;
+    '16.64': string;
  *   };
  *   space: {
     '1': string;
     '24': string;
-    '30': string;
     '48': string;
-    '56': string;
-    '64': string;
     '80': string;
     '96': string;
     '120': string;
     '165': string;
     '220': string;
-    '329': string;
     '384': string;
-    '450': string;
  *   };
  *   radii: {
     xs: string;
-    md: string;
     full: string;
  *   };
  *   shadows: {
     sm: string;
-    xs: string;
     md: string;
     lg: string;
-    xl: string;
  *   };
  *   states: {
  *     hover: { opacity: number };
@@ -78,19 +69,18 @@
 export const theme = {
   "colors": {
     "primary": "#f3c669",
-    "secondary": "#e53935",
     "background": "#303030",
     "foreground": "#000000",
     "neutral50": "#ffffff",
-    "neutral100": "#000000",
-    "neutral200": "#424242",
-    "neutral300": "#9e9e9e",
-    "neutral400": "#eeeeee",
-    "neutral500": "#303030",
-    "neutral600": "#17181a",
-    "neutral700": "#616161",
-    "neutral800": "#757575",
-    "neutral900": "#bdbdbd"
+    "neutral100": "#424242",
+    "neutral200": "#000000",
+    "neutral300": "#eeeeee",
+    "neutral400": "#17181a",
+    "neutral500": "#757575",
+    "neutral600": "#303030",
+    "neutral700": "#939496",
+    "neutral800": "#bdbdbd",
+    "neutral900": "#212121"
   },
   "fonts": {
     "body": "'Times New Roman', sans-serif"
@@ -98,44 +88,36 @@ export const theme = {
   "fontSizes": {
     "17": "17px",
     "18": "18px",
-    "20": "20px",
     "24": "24px",
-    "26": "26px",
     "27": "27px",
-    "28": "28px",
     "32": "32px",
-    "56": "56px",
     "51.2": "51.2px",
+    "26.88": "26.88px",
+    "23.04": "23.04px",
     "19.2": "19.2px",
-    "17.5": "17.5px"
+    "17.5": "17.5px",
+    "16.8": "16.8px",
+    "16.64": "16.64px"
   },
   "space": {
     "1": "1px",
     "24": "24px",
-    "30": "30px",
     "48": "48px",
-    "56": "56px",
-    "64": "64px",
     "80": "80px",
     "96": "96px",
     "120": "120px",
     "165": "165px",
     "220": "220px",
-    "329": "329px",
-    "384": "384px",
-    "450": "450px"
+    "384": "384px"
   },
   "radii": {
     "xs": "2px",
-    "md": "8px",
-    "full": "100px"
+    "full": "50px"
   },
   "shadows": {
-    "sm": "rgba(0, 0, 0, 0.2) 0px 2px 4px -1px, rgba(0, 0, 0, 0.14) 0px 4px 5px 0px, rgba(0, 0, 0, 0.12) 0px 1px 10px 0px",
-    "xs": "rgba(0, 0, 0, 0.2) 0px 2px 1px -1px, rgba(0, 0, 0, 0.14) 0px 1px 1px 0px, rgba(0, 0, 0, 0.12) 0px 1px 3px 0px",
+    "sm": "rgba(0, 0, 0, 0.2) 0px 3px 3px -2px, rgba(0, 0, 0, 0.14) 0px 3px 4px 0px, rgba(0, 0, 0, 0.12) 0px 1px 8px 0px",
     "md": "rgba(0, 0, 0, 0.2) 0px 5px 5px -3px, rgba(0, 0, 0, 0.14) 0px 8px 10px 1px, rgba(0, 0, 0, 0.12) 0px 3px 14px 2px",
-    "lg": "rgba(0, 0, 0, 0.2) 0px 11px 15px -7px, rgba(0, 0, 0, 0.14) 0px 24px 38px 3px, rgba(0, 0, 0, 0.12) 0px 9px 46px 8px",
-    "xl": "rgba(23, 24, 26, 0.25) 0px 15px 20px 5px"
+    "lg": "rgba(0, 0, 0, 0.2) 0px 11px 15px -7px, rgba(0, 0, 0, 0.14) 0px 24px 38px 3px, rgba(0, 0, 0, 0.12) 0px 9px 46px 8px"
   },
   "states": {
     "hover": {
@@ -161,11 +143,6 @@ export const muiTheme = {
       "light": "hsl(40, 85%, 83%)",
       "dark": "hsl(40, 85%, 53%)"
     },
-    "secondary": {
-      "main": "#e53935",
-      "light": "hsl(1, 77%, 70%)",
-      "dark": "hsl(1, 77%, 40%)"
-    },
     "background": {
       "default": "#303030",
       "paper": "#424242"
@@ -183,20 +160,25 @@ export const muiTheme = {
       "lineHeight": "48px"
     },
     "h2": {
-      "fontSize": "26px",
+      "fontSize": "24px",
       "fontWeight": "400",
-      "lineHeight": "26px"
+      "lineHeight": "24px"
+    },
+    "h3": {
+      "fontSize": "23.04px",
+      "fontWeight": "500",
+      "lineHeight": "34.56px"
     }
   },
   "shape": {
-    "borderRadius": 8
+    "borderRadius": 2
   },
   "shadows": [
     "rgba(0, 0, 0, 0.2) 0px 0px 0px 0px, rgba(0, 0, 0, 0.14) 0px 0px 0px 0px, rgba(0, 0, 0, 0.12) 0px 0px 0px 0px",
-    "rgba(0, 0, 0, 0.2) 0px 2px 1px -1px, rgba(0, 0, 0, 0.14) 0px 1px 1px 0px, rgba(0, 0, 0, 0.12) 0px 1px 3px 0px",
     "rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px",
     "rgba(0, 0, 0, 0.2) 0px 3px 3px -2px, rgba(0, 0, 0, 0.14) 0px 3px 4px 0px, rgba(0, 0, 0, 0.12) 0px 1px 8px 0px",
-    "rgba(0, 0, 0, 0.2) 0px 2px 4px -1px, rgba(0, 0, 0, 0.14) 0px 4px 5px 0px, rgba(0, 0, 0, 0.12) 0px 1px 10px 0px"
+    "rgba(0, 0, 0, 0.2) 0px 5px 5px -3px, rgba(0, 0, 0, 0.14) 0px 8px 10px 1px, rgba(0, 0, 0, 0.12) 0px 3px 14px 2px",
+    "rgba(0, 0, 0, 0.2) 0px 11px 15px -7px, rgba(0, 0, 0, 0.14) 0px 24px 38px 3px, rgba(0, 0, 0, 0.12) 0px 9px 46px 8px"
   ]
 };
 

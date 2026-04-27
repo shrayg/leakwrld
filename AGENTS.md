@@ -1,5 +1,6 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# Pornwrld Agent Notes
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+- This repo runs a **Node + Vite React SPA** stack, not Next.js.
+- App UI lives in `client/src`; API/backend lives in `server.js`.
+- Keep `styles.css` and `client/src/app.css` as the canonical design-token/style surfaces.
+- Prefer removing dead paths and legacy shell code over preserving unused compatibility files.

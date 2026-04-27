@@ -19,18 +19,6 @@
           }
         },
         {
-          "name": "color/secondary",
-          "type": "COLOR",
-          "values": {
-            "light": {
-              "r": 0.8980392156862745,
-              "g": 0.2235294117647059,
-              "b": 0.20784313725490197,
-              "a": 1
-            }
-          }
-        },
-        {
           "name": "color/neutral/50",
           "type": "COLOR",
           "values": {
@@ -47,9 +35,9 @@
           "type": "COLOR",
           "values": {
             "light": {
-              "r": 0,
-              "g": 0,
-              "b": 0,
+              "r": 0.25882352941176473,
+              "g": 0.25882352941176473,
+              "b": 0.25882352941176473,
               "a": 1
             }
           }
@@ -59,27 +47,15 @@
           "type": "COLOR",
           "values": {
             "light": {
-              "r": 0.25882352941176473,
-              "g": 0.25882352941176473,
-              "b": 0.25882352941176473,
+              "r": 0,
+              "g": 0,
+              "b": 0,
               "a": 1
             }
           }
         },
         {
           "name": "color/neutral/300",
-          "type": "COLOR",
-          "values": {
-            "light": {
-              "r": 0.6196078431372549,
-              "g": 0.6196078431372549,
-              "b": 0.6196078431372549,
-              "a": 1
-            }
-          }
-        },
-        {
-          "name": "color/neutral/400",
           "type": "COLOR",
           "values": {
             "light": {
@@ -91,19 +67,7 @@
           }
         },
         {
-          "name": "color/neutral/500",
-          "type": "COLOR",
-          "values": {
-            "light": {
-              "r": 0.18823529411764706,
-              "g": 0.18823529411764706,
-              "b": 0.18823529411764706,
-              "a": 1
-            }
-          }
-        },
-        {
-          "name": "color/neutral/600",
+          "name": "color/neutral/400",
           "type": "COLOR",
           "values": {
             "light": {
@@ -115,19 +79,7 @@
           }
         },
         {
-          "name": "color/neutral/700",
-          "type": "COLOR",
-          "values": {
-            "light": {
-              "r": 0.3803921568627451,
-              "g": 0.3803921568627451,
-              "b": 0.3803921568627451,
-              "a": 1
-            }
-          }
-        },
-        {
-          "name": "color/neutral/800",
+          "name": "color/neutral/500",
           "type": "COLOR",
           "values": {
             "light": {
@@ -139,13 +91,49 @@
           }
         },
         {
-          "name": "color/neutral/900",
+          "name": "color/neutral/600",
+          "type": "COLOR",
+          "values": {
+            "light": {
+              "r": 0.18823529411764706,
+              "g": 0.18823529411764706,
+              "b": 0.18823529411764706,
+              "a": 1
+            }
+          }
+        },
+        {
+          "name": "color/neutral/700",
+          "type": "COLOR",
+          "values": {
+            "light": {
+              "r": 0.5764705882352941,
+              "g": 0.5803921568627451,
+              "b": 0.5882352941176471,
+              "a": 1
+            }
+          }
+        },
+        {
+          "name": "color/neutral/800",
           "type": "COLOR",
           "values": {
             "light": {
               "r": 0.7411764705882353,
               "g": 0.7411764705882353,
               "b": 0.7411764705882353,
+              "a": 1
+            }
+          }
+        },
+        {
+          "name": "color/neutral/900",
+          "type": "COLOR",
+          "values": {
+            "light": {
+              "r": 0.12941176470588237,
+              "g": 0.12941176470588237,
+              "b": 0.12941176470588237,
               "a": 1
             }
           }
@@ -194,18 +182,6 @@
               "r": 0.12941176470588237,
               "g": 0.12941176470588237,
               "b": 0.12941176470588237,
-              "a": 1
-            }
-          }
-        },
-        {
-          "name": "color/background/4",
-          "type": "COLOR",
-          "values": {
-            "light": {
-              "r": 0,
-              "g": 0,
-              "b": 0,
               "a": 1
             }
           }
@@ -263,9 +239,9 @@
           "type": "COLOR",
           "values": {
             "light": {
-              "r": 0.9333333333333333,
-              "g": 0.9333333333333333,
-              "b": 0.9333333333333333,
+              "r": 0.7411764705882353,
+              "g": 0.7411764705882353,
+              "b": 0.7411764705882353,
               "a": 1
             }
           }
@@ -278,27 +254,6 @@
         "default"
       ],
       "variables": [
-        {
-          "name": "font/size/56",
-          "type": "FLOAT",
-          "values": {
-            "default": 56
-          }
-        },
-        {
-          "name": "font/weight/56",
-          "type": "FLOAT",
-          "values": {
-            "default": 400
-          }
-        },
-        {
-          "name": "font/lineHeight/56",
-          "type": "FLOAT",
-          "values": {
-            "default": 56
-          }
-        },
         {
           "name": "font/size/51.2",
           "type": "FLOAT",
@@ -342,27 +297,6 @@
           }
         },
         {
-          "name": "font/size/28",
-          "type": "FLOAT",
-          "values": {
-            "default": 28
-          }
-        },
-        {
-          "name": "font/weight/28",
-          "type": "FLOAT",
-          "values": {
-            "default": 400
-          }
-        },
-        {
-          "name": "font/lineHeight/28",
-          "type": "FLOAT",
-          "values": {
-            "default": 28
-          }
-        },
-        {
           "name": "font/size/27",
           "type": "FLOAT",
           "values": {
@@ -384,24 +318,24 @@
           }
         },
         {
-          "name": "font/size/26",
+          "name": "font/size/26.88",
           "type": "FLOAT",
           "values": {
-            "default": 26
+            "default": 26.88
           }
         },
         {
-          "name": "font/weight/26",
+          "name": "font/weight/26.88",
           "type": "FLOAT",
           "values": {
             "default": 400
           }
         },
         {
-          "name": "font/lineHeight/26",
+          "name": "font/lineHeight/26.88",
           "type": "FLOAT",
           "values": {
-            "default": 26
+            "default": 40.32
           }
         },
         {
@@ -426,24 +360,24 @@
           }
         },
         {
-          "name": "font/size/20",
+          "name": "font/size/23.04",
           "type": "FLOAT",
           "values": {
-            "default": 20
+            "default": 23.04
           }
         },
         {
-          "name": "font/weight/20",
+          "name": "font/weight/23.04",
           "type": "FLOAT",
           "values": {
             "default": 500
           }
         },
         {
-          "name": "font/lineHeight/20",
+          "name": "font/lineHeight/23.04",
           "type": "FLOAT",
           "values": {
-            "default": 30
+            "default": 34.56
           }
         },
         {
@@ -529,6 +463,48 @@
           "values": {
             "default": 25.5
           }
+        },
+        {
+          "name": "font/size/16.8",
+          "type": "FLOAT",
+          "values": {
+            "default": 16.8
+          }
+        },
+        {
+          "name": "font/weight/16.8",
+          "type": "FLOAT",
+          "values": {
+            "default": 300
+          }
+        },
+        {
+          "name": "font/lineHeight/16.8",
+          "type": "FLOAT",
+          "values": {
+            "default": 25.2
+          }
+        },
+        {
+          "name": "font/size/16.64",
+          "type": "FLOAT",
+          "values": {
+            "default": 16.64
+          }
+        },
+        {
+          "name": "font/weight/16.64",
+          "type": "FLOAT",
+          "values": {
+            "default": 400
+          }
+        },
+        {
+          "name": "font/lineHeight/16.64",
+          "type": "FLOAT",
+          "values": {
+            "default": 24.96
+          }
         }
       ]
     },
@@ -553,31 +529,10 @@
           }
         },
         {
-          "name": "spacing/30",
-          "type": "FLOAT",
-          "values": {
-            "default": 30
-          }
-        },
-        {
           "name": "spacing/48",
           "type": "FLOAT",
           "values": {
             "default": 48
-          }
-        },
-        {
-          "name": "spacing/56",
-          "type": "FLOAT",
-          "values": {
-            "default": 56
-          }
-        },
-        {
-          "name": "spacing/64",
-          "type": "FLOAT",
-          "values": {
-            "default": 64
           }
         },
         {
@@ -616,24 +571,10 @@
           }
         },
         {
-          "name": "spacing/329",
-          "type": "FLOAT",
-          "values": {
-            "default": 329
-          }
-        },
-        {
           "name": "spacing/384",
           "type": "FLOAT",
           "values": {
             "default": 384
-          }
-        },
-        {
-          "name": "spacing/450",
-          "type": "FLOAT",
-          "values": {
-            "default": 450
           }
         },
         {
@@ -644,31 +585,10 @@
           }
         },
         {
-          "name": "radius/md",
-          "type": "FLOAT",
-          "values": {
-            "default": 8
-          }
-        },
-        {
-          "name": "radius/full",
-          "type": "FLOAT",
-          "values": {
-            "default": 28
-          }
-        },
-        {
           "name": "radius/full",
           "type": "FLOAT",
           "values": {
             "default": 50
-          }
-        },
-        {
-          "name": "radius/full",
-          "type": "FLOAT",
-          "values": {
-            "default": 100
           }
         }
       ]

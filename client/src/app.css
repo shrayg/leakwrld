@@ -5,6 +5,14 @@
   flex-direction: column;
 }
 
+/* Pornwrld redesign surface */
+.app-root {
+  background:
+    radial-gradient(1200px 600px at 80% -120px, rgba(242, 104, 184, 0.16), transparent 50%),
+    radial-gradient(900px 500px at 15% -140px, rgba(255, 245, 251, 0.08), transparent 45%),
+    var(--color-bg);
+}
+
 .main-content {
   flex: 1;
   width: 100%;
@@ -12,6 +20,43 @@
   margin: 0 auto;
   padding: 16px;
 }
+
+
+.media-item.video-item,
+.homepage-media-tile,
+.categories-page-tile {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: rgba(43, 42, 42, 0.7);
+  backdrop-filter: blur(6px);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.media-item.video-item:hover,
+.homepage-media-tile:hover,
+.categories-page-tile:hover {
+  transform: translateY(-3px);
+  border-color: rgba(242, 104, 184, 0.52);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(242, 104, 184, 0.2) inset;
+  background: rgba(43, 42, 42, 0.9);
+}
+
+.media-thumb-wrapper {
+  overflow: hidden;
+}
+
+.media-thumb {
+  transition: transform 220ms ease;
+}
+
+.media-item.video-item:hover .media-thumb {
+  transform: scale(1.035);
+}
+
 
 .page-shell {
   padding: 24px 16px 80px;
@@ -21,11 +66,6 @@
   margin-bottom: 12px;
 }
 
-.page-note {
-  color: #888;
-  font-size: 0.95rem;
-  line-height: 1.5;
-}
 
 .page-loading,
 .page-error {
@@ -188,6 +228,635 @@
   opacity: 0.5;
 }
 
+/* Account profile page */
+.account-profile-page {
+  padding: 18px 0 84px;
+}
+
+.account-profile-shell {
+  width: min(1120px, calc(100% - 24px));
+  margin: 0 auto;
+}
+
+.account-profile-banner {
+  height: clamp(120px, 24vw, 220px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  border-radius: var(--pornwrld-radius-card) var(--pornwrld-radius-card) 0 0;
+  background: linear-gradient(120deg, rgba(242, 104, 184, 0.95) 0%, rgba(247, 191, 220, 0.62) 44%, rgba(150, 194, 255, 0.8) 100%);
+  background-size: cover;
+  background-position: center;
+}
+
+.account-profile-header-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 0 16px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: none;
+  background: rgba(21, 21, 24, 0.95);
+}
+
+.account-profile-avatar-wrap {
+  margin-top: -34px;
+}
+
+.account-profile-avatar {
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 245, 251, 0.8);
+  object-fit: cover;
+}
+
+.account-profile-head-copy h1 {
+  margin: 0;
+  color: #fff5fb;
+  font-size: clamp(28px, 3.3vw, 38px);
+  font-weight: 300;
+}
+
+.account-profile-head-copy p {
+  margin: 4px 0 0;
+  color: rgba(255, 245, 251, 0.72);
+}
+
+.account-profile-head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.account-profile-btn {
+  min-height: 38px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff5fb;
+  padding: 0 14px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.account-profile-btn--follow {
+  border-color: rgba(242, 104, 184, 0.5);
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.account-profile-btn--gold {
+  border-color: rgba(243, 198, 105, 0.5);
+  background: linear-gradient(180deg, #f6d486 0%, #f3c669 100%);
+  color: #17181a;
+  font-weight: 700;
+}
+
+.account-profile-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: none;
+  background: rgba(15, 15, 17, 0.95);
+}
+
+.account-profile-stats div strong {
+  display: block;
+  color: #fff5fb;
+}
+
+.account-profile-stats div span {
+  display: block;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+}
+
+.account-profile-primary-tabs,
+.account-profile-content-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 12px 0;
+}
+
+.account-profile-primary-tabs button,
+.account-profile-content-tabs button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 245, 251, 0.76);
+  min-height: 34px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.account-profile-primary-tabs button.is-active,
+.account-profile-content-tabs button.is-active {
+  color: #fff5fb;
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.account-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 0;
+}
+
+.account-profile-grid-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--pornwrld-radius-card);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px;
+  text-decoration: none;
+  color: #fff5fb;
+}
+
+.account-profile-grid-thumb {
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, rgba(242, 104, 184, 0.28), rgba(247, 191, 220, 0.2));
+  border-radius: var(--pornwrld-radius-card);
+  margin-bottom: 8px;
+}
+
+.account-profile-grid-card p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.account-profile-grid-card span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+}
+
+.account-profile-about,
+.account-profile-referrals,
+.account-profile-providers,
+.account-profile-edit {
+  margin-top: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--pornwrld-radius-card);
+  background: rgba(20, 20, 24, 0.94);
+  padding: 14px;
+}
+
+.account-profile-about h3,
+.account-profile-referrals h3,
+.account-profile-providers h3,
+.account-profile-edit h3 {
+  margin: 0 0 8px;
+  color: #fff5fb;
+}
+
+.account-profile-about p,
+.account-profile-about li,
+.account-profile-referrals p {
+  color: rgba(255, 245, 251, 0.78);
+}
+
+.account-profile-provider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.account-profile-provider-row:first-of-type {
+  border-top: none;
+}
+
+.account-profile-provider-row div span {
+  display: block;
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 12px;
+}
+
+.account-profile-provider-row button,
+.account-profile-edit-actions button,
+.account-profile-edit-actions a {
+  min-height: 34px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff5fb;
+  padding: 0 10px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.account-profile-edit {
+  display: grid;
+  gap: 10px;
+}
+
+.account-profile-edit label {
+  display: grid;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.account-profile-edit input,
+.account-profile-edit textarea {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--pornwrld-radius-card);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff5fb;
+  padding: 9px 10px;
+}
+
+.account-profile-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.account-profile-edit-actions,
+.account-profile-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.account-profile-ref-card {
+  border: 1px solid rgba(242, 104, 184, 0.35);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border-radius: var(--pornwrld-radius-card);
+  padding: 12px;
+}
+
+.account-profile-alert,
+.account-profile-muted {
+  color: rgba(255, 245, 251, 0.72);
+}
+
+/* Signup page polish */
+.signup-page {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  min-height: calc(100vh - var(--nav-height, 96px));
+  padding: calc(var(--nav-height, 96px) + 2px) 0 8px;
+  background:
+    radial-gradient(1100px 380px at -80px -140px, rgba(242, 104, 184, 0.2), transparent 60%),
+    linear-gradient(180deg, rgba(17, 17, 20, 0.98), rgba(11, 11, 16, 0.99));
+}
+
+.signup-page__shell {
+  width: min(980px, calc(100% - 16px));
+  margin: 0 auto;
+}
+
+.signup-page__shell--full {
+  width: min(1220px, calc(100% - 16px));
+}
+
+.auth-showcase {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr);
+  gap: 24px;
+  align-items: stretch;
+  min-height: 0;
+  background: transparent;
+}
+
+.auth-showcase__form-col {
+  border: 0;
+  background: transparent;
+  padding: 0 8px 6px;
+}
+
+.auth-showcase__title {
+  margin: 8px 0 4px;
+  font-size: clamp(2rem, 5vw, 3rem);
+  color: #fff5fb;
+  font-weight: 200;
+  letter-spacing: 0.01em;
+}
+
+.auth-showcase__subtitle {
+  margin: 0 0 10px;
+  max-width: 58ch;
+  color: rgba(255, 245, 251, 0.82);
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.auth-showcase__form {
+  display: grid;
+  gap: 9px;
+}
+
+.auth-showcase__feature-col {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--pornwrld-radius-card);
+  overflow: hidden;
+  min-height: 420px;
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.35);
+}
+
+.auth-showcase__feature-image {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  transition: background-image 420ms ease;
+}
+
+.auth-showcase__feature-meta {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 18px;
+  background: linear-gradient(180deg, rgba(4, 4, 7, 0), rgba(4, 4, 7, 0.84) 42%, rgba(4, 4, 7, 0.94));
+}
+
+.auth-showcase__feature-meta h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 300;
+  color: #fff5fb;
+}
+
+.auth-showcase__feature-meta p {
+  margin: 6px 0 12px;
+  color: rgba(255, 245, 251, 0.8);
+  font-size: 14px;
+  line-height: 1.42;
+}
+
+.auth-showcase__dots {
+  display: flex;
+  gap: 8px;
+}
+
+.auth-showcase__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(255, 245, 251, 0.35);
+  cursor: pointer;
+  padding: 0;
+}
+
+.auth-showcase__dot.is-active {
+  background: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.auth-showcase__input-wrap {
+  position: relative;
+}
+
+.auth-showcase__input-wrap .signup-page__input {
+  padding-right: 38px;
+}
+
+.auth-showcase__eye-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: rgba(255, 245, 251, 0.56);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.signup-page__alert {
+  margin-bottom: 10px;
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  background: rgba(244, 63, 94, 0.1);
+  color: #fca5a5;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.signup-page__form {
+  display: grid;
+  gap: 9px;
+}
+
+.signup-page__field {
+  display: grid;
+  gap: 4px;
+}
+
+.signup-page__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 245, 251, 0.72);
+}
+
+.signup-page__label-optional {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: rgba(255, 245, 251, 0.52);
+}
+
+.signup-page__input {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff5fb;
+  font-size: 14px;
+  padding: 0 12px;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.signup-page__input:focus {
+  border-color: color-mix(in srgb, var(--color-primary) 58%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 24%, transparent);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.signup-page__submit {
+  margin-top: 2px;
+  min-height: 46px;
+  border: 1px solid rgba(243, 198, 105, 0.52);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f6d486 0%, #f3c669 100%);
+  color: #17181a;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 0 4px 16px rgba(243, 198, 105, 0.22);
+  cursor: pointer;
+  transition: filter 140ms ease, transform 100ms ease, box-shadow 140ms ease;
+}
+
+.signup-page__submit:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 7px 20px rgba(243, 198, 105, 0.28);
+}
+
+.signup-page__submit:active {
+  transform: translateY(1px);
+}
+
+.signup-page__divider {
+  margin: 12px 0 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 245, 251, 0.6);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.signup-page__socials {
+  display: grid;
+  gap: 8px;
+}
+
+.signup-page__social-btn {
+  min-height: 40px;
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff5fb;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.signup-page__social-btn:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 44%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.signup-page__login-link {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 245, 251, 0.7);
+  font-size: 13px;
+}
+
+@media (max-width: 980px) {
+  .auth-showcase {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .auth-showcase__feature-col {
+    min-height: 280px;
+  }
+}
+
+.pw-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  min-width: 88px;
+  padding: 0 18px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 48%, transparent);
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-primary) 12%, transparent),
+    color-mix(in srgb, var(--color-primary) 4%, transparent)
+  );
+  color: var(--color-pink-soft);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform 110ms ease;
+}
+
+.pw-btn:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 68%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-primary) 18%, transparent),
+    color-mix(in srgb, var(--color-primary) 7%, transparent)
+  );
+  color: #fff;
+}
+
+.pw-btn:active {
+  transform: translateY(1px);
+}
+
+.pw-btn--block {
+  width: 100%;
+  min-height: 44px;
+}
+
+.pw-btn--compact {
+  min-height: 32px;
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
+.pw-btn--inline {
+  display: inline-flex;
+}
+
+.pw-btn--social {
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+@media (max-width: 860px) {
+  .account-profile-header-row {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+
+  .account-profile-head-actions {
+    justify-content: flex-start;
+  }
+
+  .account-profile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .account-profile-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .top-nav-auth-btns {
   display: flex;
   gap: 10px;
@@ -210,7 +879,7 @@
   opacity: 0.8;
 }
 
-/* Upload page — Hanime-style gold / charcoal (matches site theme) */
+/* Upload page — Pornwrld-style gold / charcoal (matches site theme) */
 .upload-wrap {
   max-width: 560px;
   margin: 0 auto;
@@ -233,7 +902,7 @@
   display: block;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--hanime-muted, #939496);
+  color: var(--pornwrld-muted, #939496);
   margin-bottom: 6px;
   letter-spacing: 0.02em;
 }
@@ -242,9 +911,9 @@
 .upload-field select {
   width: 100%;
   padding: 12px 14px;
-  border-radius: var(--hanime-radius-card, 2px);
+  border-radius: var(--pornwrld-radius-card, 2px);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: var(--hanime-surface-3, #424242);
+  background: var(--pornwrld-surface-3, #424242);
   color: #fff;
   font-size: 0.95rem;
   font-family: inherit;
@@ -262,7 +931,7 @@
 
 .upload-dropzone {
   border: 2px dashed rgba(255, 255, 255, 0.14);
-  border-radius: var(--hanime-radius-card, 2px);
+  border-radius: var(--pornwrld-radius-card, 2px);
   padding: 40px 20px;
   text-align: center;
   cursor: pointer;
@@ -286,7 +955,7 @@
 
 .upload-dropzone-sub {
   font-size: 12px;
-  color: var(--hanime-muted, #939496);
+  color: var(--pornwrld-muted, #939496);
   margin-top: 6px;
 }
 
@@ -302,9 +971,9 @@
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  background: var(--hanime-surface-0, #17181a);
+  background: var(--pornwrld-surface-0, #17181a);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--hanime-radius-card, 2px);
+  border-radius: var(--pornwrld-radius-card, 2px);
 }
 
 .upload-video-row-info {
@@ -332,7 +1001,7 @@
   flex: 1;
   background: rgba(48, 48, 48, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--hanime-radius-card, 2px);
+  border-radius: var(--pornwrld-radius-card, 2px);
   padding: 8px 12px;
   color: #fff;
   font-size: 14px;
@@ -353,7 +1022,7 @@
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
-  border-radius: var(--hanime-radius-card, 2px);
+  border-radius: var(--pornwrld-radius-card, 2px);
   transition:
     color 0.15s ease,
     background 0.15s ease;
@@ -368,7 +1037,7 @@
   width: 100%;
   padding: 14px 16px;
   border: 1px solid rgba(243, 198, 105, 0.42);
-  border-radius: var(--hanime-radius-card, 2px);
+  border-radius: var(--pornwrld-radius-card, 2px);
   background: linear-gradient(180deg, #f6d486 0%, #f3c669 100%);
   color: #17181a;
   font-size: 1rem;
@@ -427,7 +1096,7 @@
 .upload-status.success {
   margin-top: 14px;
   padding: 14px 18px;
-  border-radius: var(--hanime-radius-card, 2px);
+  border-radius: var(--pornwrld-radius-card, 2px);
   background: rgba(34, 197, 94, 0.1);
   border: 1px solid rgba(34, 197, 94, 0.28);
   color: #86efac;
@@ -437,7 +1106,7 @@
 .upload-status.error {
   margin-top: 14px;
   padding: 14px 18px;
-  border-radius: var(--hanime-radius-card, 2px);
+  border-radius: var(--pornwrld-radius-card, 2px);
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.28);
   color: #fca5a5;
@@ -454,7 +1123,7 @@
   display: inline-block;
   margin-top: 16px;
   padding: 12px 28px;
-  border-radius: var(--hanime-radius-card, 2px);
+  border-radius: var(--pornwrld-radius-card, 2px);
   border: 1px solid rgba(243, 198, 105, 0.42);
   background: linear-gradient(180deg, #f6d486 0%, #f3c669 100%);
   color: #17181a;
@@ -587,14 +1256,6 @@
   color: #c084fc;
 }
 
-.blog-back {
-  display: inline-block;
-  color: #c084fc;
-  margin-bottom: 20px;
-  text-decoration: none;
-  font-size: 14px;
-}
-
 /* Live cams — mirrors live-cams.html */
 .lc-wrapper {
   display: flex;
@@ -693,20 +1354,6 @@
   font-weight: 700;
   padding: 6px 14px;
   border-radius: 8px;
-}
-
-.lc-hero-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 48px;
-  background: linear-gradient(135deg, #ff3cac, #aa00ff);
-  color: #fff;
-  font-size: 18px;
-  font-weight: 800;
-  border-radius: 14px;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
 }
 
 .lc-sub {
@@ -1463,7 +2110,7 @@
   text-align: left;
 }
 
-/* Hanime theme adds a gold ::after on active tabs — hide for chip row (was adding visual weight) */
+/* Pornwrld theme adds a gold ::after on active tabs — hide for chip row (was adding visual weight) */
 .is-shorts-page .shorts-feed-phone .shorts-tab--active::after {
   display: none !important;
   content: none !important;
@@ -1497,35 +2144,6 @@
   color: #ff7676;
   text-align: center;
   margin: 16px 0;
-}
-
-.onlyfans-page__notice {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  max-width: 640px;
-  margin: 0 auto 24px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 109, 0, 0.45);
-  background: linear-gradient(180deg, rgba(255, 109, 0, 0.08), rgba(255, 109, 0, 0.02));
-  font-size: 0.95rem;
-  line-height: 1.45;
-}
-
-.onlyfans-page__notice-lock {
-  font-size: 1.25rem;
-  line-height: 1;
-}
-
-.onlyfans-page .link-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  color: #c084fc;
-  cursor: pointer;
-  font: inherit;
-  text-decoration: underline;
 }
 
 .of-creator-grid {
@@ -1662,7 +2280,357 @@
     padding-right: 12px;
   }
 
-  .onlyfans-page__notice {
-    flex-wrap: wrap;
+}
+
+/* Rebuild hardening: nav + home rails should render even without utility classes */
+.top-nav-shell {
+  display: flex;
+  min-height: 56px;
+  width: 100%;
+  max-width: 1680px;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.site-theme-pornwrld .top-nav-item.active {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 44%, transparent);
+}
+
+.site-theme-pornwrld .top-nav-item.top-nav-item--bar.active {
+  color: var(--color-primary);
+}
+
+.pornwrld-rail-block {
+  margin-bottom: clamp(18px, 3vw, 32px);
+}
+
+.pornwrld-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.pornwrld-rail-heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.pornwrld-rail-title {
+  margin: 0;
+  color: #fff;
+  font-weight: 300;
+  letter-spacing: 0.02em;
+  font-size: clamp(1.5rem, 2.6vw, 2.15rem);
+}
+
+.pornwrld-rail-subtitle {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.pornwrld-rail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.pornwrld-all-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  min-height: 38px;
+  padding: 0 18px !important;
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 48%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-primary) 12%, transparent),
+    color-mix(in srgb, var(--color-primary) 4%, transparent)
+  );
+  color: var(--color-pink-soft) !important;
+  font-size: 12px !important;
+  font-weight: 700;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.pornwrld-all-btn:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 68%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-primary) 18%, transparent),
+    color-mix(in srgb, var(--color-primary) 7%, transparent)
+  );
+  color: #fff !important;
+}
+
+.pornwrld-all-btn:active {
+  transform: translateY(1px);
+}
+
+.pornwrld-rail-arrow {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--pornwrld-surface-3);
+  color: #fff;
+}
+
+.pornwrld-rail-arrow.is-enabled:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 58%, transparent);
+  color: var(--color-primary);
+}
+
+.pornwrld-video-rail-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  scroll-snap-type: x mandatory;
+}
+
+.pornwrld-video-rail-track {
+  display: flex;
+  width: max-content;
+  min-height: 100%;
+  align-items: stretch;
+  gap: 14px;
+  padding: 2px 0 10px;
+}
+
+/* Two-layer modern nav, sharp and tokenized */
+.pw-nav {
+  height: auto;
+  min-height: 0;
+  display: block;
+  padding: 0;
+  z-index: 7000;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  background:
+    linear-gradient(180deg, rgba(19, 19, 22, 0.98) 0%, rgba(14, 14, 18, 0.98) 100%);
+  backdrop-filter: blur(10px);
+}
+
+.pw-nav-top {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 60px;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pw-nav-burger {
+  width: 34px;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 34%, transparent);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.04);
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.pw-nav-burger span {
+  width: 100%;
+  height: 2px;
+  background: #fff;
+  border-radius: 1px;
+}
+
+.pw-nav-brand {
+  color: #fff;
+  text-decoration: none;
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 300;
+  letter-spacing: 0.01em;
+  padding: 0 4px;
+}
+
+.pw-nav-search {
+  min-height: 38px;
+  width: min(560px, 100%);
+  justify-self: start;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 14px;
+  text-align: left;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.pw-nav-search:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 44%, transparent);
+  color: #fff;
+}
+
+.pw-nav-profile {
+  justify-self: end;
+}
+
+.pw-nav-tabs {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 14px;
+  overflow: visible;
+  z-index: 7001;
+}
+
+.pw-nav-glide {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 52%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1), width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease;
+}
+
+.pw-nav-tab {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pw-nav-tab:hover {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--color-primary) 28%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.pw-nav-tab.active {
+  color: var(--color-primary);
+}
+
+.pw-nav-tab.premium {
+  color: var(--color-premium-text);
+  border-color: color-mix(in srgb, var(--color-premium-border) 46%, transparent);
+  background: color-mix(in srgb, var(--color-premium-border) 12%, transparent);
+}
+
+.pw-nav-dd-wrap {
+  position: relative;
+  z-index: 2;
+}
+
+.pw-nav-caret {
+  font-size: 11px;
+  opacity: 0.82;
+}
+
+.pw-nav-dd {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 7100;
+  min-width: 230px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 38%, transparent);
+  border-radius: 0;
+  background: linear-gradient(180deg, rgba(20, 20, 24, 0.99), rgba(14, 14, 18, 0.99));
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+}
+
+.pw-nav-dd-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(170px, 1fr));
+  gap: 6px;
+}
+
+.pw-nav-dd-col {
+  display: grid;
+  gap: 4px;
+}
+
+.pw-nav-dd-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-align: left;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.pw-nav-dd-item:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 36%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.pw-nav-dd-item-random {
+  border-top: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  margin-top: 4px;
+  padding-top: 3px;
+}
+
+@media (max-width: 860px) {
+  .pw-nav-top {
+    grid-template-columns: auto auto 1fr auto;
+    gap: 8px;
+    min-height: 54px;
+    padding: 8px 10px 10px;
+  }
+
+  .pw-nav-brand {
+    font-size: 30px;
+  }
+
+  .pw-nav-search {
+    min-height: 34px;
+    font-size: 13px;
+    width: min(420px, 100%);
+  }
+
+  .pw-nav-tabs {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+
+  .pw-nav-dd-cols {
+    grid-template-columns: 1fr;
   }
 }

@@ -11,7 +11,7 @@ export function LeaderboardDock({ inline = false }) {
     width: 0,
     height: 0,
   });
-  const [tab, setTab] = useState('referrers');
+  const [tab] = useState('referrers');
   const [page, setPage] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [entries, setEntries] = useState([]);
@@ -25,10 +25,7 @@ export function LeaderboardDock({ inline = false }) {
   const loadPage = useCallback(
     async (p) => {
       try {
-        const url =
-          tab === 'uploaders'
-            ? '/api/upload/leaderboard?page=' + p
-            : '/api/referral/leaderboard?page=' + p + '&period=weekly';
+        const url = '/api/referral/leaderboard?page=' + p + '&period=weekly';
         const resp = await fetch(url, { cache: 'no-store' });
         if (!resp.ok) return;
         const data = await resp.json();
@@ -44,7 +41,7 @@ export function LeaderboardDock({ inline = false }) {
 
   useEffect(() => {
     loadPage(0);
-  }, [tab, loadPage]);
+  }, [loadPage]);
 
   useLayoutEffect(() => {
     const wrap = periodWrapRef.current;
@@ -85,9 +82,8 @@ export function LeaderboardDock({ inline = false }) {
     setInlineVisible(false);
   }
 
-  const title = tab === 'referrers' ? 'TOP 10 REFERRERS' : 'TOP 10 UPLOADERS';
-  const subtitle =
-    tab === 'referrers' ? '(Top 5 are paid out weekly)' : '(Most approved uploads)';
+  const title = 'TOP 10 REFERRERS';
+  const subtitle = '(Top 5 are paid out weekly)';
   const wrapperClass = 'leaderboard-wrapper' + (inline ? ' leaderboard-inline lb-open' : open ? ' lb-open' : ' lb-closed');
 
   if (inline && !inlineVisible) return null;
@@ -128,27 +124,14 @@ export function LeaderboardDock({ inline = false }) {
             />
             <button
               type="button"
-              className={'leaderboard-period-btn leaderboard-period-btn--pill' + (tab === 'referrers' ? ' active' : '')}
+              className="leaderboard-period-btn leaderboard-period-btn--pill active"
               id="lb-period-weekly"
               ref={(node) => {
                 if (node) periodBtnRefs.current.referrers = node;
                 else delete periodBtnRefs.current.referrers;
               }}
-              onClick={() => setTab('referrers')}
             >
               Referrers
-            </button>
-            <button
-              type="button"
-              className={'leaderboard-period-btn leaderboard-period-btn--pill' + (tab === 'uploaders' ? ' active' : '')}
-              id="lb-period-all"
-              ref={(node) => {
-                if (node) periodBtnRefs.current.uploaders = node;
-                else delete periodBtnRefs.current.uploaders;
-              }}
-              onClick={() => setTab('uploaders')}
-            >
-              Uploaders
             </button>
           </div>
           <ol className="leaderboard-list" id="leaderboard-list">

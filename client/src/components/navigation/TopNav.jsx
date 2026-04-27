@@ -5,17 +5,17 @@ import { Button } from '../ui/button';
 import { ProfileMenu } from '../auth/ProfileMenu';
 import { useNavOverflowSplit } from '../../hooks/useNavOverflowSplit';
 import { useAuth } from '../../hooks/useAuth';
+import { cn } from '../../lib/utils';
 
-/** Must match `.site-theme-hanime .top-nav-links { gap }` for overflow measurement */
+/** Must match `.site-theme-pornwrld .top-nav-links { gap }` for overflow measurement */
 const NAV_LINK_GAP_PX = 6;
 
 /** Primary nav entries (left → right). */
 const NAV_ENTRIES = [
   { key: 'home', kind: 'link', to: '/', label: 'Home', end: true },
   { key: 'shorts', kind: 'link', to: '/shorts', label: 'Shorts' },
-  { key: 'upload', kind: 'link', to: '/upload', label: 'Upload' },
   { key: 'custom', kind: 'custom', to: '/custom-requests', label: 'Custom Requests' },
-  { key: 'support', kind: 'external', href: 'https://t.me/pornyardxyz', label: 'Contact Us' },
+  { key: 'support', kind: 'external', href: 'https://t.me/pornwrldxyz', label: 'Contact Us' },
   { key: 'premium', kind: 'link', to: '/checkout', label: 'Premium', premium: true },
   { key: 'search', kind: 'search', label: 'Search' },
 ];
@@ -23,49 +23,84 @@ const NAV_ENTRIES = [
 function NavIcon({ kind }) {
   if (kind === 'home') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg
+        className="h-4 w-4 shrink-0"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
         <path d="M12 3 2.5 10.7V21h7v-6h5v6h7V10.7z" fill="currentColor" />
       </svg>
     );
   }
   if (kind === 'shorts') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg
+        className="h-4 w-4 shrink-0"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
         <path d="M7 4h10l-2.2 3H7zM7 10h10l-2.2 3H7zM7 16h10l-2.2 4H7z" fill="currentColor" />
       </svg>
     );
   }
   if (kind === 'custom') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg
+        className="h-4 w-4 shrink-0"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
         <path d="M12 2a4 4 0 0 0-4 4v2H7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a4 4 0 0 0-4-4zm-2 6V6a2 2 0 1 1 4 0v2h-4zm2 4a2 2 0 0 1 1 3.73V18h-2v-2.27A2 2 0 0 1 12 12z" fill="currentColor" />
-      </svg>
-    );
-  }
-  if (kind === 'upload') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="M12 3 6 9h4v7h4V9h4zM5 18h14v3H5z" fill="currentColor" />
       </svg>
     );
   }
   if (kind === 'support') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg
+        className="h-4 w-4 shrink-0"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
         <path d="M10.8 16.5 7 12.7l1.4-1.4 2.4 2.4 5-5 1.4 1.4z" fill="currentColor" />
       </svg>
     );
   }
   if (kind === 'premium') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg
+        className="h-4 w-4 shrink-0"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
         <path d="m12 2 3 6 6.5.9-4.7 4.6 1.1 6.5L12 17l-5.9 3 1.1-6.5L2.5 8.9 9 8z" fill="currentColor" />
       </svg>
     );
   }
   if (kind === 'search') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg
+        className="h-4 w-4 shrink-0"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
         <path d="M10.5 3a7.5 7.5 0 1 0 4.7 13.3l4.3 4.3 1.4-1.4-4.3-4.3A7.5 7.5 0 0 0 10.5 3zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z" fill="currentColor" />
       </svg>
     );
@@ -92,10 +127,14 @@ function entryActive(pathname, entry) {
   return navEntryIsActive(pathname, entry) ? ' active' : '';
 }
 
+const NAV_ITEM_BASE =
+  'top-nav-item relative z-[1] inline-flex items-center gap-2 rounded-[var(--pornwrld-radius-card)] border border-transparent bg-transparent px-2.5 py-2 text-sm font-normal tracking-[0.02em] text-white/90 transition duration-150 hover:bg-white/10 hover:text-white';
+
 export function TopNav({ menuOpen = false, onToggleMenu }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { isAuthed, tier } = useAuth();
+  const { tier, isAuthed } = useAuth();
+  const navEntries = NAV_ENTRIES;
   const [moreOpen, setMoreOpen] = useState(false);
   const [customLockedModalOpen, setCustomLockedModalOpen] = useState(false);
   const [customLockedAnim, setCustomLockedAnim] = useState(false);
@@ -112,18 +151,18 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
 
   const { split, measureRef, containerRef } = useNavOverflowSplit({
     pathname,
-    itemCount: NAV_ENTRIES.length,
+    itemCount: navEntries.length,
   });
 
-  const mainEntries = NAV_ENTRIES.slice(0, split);
-  const overflowEntries = NAV_ENTRIES.slice(split);
+  const mainEntries = navEntries.slice(0, split);
+  const overflowEntries = navEntries.slice(split);
   const showMore = overflowEntries.length > 0;
   const canAccessCustomRequests = isAuthed && Number(tier || 0) >= 1;
   const homeQuickActive = pathMatch(pathname, '/', true);
   const shortsQuickActive = pathname.startsWith('/shorts');
   const quickActiveIndex = shortsQuickActive ? 1 : homeQuickActive ? 0 : -1;
 
-  const activeBarIndex = NAV_ENTRIES.findIndex((e) => navEntryIsActive(pathname, e));
+  const activeBarIndex = navEntries.findIndex((e) => navEntryIsActive(pathname, e));
   const activeInBar = activeBarIndex >= 0 && activeBarIndex < split;
 
   useLayoutEffect(() => {
@@ -132,7 +171,7 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
       setActiveGlide((g) => ({ ...g, opacity: 0 }));
       return;
     }
-    const entry = NAV_ENTRIES[activeBarIndex];
+    const entry = navEntries[activeBarIndex];
     const el = barItemRefs.current[entry.key];
     if (!el) {
       setActiveGlide((g) => ({ ...g, opacity: 0 }));
@@ -161,7 +200,7 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
       ro.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [pathname, split, activeBarIndex, activeInBar]);
+  }, [pathname, split, activeBarIndex, activeInBar, navEntries]);
 
   useEffect(() => {
     function onDoc(e) {
@@ -193,11 +232,14 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
   function renderEntry(entry, opts) {
     const active = entryActive(pathname, entry);
     const inBar = !!opts?.inBar;
-    const cls =
-      'top-nav-item' +
-      active +
-      (entry.premium ? ' nav-premium' : '') +
-      (inBar ? ' top-nav-item--bar' : '');
+    const cls = cn(
+      NAV_ITEM_BASE,
+      inBar && 'top-nav-item--bar',
+      active && 'text-[var(--pornwrld-gold)]',
+      entry.premium && 'nav-premium',
+      entry.premium &&
+        'border border-[color:color-mix(in_srgb,var(--color-premium-border)_52%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--color-premium-border)_18%,transparent)_0%,color-mix(in_srgb,var(--color-premium-border)_8%,transparent)_100%),rgba(24,24,24,0.92)] font-semibold tracking-[0.015em] text-[var(--color-premium-text)] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-premium-text)_18%,transparent),0_0_0_1px_color-mix(in_srgb,var(--color-premium-border)_8%,transparent)] animate-[pornwrld-nav-premium-glow_3.2s_ease-in-out_infinite] hover:border-[color:color-mix(in_srgb,var(--color-premium-border)_70%,transparent)] hover:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--color-premium-border)_24%,transparent)_0%,color-mix(in_srgb,var(--color-premium-border)_12%,transparent)_100%),rgba(24,24,24,0.96)] hover:text-white hover:shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-premium-text)_24%,transparent),0_0_18px_color-mix(in_srgb,var(--color-premium-border)_20%,transparent)] hover:animate-none',
+    );
     const measureProps = opts?.measure ? { 'data-nav-measure': true } : {};
     const refProp =
       inBar && !opts?.measure
@@ -232,9 +274,11 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
             key={entry.key}
             type="button"
             className={
-              cls +
-              ' nav-custom nav-custom--locked' +
-              (customLockedAnim ? ' nav-custom--locked-anim' : '')
+              cn(
+                cls,
+                'cursor-not-allowed border border-[rgba(255,90,108,0.34)] bg-[linear-gradient(180deg,rgba(255,90,108,0.16)_0%,rgba(255,90,108,0.08)_100%),rgba(24,24,24,0.92)] text-[#ff9ea9] hover:border-[rgba(255,90,108,0.58)] hover:text-white hover:shadow-[0_0_16px_rgba(255,90,108,0.22)]',
+                customLockedAnim && 'animate-[nav-custom-lock-bump_0.42s_cubic-bezier(0.34,1.56,0.64,1)]',
+              )
             }
             onClick={showCustomLockedFeedback}
             aria-label="Custom Requests locked for free users"
@@ -243,14 +287,23 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
           >
             <NavIcon kind={entry.key} />
             <span>{entry.label}</span>
-            <span className="top-nav-lock-dot" aria-hidden="true">
+            <span className="ml-1 text-xs leading-none" aria-hidden="true">
               🔒
             </span>
           </button>
         );
       }
       return (
-        <Link key={entry.key} to={entry.to} className={cls + ' nav-custom'} {...measureProps} {...refProp}>
+        <Link
+          key={entry.key}
+          to={entry.to}
+          className={cn(
+            cls,
+            'border border-[rgba(255,90,108,0.34)] bg-[linear-gradient(180deg,rgba(255,90,108,0.16)_0%,rgba(255,90,108,0.08)_100%),rgba(24,24,24,0.92)] text-[#ff9ea9] hover:border-[rgba(255,90,108,0.58)] hover:text-white hover:shadow-[0_0_16px_rgba(255,90,108,0.22)]',
+          )}
+          {...measureProps}
+          {...refProp}
+        >
           <NavIcon kind={entry.key} />
           <span>{entry.label}</span>
         </Link>
@@ -282,11 +335,23 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
 
   return (
     <header className="top-nav">
-      <div className="top-nav-inner">
-        <div className="top-nav-start">
+      <div
+        className="top-nav-shell"
+        style={{
+          display: 'flex',
+          minHeight: '56px',
+          width: '100%',
+          maxWidth: '1680px',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '0 clamp(12px,2.8vw,32px)',
+          boxSizing: 'border-box',
+        }}
+      >
+        <div className="flex shrink-0 items-center gap-0.5">
           <Button
             type="button"
-            className="nav-hamburger nav-hamburger-btn group"
+            className="group nav-hamburger nav-hamburger-btn h-[34px] w-[34px] rounded-lg p-0"
             variant="outline"
             size="icon"
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -294,7 +359,7 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
             aria-expanded={menuOpen}
           >
             <svg
-              className="nav-hamburger-icon"
+              className="h-4 w-4"
               width={16}
               height={16}
               viewBox="0 0 24 24"
@@ -306,17 +371,17 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
               xmlns="http://www.w3.org/2000/svg"
               aria-hidden="true"
             >
-              <path d="M4 7L20 7" className="nav-hamburger-path nav-hamburger-path--top" />
-              <path d="M4 12H20" className="nav-hamburger-path nav-hamburger-path--mid" />
-              <path d="M4 17H20" className="nav-hamburger-path nav-hamburger-path--bot" />
+              <path d="M4 7L20 7" className={cn('origin-center transition-all duration-300', menuOpen && 'translate-y-[5px] rotate-45')} />
+              <path d="M4 12H20" className={cn('origin-center transition-all duration-200', menuOpen && 'opacity-0')} />
+              <path d="M4 17H20" className={cn('origin-center transition-all duration-300', menuOpen && '-translate-y-[5px] -rotate-45')} />
             </svg>
           </Button>
-          <Link to="/" className="nav-brand">
-            Pornyard
+          <Link to="/" className="nav-brand items-center whitespace-nowrap rounded-[var(--pornwrld-radius-card)] px-2.5 py-2 text-[17px] font-semibold tracking-[0.03em] text-white no-underline transition hover:bg-white/10 hover:text-[var(--pornwrld-gold)]">
+            Pornwrld
           </Link>
         </div>
 
-        <div ref={containerRef} className="top-nav-links" style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+        <div ref={containerRef} className="top-nav-links relative ml-1 min-w-0 flex-1 items-center gap-1.5 overflow-visible">
           <div
             ref={measureRef}
             aria-hidden
@@ -332,11 +397,15 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
               whiteSpace: 'nowrap',
             }}
           >
-            {NAV_ENTRIES.map((e) => renderEntry(e, { measure: true }))}
+            {navEntries.map((e) => renderEntry(e, { measure: true }))}
           </div>
 
           <span
-            className={'top-nav-active-glide' + (activeGlide.premium ? ' top-nav-active-glide--premium' : '')}
+            className={cn(
+              'pointer-events-none absolute left-0 top-0 z-0 block box-border rounded-[var(--pornwrld-radius-card)] border border-[color:color-mix(in_srgb,var(--color-primary)_48%,transparent)] bg-[color:color-mix(in_srgb,var(--color-primary)_14%,transparent)] transition-[transform,width,height,opacity] duration-[380ms,380ms,380ms,200ms] ease-[cubic-bezier(0.4,0,0.2,1)] will-change-transform',
+              activeGlide.premium &&
+                'border-[rgba(243,198,105,0.55)] bg-[linear-gradient(180deg,rgba(243,198,105,0.2)_0%,rgba(243,198,105,0.09)_100%),rgba(24,24,24,0.55)] shadow-[inset_0_1px_0_rgba(255,238,184,0.14),0_0_0_1px_rgba(243,198,105,0.06)]',
+            )}
             aria-hidden
             style={{
               opacity: activeGlide.opacity,
@@ -348,7 +417,7 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
 
           {mainEntries.map((e) => renderEntry(e, { inBar: true }))}
 
-          <div className={'top-nav-more' + (showMore ? ' top-nav-more--visible' : '')} id="top-nav-more">
+          <div className={cn('top-nav-more', showMore && 'top-nav-more--visible')} id="top-nav-more">
             <button
               ref={moreBtnRef}
               type="button"
@@ -365,7 +434,10 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
               More ▾
             </button>
             <div
-              className={'top-nav-more-dropdown' + (moreOpen ? ' active' : '')}
+              className={cn(
+                'top-nav-more-dropdown',
+                moreOpen && 'active',
+              )}
               id="top-nav-more-dropdown"
               role="menu"
             >
@@ -397,7 +469,7 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
                         >
                           <NavIcon kind={e.key} />
                           <span>{e.label}</span>
-                          <span className="top-nav-lock-dot" aria-hidden="true">
+                          <span className="ml-1 text-xs leading-none" aria-hidden="true">
                             🔒
                           </span>
                         </button>
@@ -439,55 +511,67 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
           </div>
         </div>
 
-        <div className="top-nav-end">
-          <div className="nav-mobile-quick">
+        <div className="top-nav-auth ml-auto flex shrink-0 items-center gap-2.5">
+          <div className="nav-mobile-quick relative ml-0.5 min-w-0 grid-cols-2 items-center gap-1 rounded-[10px] border border-white/10 bg-white/[0.03] p-0.5">
             <span
-              className={
-                'nav-mobile-quick-glide' +
-                (quickActiveIndex === 1 ? ' is-shorts' : '') +
-                (quickActiveIndex < 0 ? ' is-hidden' : '')
-              }
+              className={cn(
+                'pointer-events-none absolute bottom-0.5 left-0.5 top-0.5 z-0 w-[calc((100%-8px)/2)] rounded-lg border border-[rgba(243,198,105,0.42)] bg-[rgba(243,198,105,0.18)] shadow-[0_8px_16px_rgba(0,0,0,0.25)] transition',
+                quickActiveIndex === 1 && 'translate-x-[calc(100%+4px)]',
+                quickActiveIndex < 0 && 'opacity-0',
+              )}
               aria-hidden="true"
             />
-            <Link to="/" className={`nav-mobile-quick-btn${homeQuickActive ? ' active' : ''}`}>
+            <Link
+              to="/"
+              className={cn(
+                'nav-mobile-quick-btn relative z-[1] inline-flex items-center justify-center gap-1.5 rounded-[var(--pornwrld-radius-card)] px-2.5 py-2 text-xs font-semibold text-white/80 no-underline transition hover:text-white',
+                homeQuickActive && 'active text-[var(--pornwrld-gold)]',
+              )}
+            >
               <NavIcon kind="home" />
               <span>Home</span>
             </Link>
-            <Link to="/shorts" className={`nav-mobile-quick-btn${shortsQuickActive ? ' active' : ''}`}>
+            <Link
+              to="/shorts"
+              className={cn(
+                'nav-mobile-quick-btn relative z-[1] inline-flex items-center justify-center gap-1.5 rounded-[var(--pornwrld-radius-card)] px-2.5 py-2 text-xs font-semibold text-white/80 no-underline transition hover:text-white',
+                shortsQuickActive && 'active text-[var(--pornwrld-gold)]',
+              )}
+            >
               <NavIcon kind="shorts" />
               <span>Shorts</span>
             </Link>
           </div>
-          <div className="top-nav-auth">
+          <div>
             <ProfileMenu />
           </div>
         </div>
       </div>
       {customLockedModalOpen && (
         <div
-          className="nav-locked-overlay"
+          className="fixed inset-0 z-[12000] flex items-center justify-center bg-[rgba(6,6,10,0.78)] p-4 [backdrop-filter:blur(12px)_saturate(90%)] animate-[nav-locked-overlay-in_180ms_ease-out]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="nav-locked-title"
         >
-          <div className="nav-locked-modal">
+          <div className="relative w-full max-w-[460px] rounded-xl border border-white/15 bg-[linear-gradient(170deg,rgba(28,28,34,0.98)_0%,rgba(17,17,22,0.98)_100%)] px-[18px] pb-4 pt-5 text-center shadow-[0_20px_56px_rgba(0,0,0,0.55)] animate-[nav-locked-modal-in_240ms_cubic-bezier(0.22,1,0.36,1)]">
             <button
               type="button"
-              className="nav-locked-close"
+              className="absolute right-2.5 top-2.5 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 bg-white/5 p-0 text-white/85 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
               aria-label="Close"
               onClick={() => setCustomLockedModalOpen(false)}
             >
               <X size={16} strokeWidth={2.4} aria-hidden="true" />
             </button>
-            <h3 id="nav-locked-title">Custom Requests is locked</h3>
-            <p>
+            <h3 id="nav-locked-title" className="mx-7 mb-2 mt-0 text-[clamp(1.05rem,2.6vw,1.2rem)] font-bold text-white">Custom Requests is locked</h3>
+            <p className="mx-auto mb-3.5 mt-0 max-w-[38ch] text-[13px] leading-6 text-white/70">
               This feature is only available to Basic and Premium users. Request custom content and get a faster, priority workflow.
             </p>
-            <div className="nav-locked-actions">
-              <button type="button" className="nav-locked-upgrade-btn" onClick={() => navigate('/checkout')}>
+            <div className="flex flex-wrap justify-center gap-2.5">
+              <button type="button" className="min-h-9 rounded-[10px] border border-[rgba(243,198,105,0.5)] bg-[linear-gradient(180deg,#f6d486_0%,#f3c669_100%)] px-3.5 text-xs font-extrabold tracking-[0.04em] text-[#17181a]" onClick={() => navigate('/checkout')}>
                 Purchase Premium
               </button>
-              <button type="button" className="nav-locked-cancel-btn" onClick={() => setCustomLockedModalOpen(false)}>
+              <button type="button" className="min-h-9 rounded-[10px] border border-white/20 bg-white/5 px-3.5 text-xs font-bold text-[#e7e7ea]" onClick={() => setCustomLockedModalOpen(false)}>
                 Close
               </button>
             </div>

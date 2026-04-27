@@ -109,14 +109,14 @@ export function SearchPage() {
 
   useEffect(() => {
     if (isPopularMode) {
-      document.title = 'Popular videos — Pornyard';
+      document.title = 'Popular videos — Pornwrld';
       return;
     }
     const q = query.trim();
     if (q.length >= 2) {
-      document.title = `${q} — Search — Pornyard`;
+      document.title = `${q} — Search — Pornwrld`;
     } else {
-      document.title = 'Search — Pornyard';
+      document.title = 'Search — Pornwrld';
     }
   }, [query, isPopularMode]);
 

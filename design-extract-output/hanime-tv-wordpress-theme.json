@@ -10,33 +10,28 @@
           "name": "Primary"
         },
         {
-          "slug": "secondary",
-          "color": "#e53935",
-          "name": "Secondary"
-        },
-        {
           "slug": "neutral-1",
           "color": "#ffffff",
           "name": "Neutral 1"
         },
         {
           "slug": "neutral-2",
-          "color": "#000000",
+          "color": "#424242",
           "name": "Neutral 2"
         },
         {
           "slug": "neutral-3",
-          "color": "#424242",
+          "color": "#000000",
           "name": "Neutral 3"
         },
         {
           "slug": "neutral-4",
-          "color": "#9e9e9e",
+          "color": "#eeeeee",
           "name": "Neutral 4"
         },
         {
           "slug": "neutral-5",
-          "color": "#eeeeee",
+          "color": "#17181a",
           "name": "Neutral 5"
         },
         {
@@ -68,13 +63,18 @@
         },
         {
           "slug": "gradient-3",
-          "gradient": "radial-gradient(farthest-side at 50% 0px, rgba(48, 48, 48, 0) 0%, rgba(48, 48, 48, 0) 80%, rgb(48, 48, 48) 94%)",
+          "gradient": "linear-gradient(45deg, rgb(169, 36, 85) 1%, rgb(221, 67, 124) 54%, rgb(244, 100, 154) 97%)",
           "name": "Gradient 3"
         },
         {
           "slug": "gradient-4",
-          "gradient": "linear-gradient(rgba(0, 0, 0, 0) 0%, rgb(33, 33, 33) 100%)",
+          "gradient": "radial-gradient(farthest-side at 50% 0px, rgba(48, 48, 48, 0) 0%, rgba(48, 48, 48, 0) 80%, rgb(48, 48, 48) 94%)",
           "name": "Gradient 4"
+        },
+        {
+          "slug": "gradient-5",
+          "gradient": "linear-gradient(rgba(0, 0, 0, 0) 0%, rgb(33, 33, 33) 100%)",
+          "name": "Gradient 5"
         }
       ]
     },
@@ -93,11 +93,6 @@
       ],
       "fontSizes": [
         {
-          "size": "56px",
-          "slug": "size-56",
-          "name": "56px"
-        },
-        {
           "size": "51.2px",
           "slug": "size-51.2",
           "name": "51.2px"
@@ -108,19 +103,14 @@
           "name": "32px"
         },
         {
-          "size": "28px",
-          "slug": "size-28",
-          "name": "28px"
-        },
-        {
           "size": "27px",
           "slug": "size-27",
           "name": "27px"
         },
         {
-          "size": "26px",
-          "slug": "size-26",
-          "name": "26px"
+          "size": "26.88px",
+          "slug": "size-26.88",
+          "name": "26.88px"
         },
         {
           "size": "24px",
@@ -128,9 +118,19 @@
           "name": "24px"
         },
         {
-          "size": "20px",
-          "slug": "size-20",
-          "name": "20px"
+          "size": "23.04px",
+          "slug": "size-23.04",
+          "name": "23.04px"
+        },
+        {
+          "size": "19.2px",
+          "slug": "size-19.2",
+          "name": "19.2px"
+        },
+        {
+          "size": "18px",
+          "slug": "size-18",
+          "name": "18px"
         }
       ]
     },
@@ -147,24 +147,9 @@
           "name": "24px"
         },
         {
-          "size": "30px",
-          "slug": "spacing-30",
-          "name": "30px"
-        },
-        {
           "size": "48px",
           "slug": "spacing-48",
           "name": "48px"
-        },
-        {
-          "size": "56px",
-          "slug": "spacing-56",
-          "name": "56px"
-        },
-        {
-          "size": "64px",
-          "slug": "spacing-64",
-          "name": "64px"
         },
         {
           "size": "80px",
@@ -175,6 +160,21 @@
           "size": "96px",
           "slug": "spacing-96",
           "name": "96px"
+        },
+        {
+          "size": "120px",
+          "slug": "spacing-120",
+          "name": "120px"
+        },
+        {
+          "size": "165px",
+          "slug": "spacing-165",
+          "name": "165px"
+        },
+        {
+          "size": "220px",
+          "slug": "spacing-220",
+          "name": "220px"
         }
       ]
     },
@@ -189,8 +189,8 @@
       "text": "#000000"
     },
     "typography": {
-      "fontSize": "13px",
-      "lineHeight": "19.5px",
+      "fontSize": "14px",
+      "lineHeight": "normal",
       "fontFamily": "Whitney"
     },
     "spacing": {}

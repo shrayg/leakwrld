@@ -58,14 +58,14 @@ export function FolderPage({ seoFolder: propFolder }) {
 
   useEffect(() => {
     if (!folder) return;
-    const t = docMeta ? docMeta.title + ' — Pornyard' : displayTitle + ' — Pornyard';
+    const t = docMeta ? docMeta.title + ' — Pornwrld' : displayTitle + ' — Pornwrld';
     document.title = t;
     let metaDesc = document.querySelector('meta[name="description"]');
     if (metaDesc && docMeta) metaDesc.setAttribute('content', docMeta.desc);
     const canonical = document.querySelector('link[rel="canonical"]');
     if (canonical) {
       const path = folderToCleanPath(folder) || '/folder.html?folder=' + encodeURIComponent(folder);
-      canonical.setAttribute('href', 'https://pornyard.xyz' + path);
+      canonical.setAttribute('href', 'https://pornwrld.xyz' + path);
     }
   }, [folder, displayTitle, docMeta]);
 
@@ -221,9 +221,9 @@ export function FolderPage({ seoFolder: propFolder }) {
 
   if (!folder) {
     return (
-      <div className="page-content folder-page page-shell hanime-folder-empty">
+      <div className="page-content folder-page page-shell pornwrld-folder-empty">
         <PageHero title="Pick a category" subtitle="Choose a category from the home page or browse /categories." align="start" />
-        <Link to="/" className="hanime-inline-link-btn">
+        <Link to="/" className="pornwrld-inline-link-btn">
           Home
         </Link>
       </div>
@@ -232,8 +232,8 @@ export function FolderPage({ seoFolder: propFolder }) {
 
   return (
     <div className="page-content folder-page">
-      <div className="folder-header hanime-folder-head">
-        <h1 className="hanime-page-title">{displayTitle}</h1>
+      <div className="folder-header pornwrld-folder-head">
+        <h1 className="pornwrld-page-title">{displayTitle}</h1>
         {previewMode && (
           <div className="cta-banner cta-banner-inline">
             <Link to="/">CLICK HERE TO UNLOCK MORE</Link>
@@ -390,7 +390,7 @@ export function FolderPage({ seoFolder: propFolder }) {
 
       <section className="folder-seo" id="folder-seo" aria-label="Category description">
         <p className="seo-intro" style={{ color: '#999', lineHeight: 1.7 }}>
-          Browse <strong>{folder}</strong> videos on Pornyard — HD streaming, updated regularly.
+          Browse <strong>{folder}</strong> videos on Pornwrld — HD streaming, updated regularly.
         </p>
       </section>
 

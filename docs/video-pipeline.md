@@ -3,10 +3,10 @@
 ## Flow
 1. Client submits upload metadata to `/api/videos/upload` with category slug.
 2. Server validates payload and issues presigned PUT URL to R2 raw bucket.
-3. Source file is uploaded to `categories/<category-slug>/<video-id>/source.<ext>`.
+3. Source file is uploaded to `content/<category-slug>/<video-id>/videos/source.<ext>`.
 4. Server inserts a `transcode_jobs` row (`pending`).
 5. Worker (`npm run worker:transcode`) claims jobs via `claim_transcode_job()`.
-6. Worker downloads source, runs FFmpeg scale pipeline, uploads `720p.mp4` next to source.
+6. Worker downloads source, runs FFmpeg scale pipeline, uploads low-res sibling output (`content/<category-slug>/<video-id>/videos/low-res/720p.mp4`).
 7. Worker updates `video_assets` and marks `videos.status = ready`.
 8. Clients fetch presigned playback URLs from `/api/videos/[id]/playback`.
 

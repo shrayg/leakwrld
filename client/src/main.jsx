@@ -6,7 +6,8 @@ import App from './App';
 import { ScrollToTop } from './components/layout/ScrollToTop';
 import '../../styles.css';
 import './app.css';
-import './styles/hanime-theme.css';
+import './styles/tailwind-phase1.css';
+import './styles/pornwrld-theme.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

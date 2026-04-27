@@ -64,7 +64,7 @@ export function VideoPage() {
 
   useEffect(() => {
     if (!folder || !name || !cleanTitle) return;
-    document.title = cleanTitle + ' — ' + folder + ' | Pornyard';
+    document.title = cleanTitle + ' — ' + folder + ' | Pornwrld';
   }, [folder, name, cleanTitle]);
 
   useEffect(() => {
@@ -184,9 +184,9 @@ export function VideoPage() {
 
   if (!folder || !name) {
     return (
-      <main className="page-content video-page hanime-video-fallback">
+      <main className="page-content video-page pornwrld-video-fallback">
         <PageHero title="Video not found" subtitle="Check the link or browse from a category." align="start" />
-        <Link to="/" className="hanime-inline-link-btn">
+        <Link to="/" className="pornwrld-inline-link-btn">
           Back to homepage
         </Link>
       </main>
@@ -195,9 +195,9 @@ export function VideoPage() {
 
   if (isTierLockedVideo(folder, name)) {
     return (
-      <main className="page-content video-page hanime-video-fallback">
+      <main className="page-content video-page pornwrld-video-fallback">
         <PageHero title="Tier required" subtitle="You need Tier 1 or Premium to view this video." align="start" />
-        <Link to="/omegle-wins" className="hanime-inline-link-btn">
+        <Link to="/omegle-wins" className="pornwrld-inline-link-btn">
           Back
         </Link>
       </main>

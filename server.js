@@ -146,6 +146,7 @@ if (!process.env.TBW_PEPPER) console.warn('[security] WARNING: TBW_PEPPER not se
 const REF_COOKIE = 'tbw_ref';
 const REF_CODE_LEN = 7;
 const CLINK_COOKIE = 'tbw_clink'; // custom link tracking cookie
+const OAUTH_LINK_COOKIE = 'tbw_oauth_link';
 
 const PREVIEW_LIMIT = 12;
 
@@ -230,6 +231,22 @@ const allowedFolders = new Map([
 
 const OMEGLE_SUBFOLDERS = ['Dick Reactions', 'Monkey App Streamers', 'Points Game', 'Regular Wins'];
 
+function buildCategoryContentKeyRoot(categorySlug, entityId) {
+  return `content/${categorySlug}/${entityId}`;
+}
+
+function buildVideoObjectKeys(categorySlug, entityId, sourceExt) {
+  const keyRoot = buildCategoryContentKeyRoot(categorySlug, entityId);
+  return {
+    keyRoot,
+    source: `${keyRoot}/videos/source${sourceExt}`,
+    mp4_720: `${keyRoot}/videos/low-res/720p.mp4`,
+    mp4_480: `${keyRoot}/videos/low-res/480p.mp4`,
+    poster: `${keyRoot}/images/poster.jpg`,
+    gifPreview: `${keyRoot}/gifs/preview.gif`,
+  };
+}
+
 // ── XYZPurchase + Supabase access key integration ───────────────────────────
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_SECRET_KEY = String(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '');
@@ -284,6 +301,213 @@ async function supabaseJson(pathnameAndQuery, init = {}) {
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = null; }
   return { ok: resp.ok, status: resp.status, data, text };
+}
+
+async function supabaseInsertRows(table, rows) {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, reason: 'supabase_not_configured' };
+  if (!Array.isArray(rows) || rows.length === 0) return { ok: true, inserted: 0 };
+  return supabaseJson(`/rest/v1/${encodeURIComponent(table)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(rows),
+  });
+}
+
+const SUPABASE_APP_STATE_TABLE = String(process.env.SUPABASE_APP_STATE_TABLE || 'app_state');
+
+async function saveAppStateSnapshot(stateKey, payload) {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, reason: 'supabase_not_configured' };
+  const row = [{
+    state_key: String(stateKey || '').slice(0, 128),
+    payload: payload && typeof payload === 'object' ? payload : {},
+    updated_at: new Date().toISOString(),
+  }];
+  return supabaseJson(`/rest/v1/${encodeURIComponent(SUPABASE_APP_STATE_TABLE)}?on_conflict=state_key`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify(row),
+  });
+}
+
+async function loadAppStateSnapshot(stateKey) {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, reason: 'supabase_not_configured' };
+  const q = `/rest/v1/${encodeURIComponent(SUPABASE_APP_STATE_TABLE)}?state_key=eq.${encodeURIComponent(String(stateKey || ''))}&select=payload&limit=1`;
+  const resp = await supabaseJson(q, { method: 'GET' });
+  if (!resp.ok) return resp;
+  const rows = Array.isArray(resp.data) ? resp.data : [];
+  return { ok: true, data: rows[0] && rows[0].payload ? rows[0].payload : null };
+}
+
+async function logAdminEventToSupabase(eventType, payload = {}) {
+  try {
+    if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return;
+    const row = [{
+      event_type: String(eventType || '').slice(0, 64),
+      payload: payload && typeof payload === 'object' ? payload : {},
+      created_at: new Date().toISOString(),
+    }];
+    await supabaseInsertRows('admin_events', row);
+  } catch {}
+}
+
+let _liveActivityCache = { ts: 0, data: null };
+const LIVE_ACTIVITY_CACHE_MS = 30000;
+
+async function fetchLiveActivityFromSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
+    return { ok: false, reason: 'supabase_not_configured' };
+  }
+  const now = new Date();
+  const startUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+  const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
+  const activeWindowStart = new Date(now.getTime() - 5 * 60 * 1000);
+
+  const videosQ = `/rest/v1/videos?select=id&created_at=gte.${encodeURIComponent(startUtc.toISOString())}&created_at=lt.${encodeURIComponent(endUtc.toISOString())}`;
+  const viewsQ = `/rest/v1/view_events_raw?select=viewer_id&created_at=gte.${encodeURIComponent(activeWindowStart.toISOString())}`;
+
+  const [videosRes, viewsRes] = await Promise.all([supabaseJson(videosQ), supabaseJson(viewsQ)]);
+  if (!videosRes.ok || !viewsRes.ok) {
+    return {
+      ok: false,
+      reason: 'supabase_query_failed',
+      status: { videos: videosRes.status, views: viewsRes.status },
+    };
+  }
+
+  const videosAddedToday = Array.isArray(videosRes.data) ? videosRes.data.length : 0;
+  const rows = Array.isArray(viewsRes.data) ? viewsRes.data : [];
+  const uniqueViewerIds = new Set(rows.map((r) => r?.viewer_id).filter(Boolean)).size;
+  const watchingNow = Math.max(uniqueViewerIds, rows.length);
+
+  return {
+    ok: true,
+    data: {
+      watchingNow,
+      videosAddedToday,
+      windowMinutes: 5,
+      source: 'supabase',
+      generatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+async function fetchAdminStatsFromSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, reason: 'supabase_not_configured' };
+  const now = Date.now();
+  const cutoff24hIso = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+
+  const [profilesRes, videosRes, viewsRes, commentsRes, eventsRes, reportsRes] = await Promise.all([
+    supabaseJson('/rest/v1/profiles?select=id', { method: 'GET' }),
+    supabaseJson('/rest/v1/videos?select=id,created_at', { method: 'GET' }),
+    supabaseJson('/rest/v1/view_events_raw?select=id,watch_ms,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
+    supabaseJson('/rest/v1/comments?select=id,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
+    supabaseJson('/rest/v1/admin_events?select=event_type,payload,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
+    supabaseJson('/rest/v1/reports?select=id,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
+  ]);
+  if (![profilesRes, videosRes, viewsRes, commentsRes, eventsRes, reportsRes].every((r) => r.ok)) {
+    return { ok: false, reason: 'supabase_query_failed' };
+  }
+
+  const profiles = Array.isArray(profilesRes.data) ? profilesRes.data : [];
+  const videos = Array.isArray(videosRes.data) ? videosRes.data : [];
+  const views = Array.isArray(viewsRes.data) ? viewsRes.data : [];
+  const comments = Array.isArray(commentsRes.data) ? commentsRes.data : [];
+  const events = Array.isArray(eventsRes.data) ? eventsRes.data : [];
+  const reports = Array.isArray(reportsRes.data) ? reportsRes.data : [];
+
+  const signups24h = profiles.filter((p) => p && p.created_at && new Date(p.created_at).getTime() >= now - 24 * 60 * 60 * 1000).length;
+  const totalUsers = profiles.length;
+  const totalVideos = videos.length;
+  const videosAdded24h = videos.filter((v) => v && v.created_at && new Date(v.created_at).getTime() >= now - 24 * 60 * 60 * 1000).length;
+  const totalViews24h = views.length;
+  const totalWatchMs24h = views.reduce((sum, v) => sum + (Number(v?.watch_ms) || 0), 0);
+  const avgVideoWatch = totalViews24h > 0 ? Math.round(totalWatchMs24h / totalViews24h) : 0;
+
+  const categoryHits = {};
+  const navClicks = {};
+  let totalSessions24h = 0;
+  let bounceCount = 0;
+  let totalSessionDuration = 0;
+  let totalShortsViews24h = 0;
+  let totalShortsDuration = 0;
+  let totalVideoWatches24h = 0;
+  let totalVideoDuration = 0;
+
+  for (const e of events) {
+    const t = String(e?.event_type || '');
+    const payload = e?.payload && typeof e.payload === 'object' ? e.payload : {};
+    if (t === 'category_hit') {
+      const key = String(payload.category || 'Other').slice(0, 64);
+      categoryHits[key] = (categoryHits[key] || 0) + 1;
+    } else if (t === 'nav_click') {
+      const key = String(payload.label || 'Unknown').slice(0, 32);
+      navClicks[key] = (navClicks[key] || 0) + 1;
+    } else if (t === 'page_session') {
+      totalSessions24h++;
+      const dur = Math.max(0, Number(payload.duration) || 0);
+      totalSessionDuration += dur;
+      if (payload.bounced) bounceCount++;
+    } else if (t === 'shorts_usage') {
+      totalShortsViews24h++;
+      totalShortsDuration += Math.max(0, Number(payload.duration) || 0);
+    } else if (t === 'video_watch') {
+      totalVideoWatches24h++;
+      totalVideoDuration += Math.max(0, Number(payload.duration) || 0);
+    }
+  }
+
+  const bounceRate = totalSessions24h > 0 ? Math.round((bounceCount / totalSessions24h) * 100) : 0;
+  const avgViewTime = totalSessions24h > 0 ? Math.round(totalSessionDuration / totalSessions24h) : 0;
+  const avgShortsTime = totalShortsViews24h > 0 ? Math.round(totalShortsDuration / totalShortsViews24h) : 0;
+  const avgVideoWatchFromEvents = totalVideoWatches24h > 0 ? Math.round(totalVideoDuration / totalVideoWatches24h) : avgVideoWatch;
+
+  return {
+    ok: true,
+    data: {
+      totalUsers,
+      signups24h,
+      totalVideos,
+      videosAdded24h,
+      totalViews24h,
+      totalComments24h: comments.length,
+      totalReports24h: reports.length,
+      navClicks,
+      categoryHits,
+      bounceRate,
+      avgViewTime,
+      avgShortsTime,
+      avgVideoWatch: avgVideoWatchFromEvents,
+      totalSessions24h,
+      totalShortsViews24h,
+      totalVideoWatches24h,
+      source: 'supabase',
+      generatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+async function resetAdminStatsInSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, reason: 'supabase_not_configured' };
+  const filters = {
+    admin_events: '?created_at=gte.1970-01-01T00:00:00.000Z',
+    view_events_raw: '?created_at=gte.1970-01-01T00:00:00.000Z',
+    video_metrics_daily: '?metric_date=gte.1970-01-01',
+    age_gate_events: '?created_at=gte.1970-01-01T00:00:00.000Z',
+  };
+  for (const [table, filter] of Object.entries(filters)) {
+    const resp = await supabaseFetch(`/rest/v1/${encodeURIComponent(table)}${filter}`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' },
+    });
+    if (!resp.ok && resp.status !== 404) return { ok: false, table, status: resp.status };
+  }
+  return { ok: true };
 }
 
 async function ensureCategoryRow(slug, label) {
@@ -390,7 +614,7 @@ const STATIC_ALLOWLIST = new Set([
   '/shorts',
   '/search',
   '/categories',
-  '/upload',
+  '/account',
   '/login',
   '/signup',
   '/checkout',
@@ -752,19 +976,39 @@ async function r2PutObjectBytes(objectKey, buf, contentType) {
 }
 
 async function loadUploadRequests(forceRefresh) {
-  if (!R2_ENABLED) return;
   if (uploadRequestsLoaded && !forceRefresh) return;
   try {
-    const raw = await r2GetObject(UPLOAD_REQUESTS_R2_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateResp = await loadAppStateSnapshot('upload_requests');
+      if (stateResp && stateResp.ok && Array.isArray(stateResp.data)) {
         uploadRequests.length = 0;
-        uploadRequests.push(...arr);
+        uploadRequests.push(...stateResp.data);
+        uploadRequestsLoaded = true;
+        return;
+      }
+    }
+    if (R2_ENABLED) {
+      const raw = await r2GetObject(UPLOAD_REQUESTS_R2_KEY);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          uploadRequests.length = 0;
+          uploadRequests.push(...arr);
+        }
       }
     }
   } catch (e) { console.error('[upload-requests] load error:', e.message); }
   uploadRequestsLoaded = true;
+}
+
+async function persistUploadRequestsNow() {
+  if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+    const stateResp = await saveAppStateSnapshot('upload_requests', uploadRequests);
+    if (!stateResp.ok) {
+      throw new Error(`Supabase state write failed: ${stateResp.status || stateResp.reason || 'unknown'}`);
+    }
+  }
+  if (R2_ENABLED) await r2PutObject(UPLOAD_REQUESTS_R2_KEY, JSON.stringify(uploadRequests), 'application/json');
 }
 
 let _uploadPersistTimer = null;
@@ -772,9 +1016,8 @@ function scheduleUploadPersist() {
   if (_uploadPersistTimer) return;
   _uploadPersistTimer = setTimeout(async () => {
     _uploadPersistTimer = null;
-    if (!R2_ENABLED) return;
     try {
-      await r2PutObject(UPLOAD_REQUESTS_R2_KEY, JSON.stringify(uploadRequests), 'application/json');
+      await persistUploadRequestsNow();
     } catch (e) { console.error('[upload-requests] persist error:', e.message); }
   }, 3000);
 }
@@ -1073,6 +1316,38 @@ function clearSessionCookie(res) {
   appendSetCookie(res, `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
 }
 
+function createOAuthLinkCookieValue(provider, userKey) {
+  const base = `${String(provider || '').toLowerCase()}:${String(userKey || '')}`;
+  const sig = crypto.createHmac('sha256', PEPPER || 'tbw_oauth_link').update(base).digest('hex');
+  return `${base}:${sig}`;
+}
+
+function parseOAuthLinkCookieValue(rawValue) {
+  const raw = String(rawValue || '');
+  const parts = raw.split(':');
+  if (parts.length < 3) return null;
+  const sig = parts.pop();
+  const provider = String(parts.shift() || '').toLowerCase();
+  const userKey = parts.join(':');
+  if (!provider || !userKey || !sig) return null;
+  const base = `${provider}:${userKey}`;
+  const expected = crypto.createHmac('sha256', PEPPER || 'tbw_oauth_link').update(base).digest('hex');
+  const a = Buffer.from(String(sig), 'hex');
+  const b = Buffer.from(expected, 'hex');
+  if (!a.length || a.length !== b.length) return null;
+  if (!crypto.timingSafeEqual(a, b)) return null;
+  return { provider, userKey };
+}
+
+function setOAuthLinkCookie(res, provider, userKey) {
+  const val = encodeURIComponent(createOAuthLinkCookieValue(provider, userKey));
+  appendSetCookie(res, `${OAUTH_LINK_COOKIE}=${val}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`);
+}
+
+function clearOAuthLinkCookie(res) {
+  appendSetCookie(res, `${OAUTH_LINK_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
 function getAuthedUserKey(req) {
   const cookies = parseCookies(req);
   const token = cookies[SESSION_COOKIE];
@@ -1299,7 +1574,15 @@ function _mergeStatsMonotonic(dst, src) {
 
 async function loadShortStats() {
   try {
-    let r2Data = null, localData = null;
+    let r2Data = null;
+    let localData = null;
+    let supabaseData = null;
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateResp = await loadAppStateSnapshot('short_stats');
+      if (stateResp && stateResp.ok && stateResp.data && typeof stateResp.data === 'object') {
+        supabaseData = stateResp.data;
+      }
+    }
     if (R2_ENABLED) {
       const raw = await r2GetObject(SHORT_STATS_R2_KEY);
       if (raw) r2Data = JSON.parse(raw);
@@ -1311,8 +1594,9 @@ async function loadShortStats() {
     const prev = { ...shortStats }; // preserve in-memory counts
     const merged = {};
     _mergeStatsMonotonic(merged, prev);      // keep whatever we had in memory
-    _mergeStatsMonotonic(merged, localData);  // merge local file (migrates old URL keys)
-    _mergeStatsMonotonic(merged, r2Data);     // merge R2 data (migrates old URL keys)
+    _mergeStatsMonotonic(merged, localData);    // merge local file (migrates old URL keys)
+    _mergeStatsMonotonic(merged, r2Data);       // merge R2 data (migrates old URL keys)
+    _mergeStatsMonotonic(merged, supabaseData); // merge Supabase app_state source
 
     // Debug: log what was loaded so we can diagnose merge issues
     const _prevKeys = Object.keys(prev).length;
@@ -1346,13 +1630,14 @@ function queueShortStatsWrite() {
   console.log(`[shortStats] Writing: ${Object.keys(shortStats).length} keys, ${_writeViews} total views`);
   const snapshot = JSON.stringify(shortStats, null, 2);
   shortStatsWritePromise = shortStatsWritePromise.then(async () => {
-    await fs.promises.mkdir(DATA_DIR, { recursive: true });
-    const tmp = SHORT_STATS_FILE + '.tmp';
-    await fs.promises.writeFile(tmp, snapshot);
-    await fs.promises.rename(tmp, SHORT_STATS_FILE);
-    if (R2_ENABLED) {
-      await r2PutObject(SHORT_STATS_R2_KEY, snapshot, 'application/json');
+    const snapshotObj = JSON.parse(snapshot);
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateResp = await saveAppStateSnapshot('short_stats', snapshotObj);
+      if (!stateResp.ok) {
+        console.error('[shortStats] Supabase state write failed:', stateResp.status || stateResp.reason || 'unknown');
+      }
     }
+    if (R2_ENABLED) await r2PutObject(SHORT_STATS_R2_KEY, snapshot, 'application/json');
   }).catch(e => {
     console.error('shortStats write error:', e && e.message ? e.message : e);
   });
@@ -1432,6 +1717,20 @@ function _recoPrune() {
 async function loadRecoStores() {
   try {
     let loadedAny = false;
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      try {
+        const [eventsState, profilesState, progressState, globalState] = await Promise.all([
+          loadAppStateSnapshot('reco_events'),
+          loadAppStateSnapshot('reco_profiles'),
+          loadAppStateSnapshot('reco_progress'),
+          loadAppStateSnapshot('reco_global'),
+        ]);
+        if (eventsState.ok && Array.isArray(eventsState.data)) { recoEvents = eventsState.data; loadedAny = true; }
+        if (profilesState.ok && profilesState.data && typeof profilesState.data === 'object') { userProfiles = profilesState.data; loadedAny = true; }
+        if (progressState.ok && progressState.data && typeof progressState.data === 'object') { userVideoProgress = progressState.data; loadedAny = true; }
+        if (globalState.ok && globalState.data && typeof globalState.data === 'object') { recoGlobalStats = globalState.data; loadedAny = true; }
+      } catch {}
+    }
     if (R2_ENABLED) {
       try {
         const [eventsRaw, profilesRaw, progressRaw, globalRaw] = await Promise.all([
@@ -1467,13 +1766,14 @@ function queueRecoWrite() {
   const progressSnapshot = JSON.stringify(userVideoProgress);
   const globalSnapshot = JSON.stringify(recoGlobalStats);
   recoWritePromise = recoWritePromise.then(async () => {
-    await fs.promises.mkdir(DATA_DIR, { recursive: true });
-    await Promise.all([
-      fs.promises.writeFile(RECO_EVENTS_FILE + '.tmp', eventsSnapshot).then(() => fs.promises.rename(RECO_EVENTS_FILE + '.tmp', RECO_EVENTS_FILE)),
-      fs.promises.writeFile(RECO_PROFILES_FILE + '.tmp', profilesSnapshot).then(() => fs.promises.rename(RECO_PROFILES_FILE + '.tmp', RECO_PROFILES_FILE)),
-      fs.promises.writeFile(RECO_PROGRESS_FILE + '.tmp', progressSnapshot).then(() => fs.promises.rename(RECO_PROGRESS_FILE + '.tmp', RECO_PROGRESS_FILE)),
-      fs.promises.writeFile(RECO_GLOBAL_FILE + '.tmp', globalSnapshot).then(() => fs.promises.rename(RECO_GLOBAL_FILE + '.tmp', RECO_GLOBAL_FILE)),
-    ]);
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      await Promise.all([
+        saveAppStateSnapshot('reco_events', recoEvents),
+        saveAppStateSnapshot('reco_profiles', userProfiles),
+        saveAppStateSnapshot('reco_progress', userVideoProgress),
+        saveAppStateSnapshot('reco_global', recoGlobalStats),
+      ]);
+    }
     if (R2_ENABLED) {
       await Promise.all([
         r2PutObject(RECO_EVENTS_R2_KEY, eventsSnapshot, 'application/json'),
@@ -1663,9 +1963,23 @@ const _COMMENTS_CACHE_TTL = 15000; // refresh from R2 every 15s for multi-machin
 
 async function loadComments() {
   try {
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateResp = await loadAppStateSnapshot('video_comments');
+      if (stateResp && stateResp.ok && stateResp.data && typeof stateResp.data === 'object') {
+        videoComments = stateResp.data;
+        _commentsLastFetchTs = Date.now();
+        commentsLoaded = true;
+        return;
+      }
+    }
     if (R2_ENABLED) {
       const raw = await r2GetObject(COMMENTS_R2_KEY);
-      if (raw) { videoComments = JSON.parse(raw); _commentsLastFetchTs = Date.now(); return; }
+      if (raw) {
+        videoComments = JSON.parse(raw);
+        _commentsLastFetchTs = Date.now();
+        commentsLoaded = true;
+        return;
+      }
     }
     if (fs.existsSync(COMMENTS_FILE)) {
       videoComments = JSON.parse(fs.readFileSync(COMMENTS_FILE, 'utf8'));
@@ -1684,10 +1998,12 @@ async function ensureCommentsFresh() {
 function queueCommentsWrite() {
   const snapshot = JSON.stringify(videoComments);
   commentsWritePromise = commentsWritePromise.then(async () => {
-    await fs.promises.mkdir(DATA_DIR, { recursive: true });
-    const tmp = COMMENTS_FILE + '.tmp';
-    await fs.promises.writeFile(tmp, snapshot);
-    await fs.promises.rename(tmp, COMMENTS_FILE);
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateResp = await saveAppStateSnapshot('video_comments', videoComments);
+      if (!stateResp.ok) {
+        console.error('comments Supabase state write error:', stateResp.status || stateResp.reason || 'unknown');
+      }
+    }
     if (R2_ENABLED) {
       await r2PutObject(COMMENTS_R2_KEY, snapshot, 'application/json');
     }
@@ -1732,6 +2048,26 @@ function enrichPreviewFilesWithLiveStats(files) {
 
 function loadVisitStatsFromDisk() {
   try {
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const state = loadAppStateSnapshot('visit_stats');
+      // Keep startup path sync-friendly; schedule async hydrate and fall through to disk.
+      Promise.resolve(state).then((resp) => {
+        if (!resp || !resp.ok || !resp.data || typeof resp.data !== 'object') return;
+        const parsed = resp.data;
+        const allTime = Number(parsed.allTime || parsed.visitAllTime || 0);
+        const log = Array.isArray(parsed.log || parsed.visitLog) ? (parsed.log || parsed.visitLog) : [];
+        const now = Date.now();
+        const cutoff30d = now - 30 * 86400000;
+        const cleaned = [];
+        for (const t of log) {
+          const n = Number(t);
+          if (Number.isFinite(n) && n >= cutoff30d && n <= now) cleaned.push(n);
+        }
+        visitLog.length = 0;
+        visitLog.push(...cleaned.sort((a, b) => a - b));
+        visitAllTime = Number.isFinite(allTime) ? allTime : 0;
+      }).catch(() => {});
+    }
     // Prefer R2 for persistence across server resets
     if (R2_ENABLED) {
       // fire-and-forget async load (server startup)
@@ -1774,12 +2110,12 @@ function buildVisitStatsSnapshot() {
 function queueVisitStatsWrite() {
   const snapshot = buildVisitStatsSnapshot();
   visitStatsWritePromise = visitStatsWritePromise.then(async () => {
-    await fs.promises.mkdir(DATA_DIR, { recursive: true });
-    const tmp = `${VISIT_STATS_FILE}.tmp`;
-    await fs.promises.writeFile(tmp, snapshot);
-    await fs.promises.rename(tmp, VISIT_STATS_FILE);
-
-    // Also persist to R2 so resets don't wipe stats
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateResp = await saveAppStateSnapshot('visit_stats', { version: 1, allTime: visitAllTime, log: visitLog });
+      if (!stateResp.ok) {
+        console.error('visitStats Supabase state write error:', stateResp.status || stateResp.reason || 'unknown');
+      }
+    }
     if (R2_ENABLED) {
       await r2PutObject(VISIT_STATS_R2_KEY, snapshot, 'application/json');
     }
@@ -2487,6 +2823,10 @@ setInterval(() => {
 // ── Admin Dashboard: in-memory analytics ────────────────────────────────────
 const ADMIN_PASSWORD_WEBHOOK_URL = String(process.env.ADMIN_PASSWORD_WEBHOOK_URL || '').trim();
 const ADMIN_PASSWORD_ROTATE_MS = Math.max(60 * 1000, Number(process.env.ADMIN_PASSWORD_ROTATE_MS || 60 * 60 * 1000));
+const ADMIN_PASSWORD_WEBHOOK_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(process.env.ADMIN_PASSWORD_WEBHOOK_TIMEOUT_MS || 10000)));
+const ADMIN_PASSWORD_WEBHOOK_RETRIES = Math.max(0, Math.min(10, Number(process.env.ADMIN_PASSWORD_WEBHOOK_RETRIES || 3)));
+const ADMIN_PASSWORD_WEBHOOK_RETRY_BASE_MS = Math.max(100, Math.min(60000, Number(process.env.ADMIN_PASSWORD_WEBHOOK_RETRY_BASE_MS || 1500)));
+const ADMIN_PASSWORD_WEBHOOK_DRY_RUN = String(process.env.ADMIN_PASSWORD_WEBHOOK_DRY_RUN || '').trim() === '1';
 let ADMIN_PASSWORD_CURRENT = crypto.randomBytes(16).toString('hex');
 console.warn('[admin] INFO: rotating admin password enabled (16-byte random, interval ms=' + ADMIN_PASSWORD_ROTATE_MS + ')');
 const ADMIN_COOKIE = 'tbw_admin';
@@ -2528,33 +2868,89 @@ function adminEmitEvent(type, message, detail) {
   if (adminLiveEvents.length > 100) adminLiveEvents.shift();
 }
 
-function postAdminPasswordToWebhook(password, reason) {
-  if (!ADMIN_PASSWORD_WEBHOOK_URL) return;
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatWebhookTargetForLog(url) {
+  return `${url.protocol}//${url.host}${url.pathname}`;
+}
+
+async function postAdminPasswordToWebhook(password, reason) {
+  if (!ADMIN_PASSWORD_WEBHOOK_URL) {
+    console.warn('[admin] ADMIN_PASSWORD_WEBHOOK_URL is empty; password webhook skipped');
+    return;
+  }
+  let webhookUrl;
   try {
-    const webhookUrl = new URL(ADMIN_PASSWORD_WEBHOOK_URL);
-    const payload = JSON.stringify({
-      content: `Admin password (${reason}): \`${password}\``,
-    });
-    const proto = webhookUrl.protocol === 'https:' ? https : http;
-    const reqOpts = {
-      method: 'POST',
-      hostname: webhookUrl.hostname,
-      port: webhookUrl.port || (webhookUrl.protocol === 'https:' ? 443 : 80),
-      path: webhookUrl.pathname + webhookUrl.search,
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload),
-      },
-    };
-    const wr = proto.request(reqOpts, (resp) => {
-      resp.on('data', () => {});
-      resp.on('end', () => {});
-    });
-    wr.on('error', (e) => console.error('[admin] failed posting password to webhook:', e && e.message ? e.message : e));
-    wr.write(payload);
-    wr.end();
+    webhookUrl = new URL(ADMIN_PASSWORD_WEBHOOK_URL);
   } catch (e) {
     console.error('[admin] invalid ADMIN_PASSWORD_WEBHOOK_URL:', e && e.message ? e.message : e);
+    return;
+  }
+  if (webhookUrl.protocol !== 'https:' && webhookUrl.protocol !== 'http:') {
+    console.error('[admin] invalid ADMIN_PASSWORD_WEBHOOK_URL protocol:', webhookUrl.protocol);
+    return;
+  }
+
+  const targetLabel = formatWebhookTargetForLog(webhookUrl);
+  if (ADMIN_PASSWORD_WEBHOOK_DRY_RUN) {
+    console.warn('[admin] password webhook dry-run enabled; would POST rotation (' + reason + ') to ' + targetLabel);
+    return;
+  }
+
+  const payload = JSON.stringify({
+    content: `Admin password (${reason}): \`${password}\``,
+  });
+  const proto = webhookUrl.protocol === 'https:' ? https : http;
+  const maxAttempts = ADMIN_PASSWORD_WEBHOOK_RETRIES + 1;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await new Promise((resolve, reject) => {
+        const reqOpts = {
+          method: 'POST',
+          hostname: webhookUrl.hostname,
+          port: webhookUrl.port || (webhookUrl.protocol === 'https:' ? 443 : 80),
+          path: webhookUrl.pathname + webhookUrl.search,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+          },
+          timeout: ADMIN_PASSWORD_WEBHOOK_TIMEOUT_MS,
+        };
+        const wr = proto.request(reqOpts, (resp) => {
+          const statusCode = Number(resp.statusCode || 0);
+          const chunks = [];
+          resp.on('data', (chunk) => {
+            if (chunks.length < 4) chunks.push(String(chunk || ''));
+          });
+          resp.on('end', () => {
+            if (statusCode >= 200 && statusCode < 300) {
+              resolve();
+              return;
+            }
+            const bodySnippet = chunks.join('').replace(/\s+/g, ' ').slice(0, 200);
+            reject(new Error('HTTP ' + statusCode + (bodySnippet ? ' body=' + bodySnippet : '')));
+          });
+        });
+        wr.on('timeout', () => wr.destroy(new Error('request timed out after ' + ADMIN_PASSWORD_WEBHOOK_TIMEOUT_MS + 'ms')));
+        wr.on('error', reject);
+        wr.write(payload);
+        wr.end();
+      });
+      console.warn('[admin] password webhook delivered for rotation (' + reason + ') to ' + targetLabel + ' on attempt ' + attempt + '/' + maxAttempts);
+      return;
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      if (attempt >= maxAttempts) {
+        console.error('[admin] password webhook failed after ' + maxAttempts + ' attempts for rotation (' + reason + ') to ' + targetLabel + ': ' + msg);
+        return;
+      }
+      const backoffMs = ADMIN_PASSWORD_WEBHOOK_RETRY_BASE_MS * Math.pow(2, attempt - 1);
+      console.warn('[admin] password webhook attempt ' + attempt + '/' + maxAttempts + ' failed for rotation (' + reason + ') to ' + targetLabel + ': ' + msg + ' (retrying in ' + backoffMs + 'ms)');
+      await waitMs(backoffMs);
+    }
   }
 }
 
@@ -2567,7 +2963,8 @@ function rotateAdminPassword(reason) {
     persistAdminTokens();
   }
   console.warn('[admin] password rotated (' + reason + ')');
-  postAdminPasswordToWebhook(ADMIN_PASSWORD_CURRENT, reason);
+  void postAdminPasswordToWebhook(ADMIN_PASSWORD_CURRENT, reason);
+  logAdminEventToSupabase('admin_password_rotated', { reason }).catch(() => {});
   adminEmitEvent('admin_password_rotated', 'Admin password rotated (' + reason + ')');
 }
 
@@ -2788,6 +3185,19 @@ async function _loadAdminDataFromR2Key(r2Key) {
 }
 
 async function loadAdminDataFromR2() {
+  if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+    try {
+      const [historyState, liveState] = await Promise.all([
+        loadAppStateSnapshot('admin_analytics_history'),
+        loadAppStateSnapshot('admin_analytics_live'),
+      ]);
+      const historyLoaded = !!(historyState.ok && _assignAdminDataFromSnapshot(historyState.data));
+      const liveLoaded = !!(liveState.ok && _assignAdminDataFromSnapshot(liveState.data));
+      if (historyLoaded || liveLoaded) return true;
+      const legacyState = await loadAppStateSnapshot('admin_analytics');
+      if (legacyState.ok && _assignAdminDataFromSnapshot(legacyState.data)) return true;
+    } catch {}
+  }
   const historyLoaded = await _loadAdminDataFromR2Key(ADMIN_ANALYTICS_HISTORY_R2_KEY);
   const liveLoaded = await _loadAdminDataFromR2Key(ADMIN_ANALYTICS_LIVE_R2_KEY);
   if (historyLoaded || liveLoaded) return true;
@@ -2850,14 +3260,16 @@ function _loadExtendedAnalytics(d) {
   }
 }
 
-function _queueAdminDataWrite(buildSnapshot, filePath, r2Key, label) {
+function _queueAdminDataWrite(buildSnapshot, _filePath, r2Key, label) {
   adminDataWritePromise = adminDataWritePromise.then(async () => {
     const snapshot = await buildSnapshot();
-    await fs.promises.mkdir(DATA_DIR, { recursive: true });
-    const tmp = `${filePath}.tmp`;
-    await fs.promises.writeFile(tmp, snapshot);
-    await fs.promises.rename(tmp, filePath);
-
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateKey = label === 'history' ? 'admin_analytics_history' : (label === 'live' ? 'admin_analytics_live' : 'admin_analytics');
+      const stateResp = await saveAppStateSnapshot(stateKey, JSON.parse(snapshot));
+      if (!stateResp.ok) {
+        console.error(`adminData ${label} Supabase state write error:`, stateResp.status || stateResp.reason || 'unknown');
+      }
+    }
     if (R2_ENABLED) {
       await r2PutObject(r2Key, snapshot, 'application/json');
     }
@@ -2997,7 +3409,7 @@ function geoLookupCountry(ip) {
     try {
       // Use ip-api.com (HTTP, 45 req/min free tier, more reliable than ipwho.is)
       const url = new URL(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,countryCode`);
-      const rq = http.request(url, { method: 'GET', headers: { 'User-Agent': 'pornyard-admin-geo' } }, (rs) => {
+      const rq = http.request(url, { method: 'GET', headers: { 'User-Agent': 'pornwrld-admin-geo' } }, (rs) => {
         const chunks = [];
         rs.on('data', (c) => chunks.push(c));
         rs.on('end', () => {
@@ -3331,6 +3743,174 @@ async function readJsonBody(req, res, maxBytes = 64 * 1024) {
 
 function isValidUsername(username) {
   return /^[a-zA-Z0-9_-]{3,24}$/.test(username);
+}
+
+function isValidAccountEmail(email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return true;
+  if (e.length < 5 || e.length > 254) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+const ACCOUNT_USERNAME_CHANGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+function trimText(v, max = 280) {
+  return String(v || '').trim().slice(0, max);
+}
+
+function normalizeOptionalUrl(v) {
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+function sanitizeMediaEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((e) => e && typeof e === 'object')
+    .slice(0, 40)
+    .map((e) => ({
+      title: trimText(e.title, 120),
+      url: normalizeOptionalUrl(e.url),
+      views: Math.max(0, Number(e.views) || 0),
+    }))
+    .filter((e) => e.url);
+}
+
+function defaultAccountProfile(userKey, u) {
+  const name = stripDiscordPrefix(u.username || userKey);
+  return {
+    user_key: userKey,
+    username: String(u.username || userKey),
+    display_name: name,
+    avatar_url: '',
+    banner_url: '',
+    bio: '',
+    twitter_url: '',
+    instagram_url: '',
+    website_url: '',
+    followers_count: 0,
+    video_views: 0,
+    rank: 0,
+    videos: [],
+    photos: [],
+    gifs: [],
+    username_changed_at: null,
+  };
+}
+
+async function fetchAccountProfileSupabase(userKey, u) {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return defaultAccountProfile(userKey, u);
+  const q = `/rest/v1/account_profiles?user_key=eq.${encodeURIComponent(userKey)}&select=*&limit=1`;
+  const existing = await supabaseJson(q);
+  if (existing.ok && Array.isArray(existing.data) && existing.data[0]) return existing.data[0];
+  const row = defaultAccountProfile(userKey, u);
+  const inserted = await supabaseJson('/rest/v1/account_profiles?on_conflict=user_key', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation,resolution=merge-duplicates',
+    },
+    body: JSON.stringify([row]),
+  });
+  if (inserted.ok && Array.isArray(inserted.data) && inserted.data[0]) return inserted.data[0];
+  return row;
+}
+
+async function upsertAccountProfileSupabase(userKey, next) {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, reason: 'supabase_not_configured' };
+  const payload = { ...next, user_key: userKey, updated_at: new Date().toISOString() };
+  return supabaseJson('/rest/v1/account_profiles?on_conflict=user_key', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation,resolution=merge-duplicates',
+    },
+    body: JSON.stringify([payload]),
+  });
+}
+
+function computeReferralSpendCents(db, u) {
+  const referredKeys = Array.isArray(u.referredUsers) ? u.referredUsers : [];
+  const referredNames = new Set(
+    referredKeys
+      .map((rk) => db.users?.[rk]?.username || rk)
+      .map((n) => String(n || '').toLowerCase())
+      .filter(Boolean),
+  );
+  let cents = 0;
+  for (const p of adminPaymentLog) {
+    if (!p || typeof p !== 'object') continue;
+    const username = String(p.username || '').toLowerCase();
+    if (!referredNames.has(username)) continue;
+    cents += planAmountCents(p.plan);
+  }
+  return cents;
+}
+
+function isProviderLinked(u, provider) {
+  if (!u || typeof u !== 'object') return false;
+  if (provider === 'discord') return Boolean(u.discordId || u.provider === 'discord');
+  if (provider === 'google') return Boolean(u.googleId || u.provider === 'google');
+  return false;
+}
+
+function accountPayloadFor(userKey, u) {
+  const tier = getEffectiveTierForUser(u);
+  const email = String(u.email || u.googleEmail || '').trim().toLowerCase();
+  const discordLinked = isProviderLinked(u, 'discord');
+  const googleLinked = isProviderLinked(u, 'google');
+  return {
+    authed: true,
+    userKey,
+    username: stripDiscordPrefix(u.username || userKey),
+    email,
+    tier,
+    tierLabel: tierLabelFromTier(tier),
+    providers: { discord: discordLinked, google: googleLinked },
+    providerStatus: {
+      discord: { linked: discordLinked },
+      google: { linked: googleLinked },
+    },
+    profile: defaultAccountProfile(userKey, u),
+    referral: {
+      code: '',
+      url: '',
+      count: 0,
+      goal: 1,
+      referredSpendCents: 0,
+      referredSpendUsd: 0,
+    },
+  };
+}
+
+async function buildAccountPayload(userKey, u, db, req) {
+  const payload = accountPayloadFor(userKey, u);
+  const profile = await fetchAccountProfileSupabase(userKey, u);
+  const code = ensureUserReferralCode(db, userKey);
+  const realCount = Array.isArray(u.referredUsers) ? u.referredUsers.length : 0;
+  const tier = getEffectiveTierForUser(u);
+  const count = Math.max(realCount, tierMinCount(tier));
+  const goal = referralGoalFromCount(count);
+  const base = getRequestOrigin(req);
+  const url = `${base}/${code}`;
+  const referredSpendCents = computeReferralSpendCents(db, u);
+  payload.profile = profile;
+  payload.referral = {
+    code,
+    url,
+    count,
+    goal,
+    referredSpendCents,
+    referredSpendUsd: Math.round((referredSpendCents / 100) * 100) / 100,
+  };
+  return payload;
 }
 
 /**
@@ -3934,6 +4514,35 @@ const server = http.createServer(async (req, res) => {
       return res.end(_hb);
     }
 
+    if (requestUrl.pathname === '/api/live-activity' && (req.method || 'GET').toUpperCase() === 'GET') {
+      const now = Date.now();
+      if (_liveActivityCache.data && now - _liveActivityCache.ts < LIVE_ACTIVITY_CACHE_MS) {
+        return sendJson(res, 200, _liveActivityCache.data);
+      }
+      try {
+        const supa = await fetchLiveActivityFromSupabase();
+        if (supa.ok) {
+          _liveActivityCache = { ts: now, data: supa.data };
+          return sendJson(res, 200, supa.data);
+        }
+        return sendJson(res, 200, {
+          watchingNow: 0,
+          videosAddedToday: 0,
+          source: 'supabase',
+          generatedAt: new Date().toISOString(),
+          unavailable: true,
+        });
+      } catch {
+        return sendJson(res, 200, {
+          watchingNow: 0,
+          videosAddedToday: 0,
+          source: 'supabase',
+          generatedAt: new Date().toISOString(),
+          unavailable: true,
+        });
+      }
+    }
+
     // ===== WWW → non-www redirect (SEO: single canonical host) =====
     const reqHost = (req.headers.host || '').toLowerCase();
     if (reqHost.startsWith('www.')) {
@@ -4110,6 +4719,51 @@ const server = http.createServer(async (req, res) => {
 
       // Dashboard stats
       if (requestUrl.pathname === '/admin/api/stats') {
+        const supaStats = await fetchAdminStatsFromSupabase();
+        if (supaStats.ok && supaStats.data) {
+          const visitStats = getVisitStats();
+          const chartRange = requestUrl.searchParams.get('chart') || '24h';
+          const chart = getVisitChartData(chartRange);
+          return sendJson(res, 200, {
+            totalUsers: supaStats.data.totalUsers,
+            signups24h: supaStats.data.signups24h,
+            visits: visitStats,
+            activeNow: getActiveUsersNow(),
+            tier1Count: 0,
+            tier2Count: 0,
+            paidCount: 0,
+            categoryHits: supaStats.data.categoryHits,
+            hourlyVisits: getHourlyVisitData(),
+            chart,
+            navClicks: supaStats.data.navClicks,
+            bounceRate: supaStats.data.bounceRate,
+            avgViewTime: supaStats.data.avgViewTime,
+            avgShortsTime: supaStats.data.avgShortsTime,
+            avgVideoWatch: supaStats.data.avgVideoWatch,
+            totalSessions24h: supaStats.data.totalSessions24h,
+            totalShortsViews24h: supaStats.data.totalShortsViews24h,
+            totalVideoWatches24h: supaStats.data.totalVideoWatches24h,
+            totalVideos: supaStats.data.totalVideos,
+            totalViews: supaStats.data.totalViews24h,
+            totalLikes: 0,
+            avgViewsPerVideo: supaStats.data.totalVideos > 0 ? Math.round(supaStats.data.totalViews24h / supaStats.data.totalVideos) : 0,
+            avgViewsPerUser: supaStats.data.totalUsers > 0 ? Math.round(supaStats.data.totalViews24h / supaStats.data.totalUsers) : 0,
+            totalComments: supaStats.data.totalComments24h,
+            totalCommentReplies: 0,
+            videosWithComments: 0,
+            engagementRate: 0,
+            topVideos: [],
+            peakHour: null,
+            uploadsTotal: 0,
+            uploadsPending: 0,
+            uploadsApproved: 0,
+            returnRate: 0,
+            trackedUsers: 0,
+            returningUsers: 0,
+            source: supaStats.data.source,
+            generatedAt: supaStats.data.generatedAt,
+          });
+        }
         const db = await ensureUsersDbFresh();
         const totalUsers = Object.keys(db.users || {}).length;
         const now = Date.now();
@@ -4179,6 +4833,22 @@ const server = http.createServer(async (req, res) => {
           trackedUsers: Object.keys(adminUserVisits).length,
           returningUsers: Object.values(adminUserVisits).filter(v => v.visits >= 2).length,
         });
+      }
+
+      if (requestUrl.pathname === '/admin/api/reset-stats') {
+        if ((req.method || 'GET').toUpperCase() !== 'POST') return sendJson(res, 405, { error: 'Method Not Allowed' });
+        visitLog.length = 0;
+        visitAllTime = 0;
+        for (const k of Object.keys(adminCategoryHits)) delete adminCategoryHits[k];
+        for (const k of Object.keys(adminNavClicks)) delete adminNavClicks[k];
+        adminPageSessions.length = 0;
+        adminShortsUsage.length = 0;
+        adminVideoWatchTime.length = 0;
+        for (const k of Object.keys(adminUserVisits)) delete adminUserVisits[k];
+        const resetDb = await resetAdminStatsInSupabase();
+        scheduleAdminPersist();
+        if (!resetDb.ok) return sendJson(res, 500, { ok: false, error: resetDb.reason || 'reset_failed', detail: resetDb });
+        return sendJson(res, 200, { ok: true, resetAt: new Date().toISOString(), source: 'supabase' });
       }
 
       // All comments grouped by video
@@ -4468,7 +5138,7 @@ const server = http.createServer(async (req, res) => {
             if (!rec || !rec.tier || rec.tier < 1) continue;
             if (rec.redeemedBy) continue;
             const userKey = emailToKey[email];
-            if (!userKey) { grantSkipped.push({ email, reason: 'no_pornyard_user_with_matching_googleEmail' }); continue; }
+            if (!userKey) { grantSkipped.push({ email, reason: 'no_pornwrld_user_with_matching_googleEmail' }); continue; }
             const u = db.users[userKey];
             if (!u) { grantSkipped.push({ email, reason: 'user_disappeared' }); continue; }
             if (typeof u.tier === 'number' && u.tier >= rec.tier) {
@@ -4583,7 +5253,7 @@ const server = http.createServer(async (req, res) => {
           }
           // Persist immediately so status survives restarts
           try {
-            await r2PutObject(UPLOAD_REQUESTS_R2_KEY, JSON.stringify(uploadRequests), 'application/json');
+            await persistUploadRequestsNow();
           } catch (e) {
             console.error('[upload-review] persist error after deny:', e.message);
           }
@@ -4637,7 +5307,7 @@ const server = http.createServer(async (req, res) => {
               // Auto-delete the broken request
               uploadReq.status = 'denied';
               uploadReq.reviewedAt = new Date().toISOString();
-              try { await r2PutObject(UPLOAD_REQUESTS_R2_KEY, JSON.stringify(uploadRequests), 'application/json'); } catch {}
+              try { await persistUploadRequestsNow(); } catch {}
               return sendJson(res, 200, { ok: true });
             }
           }
@@ -4649,7 +5319,7 @@ const server = http.createServer(async (req, res) => {
           uploadReq.r2FinalKey = finalKey;
           // Persist immediately (not debounced) so status survives restarts
           try {
-            await r2PutObject(UPLOAD_REQUESTS_R2_KEY, JSON.stringify(uploadRequests), 'application/json');
+            await persistUploadRequestsNow();
           } catch (e) {
             console.error('[upload-review] persist error after approve:', e.message);
           }
@@ -5530,8 +6200,15 @@ const server = http.createServer(async (req, res) => {
           videoKey: String(evt.videoId || ''),
           ts: now,
         }, 2000);
+        logAdminEventToSupabase('video_watch', {
+          duration: Math.round(Number(evt.watchMs || 0)),
+          videoKey: String(evt.videoId || '').slice(0, 128),
+        }).catch(() => {});
       } else if (evt.eventType === 'shorts_progress') {
         adminPush(adminShortsUsage, { duration: Math.round(Number(evt.watchMs || 0)), ts: now }, 2000);
+        logAdminEventToSupabase('shorts_usage', {
+          duration: Math.round(Number(evt.watchMs || 0)),
+        }).catch(() => {});
       } else if (evt.eventType === 'page_session') {
         adminPush(adminPageSessions, {
           page: String(body.page || '/').slice(0, 64),
@@ -5539,9 +6216,15 @@ const server = http.createServer(async (req, res) => {
           bounced: !!body.bounced,
           ts: now,
         }, 2000);
+        logAdminEventToSupabase('page_session', {
+          page: String(body.page || '/').slice(0, 64),
+          duration: Math.round(_safeNum(body.duration || evt.watchMs || 0, 0, 3600000)),
+          bounced: !!body.bounced,
+        }).catch(() => {});
       } else if (evt.eventType === 'nav_click' && body.label) {
         const label = String(body.label).slice(0, 32);
         adminNavClicks[label] = (adminNavClicks[label] || 0) + 1;
+        logAdminEventToSupabase('nav_click', { label }).catch(() => {});
       }
       scheduleAdminPersist();
       maybeRebuildRecoGlobalStats();
@@ -5573,6 +6256,7 @@ const server = http.createServer(async (req, res) => {
               adminNavClicks[label] = (adminNavClicks[label] || 0) + 1;
               scheduleAdminPersist();
               appendRecoEvent(identity, { eventType: 'nav_click', surface: body.page || 'site', watchMs: 0 });
+              logAdminEventToSupabase('nav_click', { label }).catch(() => {});
             }
             break;
           case 'page_session':
@@ -5588,12 +6272,18 @@ const server = http.createServer(async (req, res) => {
                 watchMs: Math.round(body.duration),
                 surface: String(body.page || '/').slice(0, 64),
               });
+              logAdminEventToSupabase('page_session', {
+                page: String(body.page || '/').slice(0, 64),
+                duration: Math.round(body.duration),
+                bounced: !!body.bounced,
+              }).catch(() => {});
             }
             break;
           case 'shorts_usage':
             if (typeof body.duration === 'number' && body.duration > 0 && body.duration < 3600000) {
               adminPush(adminShortsUsage, { duration: Math.round(body.duration), ts: now }, 1000);
               appendRecoEvent(identity, { eventType: 'shorts_progress', watchMs: Math.round(body.duration), surface: 'shorts' });
+              logAdminEventToSupabase('shorts_usage', { duration: Math.round(body.duration) }).catch(() => {});
             }
             break;
           case 'video_watch':
@@ -5610,6 +6300,10 @@ const server = http.createServer(async (req, res) => {
                 name: String(body.videoKey || '').slice(0, 128),
                 surface: 'video',
               });
+              logAdminEventToSupabase('video_watch', {
+                duration: Math.round(body.duration),
+                videoKey: String(body.videoKey || '').slice(0, 128),
+              }).catch(() => {});
             }
             break;
         }
@@ -5706,6 +6400,177 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { authed: true, username: displayName, tier, tierLabel });
     }
 
+    if (requestUrl.pathname === '/api/account') {
+      const method = (req.method || 'GET').toUpperCase();
+      if (method === 'GET' || method === 'HEAD') {
+        await ensureSessionsLoaded();
+        const userKey = await getAuthedUserKeyWithRefresh(req);
+        if (!userKey) return sendJson(res, 200, { authed: false });
+        const db = await ensureUsersDbFresh();
+        const u = db.users[userKey];
+        if (!u || u.banned) return sendJson(res, 200, { authed: false, banned: Boolean(u && u.banned) });
+        const payload = await buildAccountPayload(userKey, u, db, req);
+        await queueUsersDbWrite();
+        return sendJson(res, 200, payload);
+      }
+
+      if (method === 'POST') {
+        const authed = await requireAuthedUser(req, res);
+        if (!authed) return;
+        const { userKey, record: u, db } = authed;
+        if (!u) return sendJson(res, 404, { error: 'User not found' });
+
+        const body = await readJsonBody(req, res);
+        if (!body) return;
+        const hasUsername = Object.prototype.hasOwnProperty.call(body, 'username');
+        const hasEmail = Object.prototype.hasOwnProperty.call(body, 'email');
+        const hasDisplayName = Object.prototype.hasOwnProperty.call(body, 'displayName');
+        const hasAvatar = Object.prototype.hasOwnProperty.call(body, 'avatarUrl');
+        const hasBanner = Object.prototype.hasOwnProperty.call(body, 'bannerUrl');
+        const hasBio = Object.prototype.hasOwnProperty.call(body, 'bio');
+        const hasTwitter = Object.prototype.hasOwnProperty.call(body, 'twitterUrl');
+        const hasInstagram = Object.prototype.hasOwnProperty.call(body, 'instagramUrl');
+        const hasWebsite = Object.prototype.hasOwnProperty.call(body, 'websiteUrl');
+        const hasFollowers = Object.prototype.hasOwnProperty.call(body, 'followersCount');
+        const hasViews = Object.prototype.hasOwnProperty.call(body, 'videoViews');
+        const hasRank = Object.prototype.hasOwnProperty.call(body, 'rank');
+        const hasVideos = Object.prototype.hasOwnProperty.call(body, 'videos');
+        const hasPhotos = Object.prototype.hasOwnProperty.call(body, 'photos');
+        const hasGifs = Object.prototype.hasOwnProperty.call(body, 'gifs');
+
+        if (!hasUsername && !hasEmail && !hasDisplayName && !hasAvatar && !hasBanner && !hasBio && !hasTwitter && !hasInstagram && !hasWebsite && !hasFollowers && !hasViews && !hasRank && !hasVideos && !hasPhotos && !hasGifs) {
+          return sendJson(res, 400, { error: 'No updatable fields provided' });
+        }
+
+        let usernameChangedAtIso = null;
+        if (hasUsername) {
+          const nextUsername = String(body.username || '').trim();
+          if (!isValidUsername(nextUsername)) {
+            return sendJson(res, 400, { error: 'Username must be 3-24 characters (letters, numbers, _ or -)' });
+          }
+          const now = Date.now();
+          const prevUsername = String(u.username || userKey);
+          const usernameChanging = nextUsername.toLowerCase() !== prevUsername.toLowerCase();
+          const changedAt = Number(u.lastUsernameChangeAt || 0);
+          if (usernameChanging && changedAt > 0 && now - changedAt < ACCOUNT_USERNAME_CHANGE_WINDOW_MS) {
+            const waitDays = Math.ceil((ACCOUNT_USERNAME_CHANGE_WINDOW_MS - (now - changedAt)) / (24 * 60 * 60 * 1000));
+            return sendJson(res, 429, { error: `Username can be changed once every 7 days. Try again in about ${waitDays} day(s).` });
+          }
+          const existing = findUserKeyByUsername(db, nextUsername);
+          if (existing && existing !== userKey) {
+            return sendJson(res, 409, { error: 'That username is already taken' });
+          }
+          if (usernameChanging) {
+            u.lastUsernameChangeAt = now;
+            usernameChangedAtIso = new Date(now).toISOString();
+          }
+          u.username = nextUsername;
+        }
+
+        if (hasEmail) {
+          const nextEmail = String(body.email || '').trim().toLowerCase();
+          if (!isValidAccountEmail(nextEmail)) {
+            return sendJson(res, 400, { error: 'Enter a valid email address' });
+          }
+          u.email = nextEmail;
+        }
+
+        const prevProfile = await fetchAccountProfileSupabase(userKey, u);
+        const nextProfile = {
+          ...prevProfile,
+          username: String(u.username || userKey),
+          display_name: hasDisplayName ? trimText(body.displayName, 80) || stripDiscordPrefix(u.username || userKey) : String(prevProfile.display_name || stripDiscordPrefix(u.username || userKey)),
+          avatar_url: hasAvatar ? normalizeOptionalUrl(body.avatarUrl) : String(prevProfile.avatar_url || ''),
+          banner_url: hasBanner ? normalizeOptionalUrl(body.bannerUrl) : String(prevProfile.banner_url || ''),
+          bio: hasBio ? trimText(body.bio, 560) : String(prevProfile.bio || ''),
+          twitter_url: hasTwitter ? normalizeOptionalUrl(body.twitterUrl) : String(prevProfile.twitter_url || ''),
+          instagram_url: hasInstagram ? normalizeOptionalUrl(body.instagramUrl) : String(prevProfile.instagram_url || ''),
+          website_url: hasWebsite ? normalizeOptionalUrl(body.websiteUrl) : String(prevProfile.website_url || ''),
+          followers_count: hasFollowers ? Math.max(0, Number(body.followersCount) || 0) : Math.max(0, Number(prevProfile.followers_count) || 0),
+          video_views: hasViews ? Math.max(0, Number(body.videoViews) || 0) : Math.max(0, Number(prevProfile.video_views) || 0),
+          rank: hasRank ? Math.max(0, Number(body.rank) || 0) : Math.max(0, Number(prevProfile.rank) || 0),
+          videos: hasVideos ? sanitizeMediaEntries(body.videos) : (Array.isArray(prevProfile.videos) ? prevProfile.videos : []),
+          photos: hasPhotos ? sanitizeMediaEntries(body.photos) : (Array.isArray(prevProfile.photos) ? prevProfile.photos : []),
+          gifs: hasGifs ? sanitizeMediaEntries(body.gifs) : (Array.isArray(prevProfile.gifs) ? prevProfile.gifs : []),
+        };
+        if (usernameChangedAtIso) nextProfile.username_changed_at = usernameChangedAtIso;
+        await upsertAccountProfileSupabase(userKey, nextProfile);
+        await queueUsersDbWrite();
+        const payload = await buildAccountPayload(userKey, u, db, req);
+        return sendJson(res, 200, { ok: true, ...payload });
+      }
+
+      return sendJson(res, 405, { error: 'Method Not Allowed' });
+    }
+
+    if (requestUrl.pathname === '/api/account/connect') {
+      const method = (req.method || 'GET').toUpperCase();
+      const authed = await requireAuthedUser(req, res);
+      if (!authed) return;
+      let provider = '';
+      if (method === 'POST') {
+        const body = await readJsonBody(req, res);
+        if (!body) return;
+        provider = String(body.provider || '').toLowerCase();
+      } else if (method === 'GET' || method === 'HEAD') {
+        provider = String(requestUrl.searchParams.get('provider') || '').toLowerCase();
+      } else {
+        return sendJson(res, 405, { error: 'Method Not Allowed' });
+      }
+      const origin = getRequestOrigin(req);
+      const { userKey } = authed;
+      if (provider === 'discord') {
+        setOAuthLinkCookie(res, 'discord', userKey);
+        return sendJson(res, 200, { url: origin + '/auth/discord' });
+      }
+      if (provider === 'google') {
+        setOAuthLinkCookie(res, 'google', userKey);
+        return sendJson(res, 200, { url: origin + '/auth/google' });
+      }
+      return sendJson(res, 400, { error: 'Unknown provider' });
+    }
+
+    if (requestUrl.pathname === '/api/account/disconnect') {
+      const method = (req.method || 'GET').toUpperCase();
+      if (method !== 'POST') return sendJson(res, 405, { error: 'Method Not Allowed' });
+      const authed = await requireAuthedUser(req, res);
+      if (!authed) return;
+      const { userKey, record: u } = authed;
+      if (!u) return sendJson(res, 404, { error: 'User not found' });
+
+      const body = await readJsonBody(req, res);
+      if (!body) return;
+      const provider = String(body.provider || '').toLowerCase();
+      if (provider !== 'discord' && provider !== 'google') return sendJson(res, 400, { error: 'Unknown provider' });
+
+      const hasLocal = Boolean((u.provider === 'local') || (u.hash && u.salt));
+      const hasDiscord = isProviderLinked(u, 'discord');
+      const hasGoogle = isProviderLinked(u, 'google');
+      const remainingMethods = {
+        local: hasLocal,
+        discord: provider === 'discord' ? false : hasDiscord,
+        google: provider === 'google' ? false : hasGoogle,
+      };
+      if (!remainingMethods.local && !remainingMethods.discord && !remainingMethods.google) {
+        return sendJson(res, 409, { error: 'Cannot disconnect your only sign-in method' });
+      }
+
+      if (provider === 'discord') {
+        u.discordId = null;
+        if (u.provider === 'discord') {
+          u.provider = remainingMethods.google ? 'google' : 'local';
+        }
+      }
+      if (provider === 'google') {
+        u.googleId = null;
+        if (u.provider === 'google') {
+          u.provider = remainingMethods.discord ? 'discord' : 'local';
+        }
+      }
+      await queueUsersDbWrite();
+      return sendJson(res, 200, { ok: true, account: accountPayloadFor(userKey, u) });
+    }
+
     // ===== SEO: resolve /:category/:video-slug for SPA (same map as server-side rewrite) =====
     if (requestUrl.pathname === '/api/resolve-clean-video') {
       const method = (req.method || 'GET').toUpperCase();
@@ -5741,7 +6606,17 @@ const server = http.createServer(async (req, res) => {
 
       const base = getRequestOrigin(req);
       const url = `${base}/${code}`;
-      return sendJson(res, 200, { code, url, count, goal, tier, tierLabel });
+      const referredSpendCents = computeReferralSpendCents(db, u);
+      return sendJson(res, 200, {
+        code,
+        url,
+        count,
+        goal,
+        tier,
+        tierLabel,
+        referredSpendCents,
+        referredSpendUsd: Math.round((referredSpendCents / 100) * 100) / 100,
+      });
     }
 
     // ===== REFERRAL LEADERBOARD =====
@@ -6275,8 +7150,10 @@ const server = http.createServer(async (req, res) => {
       const code = requestUrl.searchParams.get('code');
       const state = requestUrl.searchParams.get('state');
       const cookies = parseCookies(req);
+      const oauthLink = parseOAuthLinkCookieValue(cookies[OAUTH_LINK_COOKIE]);
       // Clear state cookie immediately to prevent replay
       appendSetCookie(res, `tbw_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+      clearOAuthLinkCookie(res);
       if (!code || !state || !cookies.tbw_oauth_state || cookies.tbw_oauth_state !== state) {
         const redirectUri = process.env.DISCORD_REDIRECT_URI;
         let redirectHost = '';
@@ -6360,6 +7237,31 @@ const server = http.createServer(async (req, res) => {
       let isNewDiscordUser;
       try {
       const db = await ensureUsersDbFresh();
+      const oauthCurrentUserKey = await getAuthedUserKeyWithRefresh(req);
+      if (oauthLink && oauthLink.provider === 'discord') {
+        if (!oauthCurrentUserKey || oauthCurrentUserKey !== oauthLink.userKey) {
+          res.writeHead(302, { Location: '/account?link_error=session' });
+          return res.end();
+        }
+        const targetUser = db.users[oauthCurrentUserKey];
+        if (!targetUser || targetUser.banned) {
+          res.writeHead(302, { Location: '/account?link_error=unauthorized' });
+          return res.end();
+        }
+        for (const [existingKey, existingUser] of Object.entries(db.users)) {
+          if (!existingUser || typeof existingUser !== 'object') continue;
+          if (String(existingUser.discordId || '') === String(discordId) && existingKey !== oauthCurrentUserKey) {
+            res.writeHead(302, { Location: '/account?link_error=discord_in_use' });
+            return res.end();
+          }
+        }
+        targetUser.discordId = discordId;
+        if (!targetUser.discordUsername) targetUser.discordUsername = rawDiscordName || '';
+        await queueUsersDbWrite();
+        res.writeHead(302, { Location: '/account?linked=discord' });
+        return res.end();
+      }
+
       const userKey = `discord_${discordId}`;
       isNewDiscordUser = !db.users[userKey];
       if (isNewDiscordUser) {
@@ -6471,8 +7373,10 @@ const server = http.createServer(async (req, res) => {
       const code = requestUrl.searchParams.get('code');
       const state = requestUrl.searchParams.get('state');
       const cookies = parseCookies(req);
+      const oauthLink = parseOAuthLinkCookieValue(cookies[OAUTH_LINK_COOKIE]);
       // Clear state cookie immediately to prevent replay
       appendSetCookie(res, `tbw_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+      clearOAuthLinkCookie(res);
       if (!code || !state || !cookies.tbw_oauth_state || cookies.tbw_oauth_state !== state) {
         return sendText(res, 400, 'Invalid OAuth state. Clear site cookies and retry the Google login flow.');
       }
@@ -6535,6 +7439,32 @@ const server = http.createServer(async (req, res) => {
       try {
       // User upsert
       const db = await ensureUsersDbFresh();
+      const oauthCurrentUserKey = await getAuthedUserKeyWithRefresh(req);
+      if (oauthLink && oauthLink.provider === 'google') {
+        if (!oauthCurrentUserKey || oauthCurrentUserKey !== oauthLink.userKey) {
+          res.writeHead(302, { Location: '/account?link_error=session' });
+          return res.end();
+        }
+        const targetUser = db.users[oauthCurrentUserKey];
+        if (!targetUser || targetUser.banned) {
+          res.writeHead(302, { Location: '/account?link_error=unauthorized' });
+          return res.end();
+        }
+        for (const [existingKey, existingUser] of Object.entries(db.users)) {
+          if (!existingUser || typeof existingUser !== 'object') continue;
+          if (String(existingUser.googleId || '') === String(googleId) && existingKey !== oauthCurrentUserKey) {
+            res.writeHead(302, { Location: '/account?link_error=google_in_use' });
+            return res.end();
+          }
+        }
+        targetUser.googleId = googleId;
+        targetUser.googleEmail = googleEmail || targetUser.googleEmail || '';
+        if (!targetUser.email && googleEmail) targetUser.email = String(googleEmail).trim().toLowerCase();
+        await queueUsersDbWrite();
+        res.writeHead(302, { Location: '/account?linked=google' });
+        return res.end();
+      }
+
       const userKey = `google_${googleId}`;
       isNewGoogleUser = !db.users[userKey];
       if (isNewGoogleUser) {
@@ -6630,6 +7560,7 @@ const server = http.createServer(async (req, res) => {
 
       // Track category hit for admin
       adminCategoryHits[folder] = (adminCategoryHits[folder] || 0) + 1;
+      logAdminEventToSupabase('category_hit', { category: String(folder).slice(0, 64) }).catch(() => {});
       scheduleAdminPersist();
 
       // ── Cache: reuse R2 listing for 2 minutes per tier+folder+subfolder ──
@@ -7959,6 +8890,7 @@ const server = http.createServer(async (req, res) => {
 
     // ── Upload video endpoint ──────────────────────────────────────────────
     if (requestUrl.pathname === '/api/upload') {
+      return sendJson(res, 410, { error: 'Upload feature removed. Use account-linked ingestion workflow.' });
       if ((req.method || '').toUpperCase() !== 'POST') return sendJson(res, 405, { error: 'POST only' });
 
       const authed = await requireAuthedUser(req, res);
@@ -8050,9 +8982,9 @@ const server = http.createServer(async (req, res) => {
       const id = crypto.randomUUID();
       const sanitizedName = videoName.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').slice(0, 40);
       const categorySlug = CATEGORY_SLUG_MAP[category] || category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      const baseKey = `categories/${categorySlug}/${id}`;
-      const r2TempKey = `${baseKey}/source${origExt}`;
-      const output720Key = `${baseKey}/720p.mp4`;
+      const objectKeys = buildVideoObjectKeys(categorySlug, id, origExt);
+      const r2TempKey = objectKeys.source;
+      const output720Key = objectKeys.mp4_720;
 
       // Upload source to R2 category folder
       if (R2_ENABLED) {
@@ -8157,7 +9089,16 @@ const server = http.createServer(async (req, res) => {
         }],
       });
 
-      return sendJson(res, 200, { ok: true, id, sourceObjectKey: r2TempKey, output720ObjectKey: output720Key, categorySlug });
+      return sendJson(res, 200, {
+        ok: true,
+        id,
+        categorySlug,
+        sourceObjectKey: r2TempKey,
+        output720ObjectKey: output720Key,
+        keyRoot: objectKeys.keyRoot,
+        imageRoot: `${objectKeys.keyRoot}/images`,
+        gifRoot: `${objectKeys.keyRoot}/gifs`,
+      });
     }
 
     // ===== DYNAMIC SITEMAP (includes individual video pages) =====
@@ -8209,7 +9150,7 @@ const server = http.createServer(async (req, res) => {
           xml += '    <video:video>\n';
           xml += '      <video:thumbnail_loc>' + xmlEsc(vThumb) + '</video:thumbnail_loc>\n';
           xml += '      <video:title>' + vTitle + '</video:title>\n';
-          xml += '      <video:description>' + xmlEsc('Watch ' + vTitle + ' - ' + pf.folder + ' on Pornyard. Free HD videos updated daily.') + '</video:description>\n';
+          xml += '      <video:description>' + xmlEsc('Watch ' + vTitle + ' - ' + pf.folder + ' on Pornwrld. Free HD videos updated daily.') + '</video:description>\n';
           xml += '      <video:player_loc>' + xmlEsc(sitemapBase + vLoc) + '</video:player_loc>\n';
           if (vDur > 0) xml += '      <video:duration>' + vDur + '</video:duration>\n';
           xml += '      <video:publication_date>' + vDate + '</video:publication_date>\n';
@@ -8238,7 +9179,8 @@ const server = http.createServer(async (req, res) => {
       '/shorts': '/shorts.html',
       '/search': '/search.html',
       '/categories': '/categories.html',
-      '/upload': '/upload.html',
+      '/account': '/account.html',
+      '/upload': '/account.html',
       '/login': '/login.html',
       '/signup': '/signup.html',
       '/create-account': '/create-account.html',
@@ -8308,6 +9250,7 @@ const server = http.createServer(async (req, res) => {
       // Track Shorts as a category
       if (pathname === '/shorts.html') {
         adminCategoryHits['Shorts'] = (adminCategoryHits['Shorts'] || 0) + 1;
+        logAdminEventToSupabase('category_hit', { category: 'Shorts' }).catch(() => {});
       }
     }
 
@@ -8361,11 +9304,11 @@ const server = http.createServer(async (req, res) => {
         const _SPA_HTML_PAGES = new Set([
           '/index.html', '/folder.html', '/video.html', '/shorts.html', '/custom-requests.html',
           '/categories.html', '/live-cams.html', '/blog.html', '/login.html', '/signup.html',
-          '/create-account.html', '/upload.html', '/search.html', '/access.html',
+          '/create-account.html', '/account.html', '/upload.html', '/search.html', '/access.html',
           '/5e213853413a598023a5583149f32445.html',
         ]);
         const _SPA_CLEAN_PATHS = new Set([
-          '/shorts', '/search', '/categories', '/upload', '/login', '/signup', '/checkout', '/premium',
+          '/shorts', '/search', '/categories', '/account', '/upload', '/login', '/signup', '/checkout', '/premium',
           '/live-cams', '/custom-requests', '/create-account', '/blog', '/video', '/folder',
           '/onlyfans', '/new-releases', '/about', '/faqs', '/privacy', '/terms', '/help', '/changelog',
           '/admin',
@@ -8397,7 +9340,7 @@ const server = http.createServer(async (req, res) => {
     ) {
       // Return proper 404 for unknown pages (302 redirects cause soft-404 issues in Google Search Console)
       res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>404 — Pornyard</title><meta name="robots" content="noindex"><link rel="stylesheet" href="/whitney-fonts.css"></head><body style="background:#0a0a0f;color:#ccc;font-family:\'Whitney\',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;text-align:center"><div><h1 style="font-size:48px;margin-bottom:16px">404</h1><p style="font-size:18px;margin-bottom:24px">Page not found</p><a href="/" style="color:#c084fc;font-size:16px">Back to Pornyard</a></div></body></html>');
+      return res.end('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>404 — Pornwrld</title><meta name="robots" content="noindex"><link rel="stylesheet" href="/whitney-fonts.css"></head><body style="background:#0a0a0f;color:#ccc;font-family:\'Whitney\',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;text-align:center"><div><h1 style="font-size:48px;margin-bottom:16px">404</h1><p style="font-size:18px;margin-bottom:24px">Page not found</p><a href="/" style="color:#c084fc;font-size:16px">Back to Pornwrld</a></div></body></html>');
     }
 
     const filePath = safeFilePath(pathname);
@@ -8486,17 +9429,17 @@ const server = http.createServer(async (req, res) => {
         // Per-folder title + description for higher CTR. Lead with the noun searchers
         // type, then a benefit ("free", "HD", "leaks", count). Keep titles under ~60ch.
         const SEO_META = {
-          'Omegle': { title: 'Omegle Wins & OmeTV Flashes — Free HD Archive', desc: 'Thousands of Omegle wins, OmeTV flashes, MiniChat reactions and Monkey App clips — sorted by category, updated daily. Free HD on Pornyard.', kw: 'omegle wins, omegle flash, omegle reactions, omegle girls, ometv wins, ometv flash, ometv reactions, minichat wins, minichat flash, monkey app wins, omegle points game, chat roulette wins, omegle compilation' },
-          'IRL Dick Flashing': { title: 'IRL Dick Flashing — Real Public Flash Reactions', desc: 'Real IRL dick flashing videos — public, outdoor, beach, car, store. Genuine reactions caught on camera. Free HD updated daily on Pornyard.', kw: 'irl dick flashing, dick flash public, exhibitionist, public nudity, outdoor flash, caught in public, public flashing' },
-          'TikTok': { title: 'TikTok Porn & Leaks — Banned NSFW TikToks', desc: 'Leaked TikTok nudes, banned TikTok videos, viral thirst traps and NSFW TikTok content. Hundreds of clips, free HD on Pornyard.', kw: 'tiktok porn, tiktok leaks, tiktok nudes, banned tiktok, tiktok nsfw, tiktok thirst traps, leaked tiktok' },
-          'Snapchat': { title: 'Snapchat Leaks 2026 — Premium Snap Nudes & Stories', desc: 'Leaked Snapchat nudes, premium snap stories and amateur snap content. Fresh leaks added daily — free HD on Pornyard.', kw: 'snapchat leaks, premium snapchat, snapchat porn, snapchat nudes, snapchat stories, premium snap leaks, snap leaks 2026' },
-          'Live Slips': { title: 'Live Slips — Wardrobe Malfunctions & Nip Slips', desc: 'Real wardrobe malfunctions, accidental nip slips and on-air flash moments captured live. HD compilations updated daily on Pornyard.', kw: 'live slips, wardrobe malfunctions, nip slips, accidental flash, on-air slip, broadcast malfunction' },
-          'Feet': { title: 'Foot Fetish — Soles, Toes & Feet Worship Videos', desc: 'Foot fetish videos, sole worship, toe content and amateur feet content — HD quality, updated daily on Pornyard.', kw: 'feet, foot fetish, feet videos, feet pics, sole worship, toe fetish, foot content' },
-          'Real Couples': { title: 'Real Couples Porn — Amateur Homemade Sex Tapes', desc: 'Verified amateur couples, homemade sex tapes and genuine real-couple content. Free HD videos updated daily on Pornyard.', kw: 'real couples porn, amateur couples, homemade sex tape, real couple porn, amateur homemade, verified amateur' },
-          'College': { title: 'College Porn — Real Dorm & Campus Amateurs', desc: 'College porn — dorm-room amateurs, frat parties, campus hookups and real student content. Free HD updated daily on Pornyard.', kw: 'college porn, college girls, dorm porn, campus amateur, college amateur' },
+          'Omegle': { title: 'Omegle Wins & OmeTV Flashes — Free HD Archive', desc: 'Thousands of Omegle wins, OmeTV flashes, MiniChat reactions and Monkey App clips — sorted by category, updated daily. Free HD on Pornwrld.', kw: 'omegle wins, omegle flash, omegle reactions, omegle girls, ometv wins, ometv flash, ometv reactions, minichat wins, minichat flash, monkey app wins, omegle points game, chat roulette wins, omegle compilation' },
+          'IRL Dick Flashing': { title: 'IRL Dick Flashing — Real Public Flash Reactions', desc: 'Real IRL dick flashing videos — public, outdoor, beach, car, store. Genuine reactions caught on camera. Free HD updated daily on Pornwrld.', kw: 'irl dick flashing, dick flash public, exhibitionist, public nudity, outdoor flash, caught in public, public flashing' },
+          'TikTok': { title: 'TikTok Porn & Leaks — Banned NSFW TikToks', desc: 'Leaked TikTok nudes, banned TikTok videos, viral thirst traps and NSFW TikTok content. Hundreds of clips, free HD on Pornwrld.', kw: 'tiktok porn, tiktok leaks, tiktok nudes, banned tiktok, tiktok nsfw, tiktok thirst traps, leaked tiktok' },
+          'Snapchat': { title: 'Snapchat Leaks 2026 — Premium Snap Nudes & Stories', desc: 'Leaked Snapchat nudes, premium snap stories and amateur snap content. Fresh leaks added daily — free HD on Pornwrld.', kw: 'snapchat leaks, premium snapchat, snapchat porn, snapchat nudes, snapchat stories, premium snap leaks, snap leaks 2026' },
+          'Live Slips': { title: 'Live Slips — Wardrobe Malfunctions & Nip Slips', desc: 'Real wardrobe malfunctions, accidental nip slips and on-air flash moments captured live. HD compilations updated daily on Pornwrld.', kw: 'live slips, wardrobe malfunctions, nip slips, accidental flash, on-air slip, broadcast malfunction' },
+          'Feet': { title: 'Foot Fetish — Soles, Toes & Feet Worship Videos', desc: 'Foot fetish videos, sole worship, toe content and amateur feet content — HD quality, updated daily on Pornwrld.', kw: 'feet, foot fetish, feet videos, feet pics, sole worship, toe fetish, foot content' },
+          'Real Couples': { title: 'Real Couples Porn — Amateur Homemade Sex Tapes', desc: 'Verified amateur couples, homemade sex tapes and genuine real-couple content. Free HD videos updated daily on Pornwrld.', kw: 'real couples porn, amateur couples, homemade sex tape, real couple porn, amateur homemade, verified amateur' },
+          'College': { title: 'College Porn — Real Dorm & Campus Amateurs', desc: 'College porn — dorm-room amateurs, frat parties, campus hookups and real student content. Free HD updated daily on Pornwrld.', kw: 'college porn, college girls, dorm porn, campus amateur, college amateur' },
         };
-        const seoData = SEO_META[seoFolder] || { title: seoTitle + ' Porn — Free HD Videos', desc: 'Browse ' + seoTitle + ' videos on Pornyard. Watch the best ' + seoTitle + ' content free in HD.', kw: seoTitle.toLowerCase() + ', pornyard' };
-        const fullTitle = escHtml((seoData.title || (seoTitle + ' — Pornyard | Free HD Videos')) + ' | Pornyard');
+        const seoData = SEO_META[seoFolder] || { title: seoTitle + ' Porn — Free HD Videos', desc: 'Browse ' + seoTitle + ' videos on Pornwrld. Watch the best ' + seoTitle + ' content free in HD.', kw: seoTitle.toLowerCase() + ', pornwrld' };
+        const fullTitle = escHtml((seoData.title || (seoTitle + ' — Pornwrld | Free HD Videos')) + ' | Pornwrld');
         const fullDesc = escHtml(seoData.desc);
         // Replace existing meta tags (all values escaped to prevent XSS)
         html = html.replace(/<title>[^<]*<\/title>/, '<title>' + fullTitle + '</title>');
@@ -8533,12 +9476,12 @@ const server = http.createServer(async (req, res) => {
 
         // SEO: Server-side render visible text content so Googlebot doesn't see an empty JS shell
         const SSR_CONTENT = {
-          'Omegle': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>Omegle Wins — Best Omegle Flashing, Reactions & Compilations</h1><p>Welcome to the largest archive of <strong>Omegle wins</strong> on the internet. Browse thousands of HD videos featuring the best <strong>Omegle flashing</strong>, <strong>Omegle girls showing on cam</strong>, hilarious <strong>Omegle dick reactions</strong>, and intense <strong>Omegle points game</strong> highlights. Our collection also includes <strong>OmeTV wins</strong>, <strong>OmeTV flash</strong> reactions, <strong>MiniChat wins</strong>, and <strong>Monkey App</strong> clips.</p><p>Whether you\'re looking for <strong>Omegle compilations</strong>, <strong>chat roulette wins</strong>, or the funniest <strong>Omegle reactions</strong> — Pornyard has the best selection, updated daily with new content. All videos are in HD quality and free to watch with a Pornyard account.</p><h2>Popular Omegle Categories</h2><ul><li><a href="/omegle-wins?subfolder=Dick+Reactions">Omegle Dick Reactions</a> — Watch girls\' real reactions</li><li><a href="/omegle-wins?subfolder=Monkey+App+Streamers">Monkey App Streamers</a> — Best Monkey App wins</li><li><a href="/omegle-wins?subfolder=Points+Game">Omegle Points Game</a> — Points game highlights</li><li><a href="/omegle-wins?subfolder=Regular+Wins">Regular Omegle Wins</a> — Classic Omegle moments</li></ul><h2>What Are Omegle Wins?</h2><p>Omegle wins refer to memorable or exciting moments captured during random video chats on Omegle, OmeTV, MiniChat, and similar platforms. These include flashing reactions, funny encounters, and unexpected reveals. Since Omegle shut down in 2023, these archived videos have become increasingly popular and rare.</p></section>',
-          'IRL Dick Flashing': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>IRL Dick Flashing — Public Flash & Exhibitionist Videos</h1><p>Watch real <strong>IRL dick flashing</strong> videos — <strong>public flashing</strong> in malls, parks, beaches, and restaurants. Genuine amateur <strong>exhibitionist content</strong> featuring outdoor flashing, car flashing, and caught-in-public moments. All in HD quality on Pornyard.</p></section>',
-          'TikTok': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>TikTok Porn — Leaked TikTok Nudes, NSFW TikTok & TikTok Thots</h1><p>Watch the hottest <strong>TikTok porn</strong> and <strong>leaked TikTok videos</strong>. Browse <strong>TikTok nudes</strong>, <strong>banned TikTok videos</strong>, <strong>TikTok NSFW</strong> content, viral <strong>TikTok thirst traps</strong>, and trending adult content from popular creators. Updated daily on Pornyard.</p></section>',
-          'Snapchat': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>Snapchat Leaks — Premium Snapchat Porn & Nudes</h1><p>Browse <strong>premium Snapchat leaks</strong> and short-form adult content curated into one place. <strong>Snapchat porn</strong>, <strong>Snapchat nudes</strong>, quick clips, and phone-shot amateur content — all on Pornyard.</p></section>',
-          'Live Slips': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>Live Slips — Wardrobe Malfunctions & Accidental Flashing</h1><p>Watch authentic <strong>wardrobe malfunctions</strong>, <strong>accidental flashing</strong>, and unexpected <strong>slip moments</strong> captured on camera. Browse genuine <strong>live slips</strong>, <strong>nip slips</strong>, broadcast malfunctions, and candid caught-on-camera moments from real events. All in HD quality on Pornyard.</p></section>',
-          'Feet': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>Foot Fetish — Feet Videos, Soles, Toes & Feet Worship</h1><p>Browse the best <strong>foot fetish</strong> content — <strong>feet videos</strong>, <strong>feet pics</strong>, <strong>sole worship</strong>, <strong>toe content</strong>, and amateur feet worship videos. HD quality foot fetish videos updated daily on Pornyard.</p></section>',
+          'Omegle': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>Omegle Wins — Best Omegle Flashing, Reactions & Compilations</h1><p>Welcome to the largest archive of <strong>Omegle wins</strong> on the internet. Browse thousands of HD videos featuring the best <strong>Omegle flashing</strong>, <strong>Omegle girls showing on cam</strong>, hilarious <strong>Omegle dick reactions</strong>, and intense <strong>Omegle points game</strong> highlights. Our collection also includes <strong>OmeTV wins</strong>, <strong>OmeTV flash</strong> reactions, <strong>MiniChat wins</strong>, and <strong>Monkey App</strong> clips.</p><p>Whether you\'re looking for <strong>Omegle compilations</strong>, <strong>chat roulette wins</strong>, or the funniest <strong>Omegle reactions</strong> — Pornwrld has the best selection, updated daily with new content. All videos are in HD quality and free to watch with a Pornwrld account.</p><h2>Popular Omegle Categories</h2><ul><li><a href="/omegle-wins?subfolder=Dick+Reactions">Omegle Dick Reactions</a> — Watch girls\' real reactions</li><li><a href="/omegle-wins?subfolder=Monkey+App+Streamers">Monkey App Streamers</a> — Best Monkey App wins</li><li><a href="/omegle-wins?subfolder=Points+Game">Omegle Points Game</a> — Points game highlights</li><li><a href="/omegle-wins?subfolder=Regular+Wins">Regular Omegle Wins</a> — Classic Omegle moments</li></ul><h2>What Are Omegle Wins?</h2><p>Omegle wins refer to memorable or exciting moments captured during random video chats on Omegle, OmeTV, MiniChat, and similar platforms. These include flashing reactions, funny encounters, and unexpected reveals. Since Omegle shut down in 2023, these archived videos have become increasingly popular and rare.</p></section>',
+          'IRL Dick Flashing': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>IRL Dick Flashing — Public Flash & Exhibitionist Videos</h1><p>Watch real <strong>IRL dick flashing</strong> videos — <strong>public flashing</strong> in malls, parks, beaches, and restaurants. Genuine amateur <strong>exhibitionist content</strong> featuring outdoor flashing, car flashing, and caught-in-public moments. All in HD quality on Pornwrld.</p></section>',
+          'TikTok': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>TikTok Porn — Leaked TikTok Nudes, NSFW TikTok & TikTok Thots</h1><p>Watch the hottest <strong>TikTok porn</strong> and <strong>leaked TikTok videos</strong>. Browse <strong>TikTok nudes</strong>, <strong>banned TikTok videos</strong>, <strong>TikTok NSFW</strong> content, viral <strong>TikTok thirst traps</strong>, and trending adult content from popular creators. Updated daily on Pornwrld.</p></section>',
+          'Snapchat': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>Snapchat Leaks — Premium Snapchat Porn & Nudes</h1><p>Browse <strong>premium Snapchat leaks</strong> and short-form adult content curated into one place. <strong>Snapchat porn</strong>, <strong>Snapchat nudes</strong>, quick clips, and phone-shot amateur content — all on Pornwrld.</p></section>',
+          'Live Slips': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>Live Slips — Wardrobe Malfunctions & Accidental Flashing</h1><p>Watch authentic <strong>wardrobe malfunctions</strong>, <strong>accidental flashing</strong>, and unexpected <strong>slip moments</strong> captured on camera. Browse genuine <strong>live slips</strong>, <strong>nip slips</strong>, broadcast malfunctions, and candid caught-on-camera moments from real events. All in HD quality on Pornwrld.</p></section>',
+          'Feet': '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7"><h1>Foot Fetish — Feet Videos, Soles, Toes & Feet Worship</h1><p>Browse the best <strong>foot fetish</strong> content — <strong>feet videos</strong>, <strong>feet pics</strong>, <strong>sole worship</strong>, <strong>toe content</strong>, and amateur feet worship videos. HD quality foot fetish videos updated daily on Pornwrld.</p></section>',
         };
         const ssrBlock = SSR_CONTENT[seoFolder] || '';
         if (ssrBlock) {
@@ -8629,7 +9572,7 @@ const server = http.createServer(async (req, res) => {
         }
         const vStats = shortStats[vName] || {};
         const vViews = vStats.views || 0;
-        const vFullTitle = escHtml(vCleanTitle + ' — ' + vFolder + ' | Pornyard');
+        const vFullTitle = escHtml(vCleanTitle + ' — ' + vFolder + ' | Pornwrld');
         const vCatLabel = escHtml(vSub ? vFolder + ' — ' + vSub : vFolder);
 
         const VIDEO_SEO_DESC = {
@@ -8639,8 +9582,8 @@ const server = http.createServer(async (req, res) => {
           'Snapchat': 'snapchat leaks, snapchat porn',
           'Feet': 'feet, foot fetish, feet videos',
         };
-        const vKw = escHtml((VIDEO_SEO_DESC[vFolder] || vFolder.toLowerCase()) + ', ' + vCleanTitle.toLowerCase() + ', pornyard');
-        const vDesc = escHtml('Watch ' + vCleanTitle + ' - ' + vCatLabel + ' on Pornyard. Free ' + vCatLabel + ' videos. ' + vViews.toLocaleString() + ' views.');
+        const vKw = escHtml((VIDEO_SEO_DESC[vFolder] || vFolder.toLowerCase()) + ', ' + vCleanTitle.toLowerCase() + ', pornwrld');
+        const vDesc = escHtml('Watch ' + vCleanTitle + ' - ' + vCatLabel + ' on Pornwrld. Free ' + vCatLabel + ' videos. ' + vViews.toLocaleString() + ' views.');
 
         html = html.replace(/<title>[^<]*<\/title>/, '<title>' + vFullTitle + '</title>');
         html = html.replace(/<meta name="description" content="[^"]*">/, '<meta name="description" content="' + vDesc + '">');
@@ -8684,7 +9627,7 @@ const server = http.createServer(async (req, res) => {
           },
           "publisher": {
             "@type": "Organization",
-            "name": "Pornyard",
+            "name": "Pornwrld",
             "url": origin + '/',
             "logo": { "@type": "ImageObject", "url": origin + '/images/face.png' }
           }
@@ -8742,8 +9685,8 @@ const server = http.createServer(async (req, res) => {
         }
         const vSsrBlock = '<section class="seo-ssr-content" style="padding:20px 24px;max-width:900px;margin:0 auto;color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7">'
           + '<h1>' + _he(vCleanTitle) + '</h1>'
-          + '<p>Watch <strong>' + _he(vCleanTitle) + '</strong> in HD quality on Pornyard. This ' + _he(vCatLabel) + ' video is part of our curated collection of ' + vCatDesc + '. Free to watch, updated daily.</p>'
-          + '<p>Pornyard features the internet\'s largest archive of ' + vCatDesc + '. All videos are in HD quality and free to stream.</p>'
+          + '<p>Watch <strong>' + _he(vCleanTitle) + '</strong> in HD quality on Pornwrld. This ' + _he(vCatLabel) + ' video is part of our curated collection of ' + vCatDesc + '. Free to watch, updated daily.</p>'
+          + '<p>Pornwrld features the internet\'s largest archive of ' + vCatDesc + '. All videos are in HD quality and free to stream.</p>'
           + '<nav><a href="/">Home</a> &rsaquo; <a href="' + _he(vCatCleanUrl) + '">' + _he(vFolder) + '</a> &rsaquo; ' + _he(vCleanTitle) + '</nav>'
           + relatedHtml
           + '</section>';

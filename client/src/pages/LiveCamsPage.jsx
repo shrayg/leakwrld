@@ -17,7 +17,7 @@ export function LiveCamsPage() {
   }, []);
 
   useEffect(() => {
-    document.title = 'Pornyard — Live Cams';
+    document.title = 'Pornwrld — Live Cams';
     let cancelled = false;
     (async () => {
       const r = await fetchCams(5);
@@ -52,7 +52,7 @@ export function LiveCamsPage() {
   return (
     <main className="page-content live-cams-route">
       <PageHero title="Live cams" subtitle="External partner stream — opens in a new tab." />
-      <div className="lc-wrapper hanime-lc-wrap">
+      <div className="lc-wrapper pornwrld-lc-wrap">
         <div className="lc-live-badge">
           <span className="lc-live-dot" />
           Live Now
@@ -71,7 +71,9 @@ export function LiveCamsPage() {
           <span className="lc-hero-live">LIVE</span>
           <span className="lc-hero-viewers">{viewers.toLocaleString()} watching</span>
           <div className="lc-hero-overlay">
-            <div className="lc-hero-cta">Click Here to Watch Live</div>
+          <div className="rounded-[var(--pornwrld-radius-card)] bg-[linear-gradient(180deg,#f6d486_0%,#f3c669_100%)] px-12 py-4 text-lg font-extrabold uppercase tracking-[0.06em] text-[#17181a]">
+            Click Here to Watch Live
+          </div>
           </div>
         </a>
 

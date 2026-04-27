@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pornyard-v103';
+const CACHE_NAME = 'pornwrld-v104';
 const PRECACHE_URLS = [
   '/',
   '/styles.css',

@@ -1,4 +1,4 @@
-# Pornyard architecture
+# Pornwrld architecture
 
 Index: [docs/README.md](./README.md) · [Project root README.md](../README.md)
 
@@ -49,4 +49,4 @@ client/src/
 
 ## Deploy
 
-Build the client before release: **`npm run build`** (outputs to **`client/dist`**). Fly.io / CI should run this so `server.js` can serve the SPA.
+Build the client before release: **`npm run build`** (outputs to **`client/dist`**) so `server.js` can serve the SPA.

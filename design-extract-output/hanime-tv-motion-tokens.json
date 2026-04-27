@@ -6,25 +6,15 @@
       "$type": "duration",
       "ms": 1
     },
-    "xs": {
-      "$value": "100ms",
-      "$type": "duration",
-      "ms": 100
-    },
     "sm": {
       "$value": "200ms",
       "$type": "duration",
       "ms": 200
     },
     "md": {
-      "$value": "280ms",
+      "$value": "300ms",
       "$type": "duration",
-      "ms": 280
-    },
-    "lg": {
-      "$value": "500ms",
-      "$type": "duration",
-      "ms": 500
+      "ms": 300
     }
   },
   "easing": {
@@ -45,16 +35,6 @@
     },
     "ease-out-106": {
       "$value": "cubic-bezier(0.25, 0.8, 0.25, 1)",
-      "$type": "cubicBezier",
-      "family": "ease-out"
-    },
-    "custom-904": {
-      "$value": "cubic-bezier(0.4, 0, 0.6, 1)",
-      "$type": "cubicBezier",
-      "family": "custom"
-    },
-    "ease-out-802": {
-      "$value": "cubic-bezier(0, 0, 0.2, 1)",
       "$type": "cubicBezier",
       "family": "ease-out"
     }

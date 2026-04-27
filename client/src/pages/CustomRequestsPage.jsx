@@ -12,7 +12,7 @@ export function CustomRequestsPage() {
   }, []);
 
   useEffect(() => {
-    document.title = 'Pornyard — Custom Requests';
+    document.title = 'Pornwrld — Custom Requests';
     let cancelled = false;
     (async () => {
       const r = await fetchMe();
@@ -29,7 +29,7 @@ export function CustomRequestsPage() {
     <main className="page-content custom-requests-page">
       <PageHero title="Custom requests" subtitle="Premium members can request specific content tailored to their preferences." />
 
-      <div className="cr-card hanime-cr-card">
+      <div className="cr-card pornwrld-cr-card">
         <div className="cr-card-icon" aria-hidden="true">
           🎬
         </div>
@@ -68,21 +68,21 @@ export function CustomRequestsPage() {
         )}
 
         {tierOk === true && (
-          <a href="https://t.me/pornyardxyz" target="_blank" rel="noopener noreferrer" className="cr-upgrade-btn hanime-cr-btn" id="cr-upgrade-btn">
+          <a href="https://t.me/pornwrldxyz" target="_blank" rel="noopener noreferrer" className="cr-upgrade-btn pornwrld-cr-btn" id="cr-upgrade-btn">
             Submit your request
           </a>
         )}
 
         {tierOk === false && (
-          <Link to="/checkout" className="cr-upgrade-btn hanime-cr-btn" id="cr-upgrade-btn">
+          <Link to="/checkout" className="cr-upgrade-btn pornwrld-cr-btn" id="cr-upgrade-btn">
             Upgrade to unlock requests
           </Link>
         )}
       </div>
 
-      <p className="hanime-cr-footnote">
+      <p className="pornwrld-cr-footnote">
         Or message us directly on{' '}
-        <a href="https://t.me/pornyardxyz" target="_blank" rel="noopener noreferrer">
+        <a href="https://t.me/pornwrldxyz" target="_blank" rel="noopener noreferrer">
           Telegram
         </a>
         .

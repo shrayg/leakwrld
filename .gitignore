@@ -63,5 +63,6 @@ client/dist/
 
 # Workspace artifacts from migration/exploration
 .next/
-reference-pornyard/
+reference-pornwrld/
+design-extract-output/
 tsconfig.tsbuildinfo

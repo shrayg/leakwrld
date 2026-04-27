@@ -40,7 +40,6 @@ export function ProfileMenu() {
     try {
       await logout();
     } finally {
-      sessionStorage.removeItem('age_verified');
       setMenuOpen(false);
       window.location.href = '/';
     }
@@ -63,7 +62,7 @@ export function ProfileMenu() {
 
   return (
     <div className="profile" id="profile" ref={rootRef}>
-      <a className="profile-telegram-external" href="https://t.me/pornyardxyz" target="_blank" rel="noopener noreferrer" aria-label="Telegram" id="profile-telegram-ext">
+      <a className="profile-telegram-external" href="https://t.me/pornwrldxyz" target="_blank" rel="noopener noreferrer" aria-label="Telegram" id="profile-telegram-ext">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="20" height="20">
           <path d="M9.993 15.53 9.84 19.2c.314 0 .451-.135.616-.297l1.478-1.419 3.065 2.242.562.31.962.148 1.11-.52l2.01-9.43v-.001c.205-.957-.346-1.332-.893-1.13L4.41 11.41c-.93.36-.915.875-.17 1.105l3.856 1.203 8.96-5.655c.422-.256.806-.114.49.142l-7.553 7.123z" />
         </svg>
@@ -91,8 +90,8 @@ export function ProfileMenu() {
         <div className="profile-tier" id="profile-tier">
           {tierLabel}
         </div>
-        <Link to="/help" className="profile-settings" id="profile-settings" role="menuitem" onClick={() => setMenuOpen(false)}>
-          Settings
+        <Link to="/account" className="profile-settings" id="profile-settings" role="menuitem" onClick={() => setMenuOpen(false)}>
+          Account
         </Link>
         {tier < 1 && (
           <button
@@ -108,7 +107,7 @@ export function ProfileMenu() {
           </button>
         )}
         <a
-          href="https://t.me/pornyardxyz"
+          href="https://t.me/pornwrldxyz"
           className="profile-contact"
           role="menuitem"
           target="_blank"

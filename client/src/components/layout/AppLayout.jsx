@@ -1,13 +1,12 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { TopNav } from '../navigation/TopNav';
+import { TopNavModern } from '../navigation/TopNavModern';
 import { MobileSidebar } from '../navigation/MobileSidebar';
 import { BgCanvas } from '../shell/BgCanvas';
 import { AdTopBanner } from '../shell/AdTopBanner';
 import { LeaderboardDock } from '../shell/LeaderboardDock';
 import { AuthModal } from '../shell/AuthModal';
 import { ReferralModals } from '../shell/ReferralModals';
-import { AgeDisclaimer } from '../shell/AgeDisclaimer';
 import { GlobalUrlHooks } from '../shell/GlobalUrlHooks';
 import { FooterSection } from '../ui/footer-section';
 
@@ -20,12 +19,11 @@ export function AppLayout() {
   }, [pathname, search]);
 
   return (
-    <div className="app-root site-theme-hanime">
+    <div className="app-root site-theme-pornwrld">
       <GlobalUrlHooks />
-      <AgeDisclaimer />
       <BgCanvas />
       <AdTopBanner />
-      <TopNav
+      <TopNavModern
         menuOpen={sidebarOpen}
         onToggleMenu={() => setSidebarOpen((prev) => !prev)}
       />

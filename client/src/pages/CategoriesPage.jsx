@@ -35,7 +35,7 @@ export function CategoriesPage() {
   }, []);
 
   useEffect(() => {
-    document.title = 'Categories — Pornyard';
+    document.title = 'Categories — Pornwrld';
     document.body.classList.add('is-categories-page');
     let cancelled = false;
     fetchFolderCounts().then((cRes) => {
@@ -45,7 +45,7 @@ export function CategoriesPage() {
     return () => {
       cancelled = true;
       document.body.classList.remove('is-categories-page');
-      document.title = 'Pornyard';
+      document.title = 'Pornwrld';
     };
   }, []);
 

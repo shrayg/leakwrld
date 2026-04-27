@@ -17,10 +17,10 @@ export function OnlyFansPage() {
   const [creatorsLoaded, setCreatorsLoaded] = useState(false);
 
   useEffect(() => {
-    document.title = 'OnlyFans Leaks — Pornyard';
+    document.title = 'OnlyFans Leaks — Pornwrld';
     document.body.classList.add('is-onlyfans-page');
     return () => {
-      document.title = 'Pornyard';
+      document.title = 'Pornwrld';
       document.body.classList.remove('is-onlyfans-page');
     };
   }, []);
@@ -67,7 +67,7 @@ export function OnlyFansPage() {
   );
 
   return (
-    <main className="page-shell onlyfans-page">
+    <main className="onlyfans-page px-4 pb-20 pt-6 max-[640px]:px-3">
       <PageHero
         title="OnlyFans Leaks"
         subtitle="Browse by creator — tap a name to open the full leak archive (Premium Tier 2)."
@@ -80,17 +80,21 @@ export function OnlyFansPage() {
       ) : null}
 
       {!loading && isAuthed && (tier || 0) < 2 && (
-        <div className="onlyfans-page__notice">
-          <span className="onlyfans-page__notice-lock" aria-hidden>
+        <div className="mx-auto mb-6 flex max-w-[640px] flex-wrap items-start gap-3 rounded-xl border border-[rgba(231,76,60,0.55)] bg-[linear-gradient(180deg,rgba(231,76,60,0.12),rgba(231,76,60,0.03))] px-4 py-3.5 text-[0.95rem] leading-[1.45]">
+          <span className="text-xl leading-none" aria-hidden>
             🔒
           </span>
           <div>
             <strong>Premium required</strong> to open Mega folders.{' '}
-            <button type="button" className="link-btn" onClick={() => navigate('/checkout?plan=premium')}>
+            <button
+              type="button"
+              className="border-none bg-transparent p-0 font-inherit text-[var(--pornwrld-gold)] underline"
+              onClick={() => navigate('/checkout?plan=premium')}
+            >
               Upgrade
             </button>
             {' · '}
-            <button type="button" className="link-btn" onClick={() => openReferral()}>
+            <button type="button" className="border-none bg-transparent p-0 font-inherit text-[var(--pornwrld-gold)] underline" onClick={() => openReferral()}>
               Referrals
             </button>
           </div>

@@ -12,7 +12,7 @@ export function LoginPage() {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    document.title = 'Login — Pornyard';
+    document.title = 'Login — Pornwrld';
   }, []);
 
   async function onSubmit(e) {
@@ -32,24 +32,25 @@ export function LoginPage() {
     (searchParams.toString() ? '?' + searchParams.toString() : '');
 
   return (
-    <div className="page-content access-page">
-      <Link to="/" className="back-btn">
+    <div className="mx-auto w-full max-w-[960px] px-4 py-6 pb-20">
+      <Link to="/" className="pw-btn pw-btn--compact pw-btn--inline">
         ← Back
       </Link>
 
       <PageHero title="Login" subtitle="Log in with username and password." />
 
-      <div className="auth-page hanime-auth-panel" style={{ maxWidth: 520, margin: '0 auto' }}>
+      <div className="mx-auto w-full max-w-[520px] rounded-[12px] border border-white/10 bg-bg-card p-6">
         {message && (
-          <div className="auth-message" role="alert">
+          <div className="mb-3 rounded-lg border border-lock/40 bg-lock/10 p-3 text-sm text-[#fca5a5]" role="alert">
             {message}
           </div>
         )}
 
-        <form className="auth-form" onSubmit={onSubmit}>
-          <label>
-            <span>Username</span>
+        <form className="grid gap-2.5" onSubmit={onSubmit}>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-[0.03em] text-text-muted">Username</span>
             <input
+              className="rounded-lg border border-white/15 bg-bg-elevated px-3 py-2.5 text-sm text-text outline-none transition focus:border-primary/60"
               name="username"
               autoComplete="username"
               required
@@ -58,9 +59,10 @@ export function LoginPage() {
               onChange={(e) => setUsername(e.target.value)}
             />
           </label>
-          <label>
-            <span>Password</span>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-[0.03em] text-text-muted">Password</span>
             <input
+              className="rounded-lg border border-white/15 bg-bg-elevated px-3 py-2.5 text-sm text-text outline-none transition focus:border-primary/60"
               name="password"
               type="password"
               autoComplete="current-password"
@@ -70,22 +72,33 @@ export function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
-          <button className="auth-primary" type="submit">
+          <button
+            className="mt-1 pw-btn pw-btn--block"
+            type="submit"
+          >
             Login
           </button>
         </form>
 
-        <div className="auth-divider">
-          <span>Or Sign Up / In With…</span>
+        <div className="my-3 border-t border-white/15 pt-3 text-center text-xs uppercase tracking-[0.07em] text-text-muted">
+          <span>Or Sign Up / In With...</span>
         </div>
-        <div className="auth-social">
-          <button className="social-btn discord" type="button" onClick={() => (window.location.href = '/auth/discord')}>
+        <div className="grid gap-2.5">
+          <button
+            className="pw-btn pw-btn--block pw-btn--social"
+            type="button"
+            onClick={() => (window.location.href = '/auth/discord')}
+          >
             <svg className="social-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z" />
             </svg>
             <span>Discord</span>
           </button>
-          <button className="social-btn google" type="button" onClick={() => (window.location.href = '/auth/google')}>
+          <button
+            className="pw-btn pw-btn--block pw-btn--social"
+            type="button"
+            onClick={() => (window.location.href = '/auth/google')}
+          >
             <svg className="social-icon-svg google-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
@@ -96,9 +109,9 @@ export function LoginPage() {
           </button>
         </div>
 
-        <div style={{ marginTop: 14, color: '#777', fontSize: 13 }}>
-          Don&apos;t have an account?{' '}
-          <Link to={signupHref} style={{ color: '#c084fc', textDecoration: 'none' }}>
+        <div className="mt-3.5 flex items-center gap-2 text-[13px] text-text-muted">
+          <span>Don&apos;t have an account?</span>
+          <Link to={signupHref} className="pw-btn pw-btn--compact pw-btn--inline">
             Sign up
           </Link>
         </div>

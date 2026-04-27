@@ -10,7 +10,7 @@ import { SearchPage } from './pages/SearchPage';
 import { NewReleasesPage } from './pages/NewReleasesPage';
 import { OnlyFansPage } from './pages/OnlyFansPage';
 import { CategoriesPage } from './pages/CategoriesPage';
-import { UploadPage } from './pages/UploadPage';
+import { AccountPage } from './pages/AccountPage';
 import { LiveCamsPage } from './pages/LiveCamsPage';
 import { CustomRequestsPage } from './pages/CustomRequestsPage';
 import { BlogPage } from './pages/BlogPage';
@@ -19,6 +19,8 @@ import { SignupPage } from './pages/SignupPage';
 import { CreateAccountPage } from './pages/CreateAccountPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { VideoBySlugPage } from './pages/VideoBySlugPage';
+import { AgeGateModal } from './components/shell/AgeGateModal';
+import { ScrollToTop } from './components/layout/ScrollToTop';
 import {
   AboutPage,
   BrandPage,
@@ -31,65 +33,70 @@ import {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/checkout" element={<CheckoutPage />} />
-      <Route path="/admin" element={<AdminPage />} />
-      <Route path="/checkout.html" element={<Navigate to="/checkout" replace />} />
-      <Route element={<AppLayout />}>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/index.html" element={<Navigate to="/" replace />} />
-        <Route path="/shorts" element={<ShortsPage />} />
-        <Route path="/shorts.html" element={<Navigate to="/shorts" replace />} />
-        <Route path="/search" element={<SearchPage />} />
-        <Route path="/search.html" element={<Navigate to="/search" replace />} />
-        <Route path="/new-releases" element={<NewReleasesPage />} />
-        <Route path="/new-releases.html" element={<Navigate to="/new-releases" replace />} />
-        <Route path="/categories" element={<CategoriesPage />} />
-        <Route path="/categories.html" element={<Navigate to="/categories" replace />} />
-        <Route path="/upload" element={<UploadPage />} />
-        <Route path="/upload.html" element={<Navigate to="/upload" replace />} />
-        <Route path="/live-cams" element={<LiveCamsPage />} />
-        <Route path="/live-cams.html" element={<Navigate to="/live-cams" replace />} />
-        <Route path="/custom-requests" element={<CustomRequestsPage />} />
-        <Route path="/custom-requests.html" element={<Navigate to="/custom-requests" replace />} />
-        <Route path="/blog" element={<BlogPage />} />
-        <Route path="/blog.html" element={<Navigate to="/blog" replace />} />
-        <Route path="/about" element={<AboutPage />} />
-        <Route path="/faqs" element={<FaqsPage />} />
-        <Route path="/privacy" element={<PrivacyPage />} />
-        <Route path="/terms" element={<TermsPage />} />
-        <Route path="/help" element={<HelpPage />} />
-        <Route path="/changelog" element={<ChangelogPage />} />
-        <Route path="/brand" element={<BrandPage />} />
-        <Route path="/premium" element={<Navigate to="/checkout" replace />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/login.html" element={<Navigate to="/login" replace />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route path="/signup.html" element={<Navigate to="/signup" replace />} />
-        <Route path="/create-account" element={<CreateAccountPage />} />
-        <Route path="/create-account.html" element={<Navigate to="/create-account" replace />} />
-        <Route path="/folder" element={<FolderPage />} />
-        <Route path="/folder.html" element={<FolderPage />} />
-        <Route path="/video" element={<VideoPage />} />
-        <Route path="/video.html" element={<VideoPage />} />
-        <Route path="/nsfw-straight" element={<FolderPage seoFolder="NSFW Straight" />} />
-        <Route path="/alt-and-goth" element={<FolderPage seoFolder="Alt and Goth" />} />
-        <Route path="/petitie" element={<FolderPage seoFolder="Petitie" />} />
-        <Route path="/teen-18-plus" element={<FolderPage seoFolder="Teen (18+ only)" />} />
-        <Route path="/milf" element={<FolderPage seoFolder="MILF" />} />
-        <Route path="/asian" element={<FolderPage seoFolder="Asian" />} />
-        <Route path="/ebony" element={<FolderPage seoFolder="Ebony" />} />
-        <Route path="/hentai" element={<FolderPage seoFolder="Hentai" />} />
-        <Route path="/yuri" element={<FolderPage seoFolder="Yuri" />} />
-        <Route path="/yaoi" element={<FolderPage seoFolder="Yaoi" />} />
-        <Route path="/nip-slips" element={<FolderPage seoFolder="Nip Slips" />} />
-        <Route path="/omegle" element={<FolderPage seoFolder="Omegle" />} />
-        <Route path="/of-leaks" element={<FolderPage seoFolder="OF Leaks" />} />
-        <Route path="/premium-leaks" element={<FolderPage seoFolder="Premium Leaks" />} />
-        <Route path="/onlyfans" element={<OnlyFansPage />} />
-        <Route path="/:categorySlug/:videoSlug" element={<VideoBySlugPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
+    <>
+      <AgeGateModal />
+      <ScrollToTop />
+      <Routes>
+        <Route path="/checkout" element={<CheckoutPage />} />
+        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/checkout.html" element={<Navigate to="/checkout" replace />} />
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/index.html" element={<Navigate to="/" replace />} />
+          <Route path="/shorts" element={<ShortsPage />} />
+          <Route path="/shorts.html" element={<Navigate to="/shorts" replace />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/search.html" element={<Navigate to="/search" replace />} />
+          <Route path="/new-releases" element={<NewReleasesPage />} />
+          <Route path="/new-releases.html" element={<Navigate to="/new-releases" replace />} />
+          <Route path="/categories" element={<CategoriesPage />} />
+          <Route path="/categories.html" element={<Navigate to="/categories" replace />} />
+          <Route path="/account" element={<AccountPage />} />
+          <Route path="/upload" element={<Navigate to="/account" replace />} />
+          <Route path="/upload.html" element={<Navigate to="/account" replace />} />
+          <Route path="/live-cams" element={<LiveCamsPage />} />
+          <Route path="/live-cams.html" element={<Navigate to="/live-cams" replace />} />
+          <Route path="/custom-requests" element={<CustomRequestsPage />} />
+          <Route path="/custom-requests.html" element={<Navigate to="/custom-requests" replace />} />
+          <Route path="/blog" element={<BlogPage />} />
+          <Route path="/blog.html" element={<Navigate to="/blog" replace />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/faqs" element={<FaqsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/help" element={<HelpPage />} />
+          <Route path="/changelog" element={<ChangelogPage />} />
+          <Route path="/brand" element={<BrandPage />} />
+          <Route path="/premium" element={<Navigate to="/checkout" replace />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login.html" element={<Navigate to="/login" replace />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/signup.html" element={<Navigate to="/signup" replace />} />
+          <Route path="/create-account" element={<CreateAccountPage />} />
+          <Route path="/create-account.html" element={<Navigate to="/create-account" replace />} />
+          <Route path="/folder" element={<FolderPage />} />
+          <Route path="/folder.html" element={<FolderPage />} />
+          <Route path="/video" element={<VideoPage />} />
+          <Route path="/video.html" element={<VideoPage />} />
+          <Route path="/nsfw-straight" element={<FolderPage seoFolder="NSFW Straight" />} />
+          <Route path="/alt-and-goth" element={<FolderPage seoFolder="Alt and Goth" />} />
+          <Route path="/petitie" element={<FolderPage seoFolder="Petitie" />} />
+          <Route path="/teen-18-plus" element={<FolderPage seoFolder="Teen (18+ only)" />} />
+          <Route path="/milf" element={<FolderPage seoFolder="MILF" />} />
+          <Route path="/asian" element={<FolderPage seoFolder="Asian" />} />
+          <Route path="/ebony" element={<FolderPage seoFolder="Ebony" />} />
+          <Route path="/hentai" element={<FolderPage seoFolder="Hentai" />} />
+          <Route path="/yuri" element={<FolderPage seoFolder="Yuri" />} />
+          <Route path="/yaoi" element={<FolderPage seoFolder="Yaoi" />} />
+          <Route path="/nip-slips" element={<FolderPage seoFolder="Nip Slips" />} />
+          <Route path="/omegle" element={<FolderPage seoFolder="Omegle" />} />
+          <Route path="/of-leaks" element={<FolderPage seoFolder="OF Leaks" />} />
+          <Route path="/premium-leaks" element={<FolderPage seoFolder="Premium Leaks" />} />
+          <Route path="/onlyfans" element={<OnlyFansPage />} />
+          <Route path="/:categorySlug/:videoSlug" element={<VideoBySlugPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+    </>
   );
 }

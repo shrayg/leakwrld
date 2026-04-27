@@ -1,6 +1,6 @@
-# Pornyard
+# Pornwrld
 
-Monorepo: **Node HTTP API + static/media** (`server.js`) and **React SPA** (`client/`, Vite). Production serves the built app from **`client/dist`** (see **`Dockerfile`**).
+Monorepo: **Node HTTP API + static/media** (`server.js`) and **React SPA** (`client/`, Vite). Production serves the built app from **`client/dist`**.
 
 | Doc | Contents |
 |-----|----------|

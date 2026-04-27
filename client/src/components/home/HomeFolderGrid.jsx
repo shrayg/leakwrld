@@ -8,7 +8,7 @@ export { displayFolderCountLabel };
 /** Same rail tile structure as Trending / New releases — matches width, 16:9 thumb, typography. */
 const railTileClass = 'media-item video-item media-item--rail';
 
-/** OnlyFans first (hanime-style primary tile), then the rest. Shorts lives in the hero CTA. */
+/** OnlyFans first (pornwrld-style primary tile), then the rest. Shorts lives in the hero CTA. */
 const GRID_ROWS = [
   {
     kind: 'onlyfans',
@@ -18,23 +18,31 @@ const GRID_ROWS = [
   },
   { kind: 'folder', countKey: 'NSFW Straight', to: '/nsfw-straight', thumb: '/thumbnails/omegle.jpg', title: 'NSFW Straight' },
   { kind: 'folder', countKey: 'Alt and Goth', to: '/alt-and-goth', thumb: '/thumbnails/tiktok.jpg', title: 'Alt and Goth' },
+  { kind: 'folder', countKey: 'Petitie', to: '/petitie', thumb: '/thumbnails/snapchat.jpg', title: 'Petitie' },
+  { kind: 'folder', countKey: 'Teen (18+ only)', to: '/teen-18-plus', thumb: '/thumbnails/liveslips.png', title: 'Teen (18+ only)' },
   { kind: 'folder', countKey: 'MILF', to: '/milf', thumb: '/thumbnails/feet.jpg', title: 'MILF' },
   { kind: 'folder', countKey: 'Asian', to: '/asian', thumb: '/thumbnails/snapchat.jpg', title: 'Asian' },
+  { kind: 'folder', countKey: 'Ebony', to: '/ebony', thumb: '/thumbnails/tiktok.jpg', title: 'Ebony' },
   { kind: 'folder', countKey: 'Hentai', to: '/hentai', thumb: '/thumbnails/liveslips.png', title: 'Hentai' },
+  { kind: 'folder', countKey: 'Yuri', to: '/yuri', thumb: '/thumbnails/liveslips.png', title: 'Yuri' },
+  { kind: 'folder', countKey: 'Yaoi', to: '/yaoi', thumb: '/thumbnails/feet.jpg', title: 'Yaoi' },
+  { kind: 'folder', countKey: 'Nip Slips', to: '/nip-slips', thumb: '/thumbnails/liveslips.png', title: 'Nip Slips' },
+  { kind: 'folder', countKey: 'Omegle', to: '/omegle', thumb: '/thumbnails/omegle.jpg', title: 'Omegle' },
   { kind: 'folder', countKey: 'OF Leaks', to: '/of-leaks', thumb: '/thumbnails/onlyfans.jpg', title: 'OF Leaks' },
+  { kind: 'folder', countKey: 'Premium Leaks', to: '/premium-leaks', thumb: '/thumbnails/onlyfans.jpg', title: 'Premium Leaks' },
 ];
 
 export function HomeFolderGrid({ counts }) {
   return (
     <section className="homepage-categories-section" aria-labelledby="browse-categories-heading">
       <HorizontalScrollRail
-        className="hanime-rail-block--categories"
+        className="pornwrld-rail-block--categories"
         title="Browse categories"
         titleId="browse-categories-heading"
         allHref="/categories"
         allLabel="ALL"
         navLabel="Content categories"
-        scrollClassName="hanime-video-rail-scroll"
+        scrollClassName="pornwrld-video-rail-scroll"
       >
         {GRID_ROWS.map((row) => {
           if (row.kind === 'onlyfans') {

@@ -6,7 +6,7 @@
       --dark:   #080810;
 
       font-family:'Whitney',sans-serif;
-      background:linear-gradient(180deg,#070708 0%,var(--hanime-surface-0, #17181a) 45%,#060608 100%);
+      background:linear-gradient(180deg,#070708 0%,var(--pornwrld-surface-0, #17181a) 45%,#060608 100%);
       color:#f0f0f0;
       min-height:100vh;
       display:flex;flex-direction:column;align-items:stretch;
@@ -369,8 +369,8 @@
   .checkout-page-root .checkout-patreon-card__unlock{ width:100%;flex-shrink:0; }
 }
 
-/* ── Site-aligned shell (Hanime rhythm + Whitney) ───────────────────────── */
-.checkout-page-shell.site-theme-hanime{
+/* ── Site-aligned shell (Pornwrld rhythm + Whitney) ───────────────────────── */
+.checkout-page-shell.site-theme-pornwrld{
   font-family:var(--font-sans,'Whitney',sans-serif);
 }
 
@@ -397,21 +397,21 @@
 }
 
 .checkout-shell-brand:hover{
-  color:var(--hanime-gold,#f3c669);
+  color:var(--pornwrld-gold,#f3c669);
 }
 
 .checkout-shell-tag{
   font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
-  color:var(--hanime-muted,#939496);
+  color:var(--pornwrld-muted,#939496);
   padding:5px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.08);
   background:rgba(255,255,255,.03);
 }
 
-.site-theme-hanime.checkout-page-shell .checkout-page-hero.hanime-page-hero{
+.site-theme-pornwrld.checkout-page-shell .checkout-page-hero.pornwrld-page-hero{
   margin-bottom:clamp(12px,3vw,20px);
 }
 
-.site-theme-hanime.checkout-page-shell .checkout-page-hero .hanime-page-lede{
+.site-theme-pornwrld.checkout-page-shell .checkout-page-hero .pornwrld-page-lede{
   max-width:36em;margin-left:auto;margin-right:auto;
 }
 
@@ -429,11 +429,11 @@
 }
 
 .checkout-kpi__num{
-  font-size:14px;font-weight:800;letter-spacing:.04em;color:var(--hanime-gold,#f3c669);
+  font-size:14px;font-weight:800;letter-spacing:.04em;color:var(--pornwrld-gold,#f3c669);
 }
 
 .checkout-kpi__lbl{
-  font-size:11px;font-weight:600;color:var(--hanime-muted,#939496);text-transform:lowercase;
+  font-size:11px;font-weight:600;color:var(--pornwrld-muted,#939496);text-transform:lowercase;
 }
 
 .checkout-page-root .image-slot{
@@ -442,28 +442,28 @@
 }
 
 /* Tier cards — align with site surfaces */
-.site-theme-hanime.checkout-page-shell .checkout-page-root .card{
+.site-theme-pornwrld.checkout-page-shell .checkout-page-root .card{
   border-radius:12px;
   border:1px solid var(--color-border,rgba(255,255,255,.08));
   background:linear-gradient(165deg,rgba(33,33,33,.92),rgba(23,24,26,.88));
 }
 
-.site-theme-hanime.checkout-page-shell .checkout-page-root .card:hover{
+.site-theme-pornwrld.checkout-page-shell .checkout-page-root .card:hover{
   border-color:rgba(243,198,105,.22);
   box-shadow:0 16px 48px rgba(0,0,0,.45),0 0 0 1px rgba(243,198,105,.08);
 }
 
-.site-theme-hanime.checkout-page-shell .checkout-page-root .card.premium{
+.site-theme-pornwrld.checkout-page-shell .checkout-page-root .card.premium{
   background:linear-gradient(165deg,rgba(48,30,58,.55),rgba(23,24,26,.9));
 }
 
-.site-theme-hanime.checkout-page-shell .checkout-page-root .trust-signals{
+.site-theme-pornwrld.checkout-page-shell .checkout-page-root .trust-signals{
   border-radius:12px;border:1px solid rgba(255,255,255,.06);
   background:rgba(23,24,26,.55);
 }
 
 .checkout-footer-note{
-  text-align:center;font-size:12px;line-height:1.55;color:var(--hanime-muted,#939496);
+  text-align:center;font-size:12px;line-height:1.55;color:var(--pornwrld-muted,#939496);
   max-width:520px;margin:0 auto 48px;padding:0 16px;
 }
 
@@ -474,7 +474,7 @@
 .checkout-page-root .faq-section{
   margin:0 auto 28px;
 }
-.site-theme-hanime.checkout-page-shell .checkout-page-root .trust-signals{
+.site-theme-pornwrld.checkout-page-shell .checkout-page-root .trust-signals{
   margin:0 auto 24px;
 }
 .checkout-page-root .checkout-footer-note{
@@ -541,7 +541,7 @@
   margin:0;
   font-size:clamp(13px,1.4vw,15px);
   line-height:1.55;
-  color:var(--hanime-muted,#939496);
+  color:var(--pornwrld-muted,#939496);
 }
 
 .checkout-page-root .checkout-pricing-grid.cards{
@@ -684,7 +684,7 @@
   background:linear-gradient(165deg,rgba(22,22,28,.88),rgba(14,14,18,.94));
 }
 
-.site-theme-hanime.checkout-page-shell .checkout-page-root .card.card-free:hover{
+.site-theme-pornwrld.checkout-page-shell .checkout-page-root .card.card-free:hover{
   border-color:rgba(160,160,170,.35);
   box-shadow:0 12px 36px rgba(0,0,0,.4);
 }

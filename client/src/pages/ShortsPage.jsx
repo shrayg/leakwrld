@@ -184,12 +184,12 @@ export function ShortsPage() {
   const nextPeekVideoRef = useRef(null);
 
   useEffect(() => {
-    document.title = 'Shorts — Pornyard';
+    document.title = 'Shorts — Pornwrld';
     document.body.classList.add('is-shorts-page');
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
-      document.title = 'Pornyard';
+      document.title = 'Pornwrld';
       document.body.classList.remove('is-shorts-page');
       document.body.style.overflow = prevOverflow;
     };
@@ -762,7 +762,7 @@ export function ShortsPage() {
     if (!url) return;
     try {
       if (navigator.share) {
-        await navigator.share({ title: 'Pornyard Short', url });
+        await navigator.share({ title: 'Pornwrld Short', url });
       } else {
         await navigator.clipboard.writeText(url);
         setShareToast(true);
@@ -905,9 +905,9 @@ export function ShortsPage() {
                       </div>
 
                       <div className="shorts-feed-rail" aria-label="Video actions">
-                      <div className="shorts-feed-rail__desktop-nav" aria-hidden={false}>
+                      <div className="shorts-feed-rail__desktop-nav hidden flex-col items-center gap-2.5 md:flex" aria-hidden={false}>
                         <button
-                          className="shorts-feed-arrow shorts-feed-arrow--up"
+                          className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-[rgba(8,8,12,0.55)] text-white transition duration-150 hover:scale-105 hover:bg-white/15"
                           type="button"
                           aria-label="Previous video"
                           onClick={goPrev}
@@ -917,7 +917,7 @@ export function ShortsPage() {
                           </svg>
                         </button>
                         <button
-                          className="shorts-feed-arrow shorts-feed-arrow--down"
+                          className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-[rgba(8,8,12,0.55)] text-white transition duration-150 hover:scale-105 hover:bg-white/15"
                           type="button"
                           aria-label="Next video"
                           onClick={goNext}
@@ -930,12 +930,12 @@ export function ShortsPage() {
 
                       <button
                         type="button"
-                        className={'shorts-feed-action' + (liked ? ' shorts-feed-action--liked' : '')}
+                        className="shorts-feed-action"
                         aria-label={liked ? 'Unlike' : 'Like'}
                         aria-pressed={liked}
                         onClick={onToggleLike}
                       >
-                        <span className="shorts-feed-action__icon">
+                        <span className={'shorts-feed-action__icon' + (liked ? ' text-[#ff4d6d]' : '')}>
                           <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden>
                             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
                           </svg>
@@ -1051,7 +1051,7 @@ export function ShortsPage() {
                   </div>
                   <div className="shorts-controls-actions">
                     {me && me.tier < 2 && (
-                      <Link to="/checkout" className="shorts-full-access-btn">
+                      <Link to="/checkout" className="inline-flex min-h-[30px] w-max max-w-full items-center justify-center rounded-lg border border-[rgba(243,198,105,0.4)] bg-[linear-gradient(180deg,#f6d486_0%,#f3c669_100%)] px-2.5 text-[9px] font-extrabold uppercase tracking-[0.07em] text-[#17181a] no-underline shadow-[0_2px_12px_rgba(243,198,105,0.22)] transition hover:brightness-105">
                         Get Full Access
                       </Link>
                     )}
@@ -1059,7 +1059,7 @@ export function ShortsPage() {
                   <div className="shorts-top-right-controls">
                     <button
                       type="button"
-                      className="shorts-filters-reset"
+                      className="inline-flex h-9 min-h-9 min-w-[62px] items-center justify-center rounded-[10px] border border-[rgba(243,198,105,0.55)] bg-[linear-gradient(180deg,#1a1a1f_0%,#0c0c10_55%,#08080b_100%)] px-3 text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#f3c669] shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_0_0_1px_rgba(243,198,105,0.12),0_8px_22px_rgba(0,0,0,0.55)] transition hover:border-[rgba(243,198,105,0.75)] hover:bg-[linear-gradient(180deg,#222228_0%,#12121a_55%,#0c0c12_100%)] hover:text-white active:scale-95"
                       onClick={clearFilters}
                       aria-label="Reset filters"
                       title="Reset"

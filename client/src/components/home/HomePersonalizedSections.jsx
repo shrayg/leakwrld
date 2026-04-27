@@ -82,7 +82,7 @@ export function HomePersonalizedSections() {
             titleId="newest-heading"
             allHref="/new-releases"
             allLabel="ALL"
-            scrollClassName="hanime-video-rail-scroll"
+            scrollClassName="pornwrld-video-rail-scroll"
           >
             {newest.map((f, i) => (
               <HomepageMediaTile key={(f.videoKey || f.name) + String(i)} file={f} badgeType="new" />
@@ -97,7 +97,7 @@ export function HomePersonalizedSections() {
             titleId="recommended-heading"
             allHref="/search"
             allLabel="ALL"
-            scrollClassName="hanime-video-rail-scroll"
+            scrollClassName="pornwrld-video-rail-scroll"
           >
             {recommended.map((f, i) => (
               <HomepageMediaTile key={(f.videoKey || f.name) + String(i)} file={f} badgeType="" />

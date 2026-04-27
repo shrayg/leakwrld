@@ -194,7 +194,7 @@ export function CheckoutPage() {
 
   useEffect(() => {
     const prev = document.title;
-    document.title = 'Get Access Now — Pornyard';
+    document.title = 'Get Access Now — Pornwrld';
     return () => {
       document.title = prev;
     };
@@ -573,7 +573,7 @@ export function CheckoutPage() {
       : 'Choose your plan above';
 
   return (
-    <div className="checkout-page-shell site-theme-hanime">
+    <div className="checkout-page-shell site-theme-pornwrld">
       <div
         className="checkout-page-root"
         style={{
@@ -588,7 +588,7 @@ export function CheckoutPage() {
         <header className="checkout-shell-header" role="banner">
           <div className="checkout-shell-header__inner">
             <Link to="/" className="checkout-shell-brand">
-              Pornyard
+              Pornwrld
             </Link>
             <span className="checkout-shell-tag">Premium checkout</span>
           </div>

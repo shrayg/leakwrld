@@ -30,7 +30,7 @@ export function HomeTrendingSection() {
         titleId="trending-heading"
         allHref="/search"
         allLabel="ALL"
-        scrollClassName="hanime-video-rail-scroll"
+        scrollClassName="pornwrld-video-rail-scroll"
       >
         {trending.map((f, i) => (
           <HomepageMediaTile key={(f.videoKey || f.name) + String(i)} file={f} badgeType="trending" />

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchRandomVideos, fetchFolderCounts } from '../api/client';
-import { HanimeHero } from '../components/home/HanimeHero';
+import { PornwrldHero } from '../components/home/PornwrldHero';
 import { HeroReferralGoal } from '../components/home/HeroReferralGoal';
 import { HomeFolderGrid } from '../components/home/HomeFolderGrid';
 import { HorizontalScrollRail } from '../components/home/HorizontalScrollRail';
@@ -39,9 +39,9 @@ export function HomePage() {
 
   useEffect(() => {
     document.title =
-      'Pornyard — Free Omegle Wins, OmeTV, MiniChat, TikTok Leaks & IRL Dick Flashing Videos';
+      'Pornwrld — Free Omegle Wins, OmeTV, MiniChat, TikTok Leaks & IRL Dick Flashing Videos';
     return () => {
-      document.title = 'Pornyard';
+      document.title = 'Pornwrld';
     };
   }, []);
 
@@ -115,9 +115,9 @@ export function HomePage() {
   }, []);
 
   return (
-    <div className="page-content homepage hanime-home">
+    <div className="page-content homepage pornwrld-home">
       <div className="home-hero-fade-stack">
-        <HanimeHero />
+        <PornwrldHero />
         <HomeReferralTeaser />
       </div>
       <HomeFolderGrid counts={counts} />
@@ -137,7 +137,7 @@ export function HomePage() {
               titleId="discover-videos-heading"
               allHref="/search?mode=popular"
               allLabel="ALL"
-              scrollClassName="hanime-video-rail-scroll"
+              scrollClassName="pornwrld-video-rail-scroll"
             >
               {items.map((item, i) => (
                 <HomepageMediaTile key={(item.videoKey || item.name) + String(i)} file={item} badgeType="" />
@@ -153,15 +153,6 @@ export function HomePage() {
         )}
       </section>
 
-      <section className="seo-about" aria-label="About">
-        <h2>Pornyard — Amateur Cam &amp; Reaction Archive</h2>
-        <p>
-          Pornyard is a curated archive of <strong>Omegle reactions</strong>, <strong>public flashing</strong>,{' '}
-          <strong>TikTok</strong>, <strong>Snapchat</strong>, and <strong>foot</strong> content. Free previews on every
-          category. Refer one friend for <strong>Basic (Tier&nbsp;1)</strong>, or unlock full{' '}
-          <strong>Premium (Tier&nbsp;2)</strong> access for $24.99.
-        </p>
-      </section>
     </div>
   );
 }

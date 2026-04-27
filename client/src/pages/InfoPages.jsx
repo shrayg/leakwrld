@@ -3,8 +3,8 @@ import { PageHero } from '../components/layout/PageHero';
 
 function InfoPage({ title, subtitle, sections }) {
   return (
-    <main className="page-content hanime-info-route">
-      <div className="info-page hanime-info-page">
+    <main className="page-content pornwrld-info-route">
+      <div className="info-page pornwrld-info-page">
         <PageHero title={title} subtitle={subtitle} />
         <div className="info-page__content">
           {sections.map((s) => (
@@ -27,13 +27,13 @@ function InfoPage({ title, subtitle, sections }) {
 export function AboutPage() {
   return (
     <InfoPage
-      title="About Pornyard"
+      title="About Pornwrld"
       subtitle="A modern archive for cam reactions, creator uploads, and curated viral wins."
       sections={[
         {
           heading: 'What we do',
           paragraphs: [
-            'Pornyard organizes category-based clips across Omegle-era reactions, TikTok, Snapchat, and custom uploads into a cleaner browsing experience with previews and unlocked tiers.',
+            'Pornwrld organizes category-based clips across Omegle-era reactions, TikTok, Snapchat, and custom uploads into a cleaner browsing experience with previews and unlocked tiers.',
             'Our focus is fast discovery, strong thumbnail coverage, and a mobile-first layout that keeps the content readable and watchable.',
           ],
         },
@@ -105,7 +105,7 @@ export function TermsPage() {
   return (
     <InfoPage
       title="Terms of Service"
-      subtitle="Rules for using Pornyard."
+      subtitle="Rules for using Pornwrld."
       sections={[
         {
           heading: 'Eligibility',
@@ -179,7 +179,7 @@ export function BrandPage() {
       sections={[
         {
           heading: 'Brand name',
-          paragraphs: ['Use “Pornyard” as one word with standard capitalization.'],
+          paragraphs: ['Use “Pornwrld” as one word with standard capitalization.'],
         },
         {
           heading: 'Visual style',

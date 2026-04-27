@@ -37,7 +37,7 @@ export function VideoBySlugPage() {
   }
   if (!target) {
     return (
-      <main className="page-content video-page page-shell hanime-video-resolve">
+      <main className="page-content video-page pornwrld-video-resolve px-4 pb-20 pt-6 max-[640px]:px-3">
         <PageHero title="Loading video" subtitle="Resolving link…" />
       </main>
     );

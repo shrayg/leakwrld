@@ -23,5 +23,5 @@ npm test
 npm run build:client
 # Terminal 1: npm start   (or existing server on PORT)
 npm run qa:smoke
-# Optional: QA_BASE_URL=https://pornyard.xyz npm run qa:smoke
+# Optional: QA_BASE_URL=https://pornwrld.xyz npm run qa:smoke
 ```

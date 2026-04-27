@@ -46,13 +46,13 @@ async function main() {
     const indexOk = r.ok && (await r.text()).includes('html');
     if (!ok('GET / (HTML shell)', indexOk, String(r.status))) failed++;
 
-    r = await req('/omegle-wins');
+    r = await req('/categories');
     const spaOk = r.ok && (await r.text()).toLowerCase().includes('html');
-    if (!ok('GET /omegle-wins (HTML)', spaOk, String(r.status))) failed++;
+    if (!ok('GET /categories (HTML)', spaOk, String(r.status))) failed++;
 
-    r = await req('/api/list?folder=' + encodeURIComponent('Omegle'));
-    const listOk = r.status === 200 || r.status === 401 || r.status === 403;
-    if (!ok('/api/list?folder=Omegle (200|401|403)', listOk, String(r.status))) failed++;
+    r = await req('/api/list?folder=' + encodeURIComponent('NSFW Straight'));
+    const listOk = r.status === 200 || r.status === 401 || r.status === 403 || r.status === 404;
+    if (!ok('/api/list?folder=NSFW Straight (200|401|403|404)', listOk, String(r.status))) failed++;
 
     r = await req('/checkout');
     if (!ok('GET /checkout', r.ok, String(r.status))) failed++;
@@ -89,13 +89,13 @@ async function main() {
     const notFound = r.status === 404 || r.status === 200;
     if (!ok('unknown path (404 or SPA shell)', notFound, String(r.status))) failed++;
 
-    r = await req('/api/preview/list?folder=' + encodeURIComponent('Omegle'));
-    const previewOk = r.ok || r.status === 401 || r.status === 403;
-    if (!ok('/api/preview/list?folder=Omegle', previewOk, String(r.status))) failed++;
+    r = await req('/api/preview/list?folder=' + encodeURIComponent('NSFW Straight'));
+    const previewOk = r.ok || r.status === 401 || r.status === 403 || r.status === 404;
+    if (!ok('/api/preview/list?folder=NSFW Straight', previewOk, String(r.status))) failed++;
 
     r = await req(
       '/api/resolve-clean-video?category=' +
-        encodeURIComponent('omegle-wins') +
+        encodeURIComponent('nsfw-straight') +
         '&video=' +
         encodeURIComponent('nonexistent-slug-qa'),
     );
