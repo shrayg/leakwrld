@@ -2834,6 +2834,10 @@ const ADMIN_PASSWORD_WEBHOOK_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(
 const ADMIN_PASSWORD_WEBHOOK_RETRIES = Math.max(0, Math.min(10, Number(process.env.ADMIN_PASSWORD_WEBHOOK_RETRIES || 3)));
 const ADMIN_PASSWORD_WEBHOOK_RETRY_BASE_MS = Math.max(100, Math.min(60000, Number(process.env.ADMIN_PASSWORD_WEBHOOK_RETRY_BASE_MS || 1500)));
 const ADMIN_PASSWORD_WEBHOOK_DRY_RUN = String(process.env.ADMIN_PASSWORD_WEBHOOK_DRY_RUN || '').trim() === '1';
+const ADMIN_PASSWORD_STARTUP_MIN_INTERVAL_MS = Math.max(
+  5 * 60 * 1000,
+  Number(process.env.ADMIN_PASSWORD_STARTUP_MIN_INTERVAL_MS || Math.floor(ADMIN_PASSWORD_ROTATE_MS * 0.9)),
+);
 const ADMIN_PASSWORD_ROTATION_HEALTH_GRACE_MS = Math.max(
   5 * 60 * 1000,
   Number(process.env.ADMIN_PASSWORD_ROTATION_HEALTH_GRACE_MS || (ADMIN_PASSWORD_ROTATE_MS * 2)),
@@ -2896,6 +2900,20 @@ const adminPasswordRotationState = {
   lastWebhookAttemptAt: 0,
   nextRotationAt: 0,
 };
+
+async function shouldRunStartupAdminRotation() {
+  const now = Date.now();
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return true;
+  try {
+    const stateResp = await loadAppStateSnapshot('admin_password_rotation_meta');
+    if (!stateResp.ok || !stateResp.data || typeof stateResp.data !== 'object') return true;
+    const lastRotateAtMs = Number(stateResp.data.lastRotateAtMs || 0);
+    if (!lastRotateAtMs) return true;
+    return (now - lastRotateAtMs) >= ADMIN_PASSWORD_STARTUP_MIN_INTERVAL_MS;
+  } catch {
+    return true;
+  }
+}
 
 async function postAdminPasswordToWebhook(password, reason) {
   if (!ADMIN_PASSWORD_WEBHOOK_URL) {
@@ -2981,45 +2999,53 @@ async function rotateAdminPassword(reason) {
     return { ok: false, skipped: true, error: 'rotation_already_running' };
   }
   adminPasswordRotationState.running = true;
-  adminPasswordRotationState.lastWebhookAttemptAt = Date.now();
-  adminPasswordRotationState.lastReason = String(reason || 'scheduled');
-  ADMIN_PASSWORD_CURRENT = crypto.randomBytes(16).toString('hex');
-  // Force re-login on every password rotation.
-  // Existing admin cookies become invalid because their backing tokens are removed.
-  if (adminTokens.size > 0) {
-    adminTokens.clear();
-    persistAdminTokens();
-  }
-  console.warn('[admin] password rotated (' + reason + ')');
-  const rotatedPassword = ADMIN_PASSWORD_CURRENT;
-  adminPasswordRotationState.lastRotatedAt = Date.now();
   let webhookResult;
+  const reasonLabel = String(reason || 'scheduled');
   try {
+    adminPasswordRotationState.lastWebhookAttemptAt = Date.now();
+    adminPasswordRotationState.lastReason = reasonLabel;
+    ADMIN_PASSWORD_CURRENT = crypto.randomBytes(16).toString('hex');
+    // Force re-login on every password rotation.
+    // Existing admin cookies become invalid because their backing tokens are removed.
+    if (adminTokens.size > 0) {
+      adminTokens.clear();
+      persistAdminTokens();
+    }
+    console.warn('[admin] password rotated (' + reasonLabel + ')');
+    const rotatedPassword = ADMIN_PASSWORD_CURRENT;
+    adminPasswordRotationState.lastRotatedAt = Date.now();
     webhookResult = await postAdminPasswordToWebhook(rotatedPassword, reason);
     if (!webhookResult || !webhookResult.ok) {
       const errMsg = webhookResult && webhookResult.error ? webhookResult.error : 'unknown webhook failure';
       adminPasswordRotationState.lastWebhookOk = false;
       adminPasswordRotationState.lastWebhookError = errMsg;
-      adminEmitEvent('admin_password_webhook_failed', 'Admin password webhook failed (' + reason + ')', { reason, error: errMsg });
+      adminEmitEvent('admin_password_webhook_failed', 'Admin password webhook failed (' + reasonLabel + ')', { reason: reasonLabel, error: errMsg });
     } else {
       adminPasswordRotationState.lastWebhookOk = true;
       adminPasswordRotationState.lastWebhookError = '';
-      adminEmitEvent('admin_password_webhook_delivered', 'Admin password webhook delivered (' + reason + ')', { reason, attempts: webhookResult.attempts || 1 });
+      adminEmitEvent('admin_password_webhook_delivered', 'Admin password webhook delivered (' + reasonLabel + ')', { reason: reasonLabel, attempts: webhookResult.attempts || 1 });
     }
   } catch (err) {
     const errMsg = err && err.message ? err.message : String(err);
     adminPasswordRotationState.lastWebhookOk = false;
     adminPasswordRotationState.lastWebhookError = errMsg;
-    adminEmitEvent('admin_password_webhook_failed', 'Admin password webhook failed (' + reason + ')', { reason, error: errMsg });
+    adminEmitEvent('admin_password_webhook_failed', 'Admin password webhook failed (' + reasonLabel + ')', { reason: reasonLabel, error: errMsg });
     webhookResult = { ok: false, error: errMsg };
+  } finally {
+    adminPasswordRotationState.running = false;
   }
-  logAdminEventToSupabase('admin_password_rotated', { reason }).catch(() => {});
-  adminEmitEvent('admin_password_rotated', 'Admin password rotated (' + reason + ')');
-  adminPasswordRotationState.running = false;
+  logAdminEventToSupabase('admin_password_rotated', { reason: reasonLabel }).catch(() => {});
+  saveAppStateSnapshot('admin_password_rotation_meta', {
+    lastRotateAtMs: adminPasswordRotationState.lastRotatedAt || Date.now(),
+    lastReason: reasonLabel,
+    lastWebhookOk: !!(webhookResult && webhookResult.ok),
+    updatedAt: new Date().toISOString(),
+  }).catch(() => {});
+  adminEmitEvent('admin_password_rotated', 'Admin password rotated (' + reasonLabel + ')');
   return {
     ok: !!(webhookResult && webhookResult.ok),
-    password: rotatedPassword,
-    reason: String(reason || 'scheduled'),
+    password: ADMIN_PASSWORD_CURRENT,
+    reason: reasonLabel,
     webhook: webhookResult || { ok: false, error: 'no_result' },
   };
 }
@@ -3039,9 +3065,21 @@ function scheduleAdminPasswordRotation() {
   }, ADMIN_PASSWORD_ROTATE_MS);
 }
 
-void rotateAdminPassword('startup').finally(() => {
-  scheduleAdminPasswordRotation();
-});
+void (async () => {
+  try {
+    const shouldRotateOnStartup = await shouldRunStartupAdminRotation();
+    if (shouldRotateOnStartup) {
+      await rotateAdminPassword('startup');
+    } else {
+      console.warn('[admin] startup password rotation skipped (recent rotation already recorded)');
+    }
+  } catch (err) {
+    const errMsg = err && err.message ? err.message : String(err);
+    adminEmitEvent('admin_password_startup_error', 'Startup password rotation check failed', { error: errMsg });
+  } finally {
+    scheduleAdminPasswordRotation();
+  }
+})();
 
 // ── Admin analytics persistence ─────────────────────────────────────────────
 const ADMIN_DATA_FILE = path.join(DATA_DIR, 'admin_analytics.json'); // legacy fallback
