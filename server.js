@@ -408,16 +408,20 @@ async function fetchAdminStatsFromSupabase() {
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, reason: 'supabase_not_configured' };
   const now = Date.now();
   const cutoff24hIso = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const cutoff5mIso = new Date(now - 5 * 60 * 1000).toISOString();
 
-  const [profilesRes, videosRes, viewsRes, commentsRes, eventsRes, reportsRes] = await Promise.all([
+  const [profilesRes, videosRes, viewsRes, commentsRes, eventsRes, reportsRes, activeViewsRes, visitStateRes, adminHistoryRes] = await Promise.all([
     supabaseJson('/rest/v1/profiles?select=id', { method: 'GET' }),
     supabaseJson('/rest/v1/videos?select=id,created_at', { method: 'GET' }),
     supabaseJson('/rest/v1/view_events_raw?select=id,watch_ms,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
     supabaseJson('/rest/v1/comments?select=id,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
     supabaseJson('/rest/v1/admin_events?select=event_type,payload,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
     supabaseJson('/rest/v1/reports?select=id,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
+    supabaseJson('/rest/v1/view_events_raw?select=viewer_id&created_at=gte.' + encodeURIComponent(cutoff5mIso), { method: 'GET' }),
+    loadAppStateSnapshot('visit_stats'),
+    loadAppStateSnapshot('admin_analytics_history'),
   ]);
-  if (![profilesRes, videosRes, viewsRes, commentsRes, eventsRes, reportsRes].every((r) => r.ok)) {
+  if (![profilesRes, videosRes, viewsRes, commentsRes, eventsRes, reportsRes, activeViewsRes].every((r) => r.ok)) {
     return { ok: false, reason: 'supabase_query_failed' };
   }
 
@@ -427,9 +431,43 @@ async function fetchAdminStatsFromSupabase() {
   const comments = Array.isArray(commentsRes.data) ? commentsRes.data : [];
   const events = Array.isArray(eventsRes.data) ? eventsRes.data : [];
   const reports = Array.isArray(reportsRes.data) ? reportsRes.data : [];
+  const activeRows = Array.isArray(activeViewsRes.data) ? activeViewsRes.data : [];
+  const watchingNow = Math.max(
+    activeRows.length,
+    new Set(activeRows.map((r) => r?.viewer_id).filter(Boolean)).size,
+  );
 
-  const signups24h = profiles.filter((p) => p && p.created_at && new Date(p.created_at).getTime() >= now - 24 * 60 * 60 * 1000).length;
-  const totalUsers = profiles.length;
+  const visitPayload = visitStateRes && visitStateRes.ok && visitStateRes.data && typeof visitStateRes.data === 'object'
+    ? visitStateRes.data
+    : {};
+  const visitLogRows = Array.isArray(visitPayload.log) ? visitPayload.log : [];
+  const cutoff24hMs = now - (24 * 60 * 60 * 1000);
+  const cutoff30mMs = now - (30 * 60 * 1000);
+  let visits24h = 0;
+  let visits30m = 0;
+  for (const t of visitLogRows) {
+    const n = Number(t);
+    if (!Number.isFinite(n)) continue;
+    if (n >= cutoff24hMs) {
+      visits24h += 1;
+      if (n >= cutoff30mMs) visits30m += 1;
+    }
+  }
+  const visits = {
+    allTime: Math.max(0, Number(visitPayload.allTime || 0)),
+    past24h: visits24h,
+    past30m: visits30m,
+  };
+
+  const historyPayload = adminHistoryRes && adminHistoryRes.ok && adminHistoryRes.data && typeof adminHistoryRes.data === 'object'
+    ? adminHistoryRes.data
+    : {};
+  const legacySignups = Array.isArray(historyPayload.signups) ? historyPayload.signups : [];
+  const legacySignup24h = legacySignups.filter((s) => s && Number(s.ts || 0) >= (now - 24 * 60 * 60 * 1000)).length;
+
+  const profileSignups24h = profiles.filter((p) => p && p.created_at && new Date(p.created_at).getTime() >= now - 24 * 60 * 60 * 1000).length;
+  const signups24h = Math.max(profileSignups24h, legacySignup24h);
+  const totalUsers = Math.max(profiles.length, legacySignups.length);
   const totalVideos = videos.length;
   const videosAdded24h = videos.filter((v) => v && v.created_at && new Date(v.created_at).getTime() >= now - 24 * 60 * 60 * 1000).length;
   const totalViews24h = views.length;
@@ -493,6 +531,8 @@ async function fetchAdminStatsFromSupabase() {
       totalSessions24h,
       totalShortsViews24h,
       totalVideoWatches24h,
+      visits,
+      watchingNow,
       source: 'supabase',
       generatedAt: new Date().toISOString(),
     },
@@ -4458,6 +4498,12 @@ function _emitSignup(db, username, provider, referredBy, ip) {
   // Admin log
   adminPush(adminSignupLog, { ts: Date.now(), username: String(username), provider: String(provider), ip: String(ip || 'unknown'), referredBy: referredBy || null }, 2000);
   adminEmitEvent('signup', username + ' signed up via ' + provider);
+  logAdminEventToSupabase('signup', {
+    username: String(username || ''),
+    provider: String(provider || 'local'),
+    ip: String(ip || 'unknown'),
+    referredBy: referredBy || null,
+  }).catch(() => {});
   const total = _getMonotonicSignupTotal(db);
   const last24h = _usersSignedUpLast24h(db);
   let referrerName = null;
@@ -4978,14 +5024,13 @@ const server = http.createServer(async (req, res) => {
       if (requestUrl.pathname === '/admin/api/stats') {
         const supaStats = await fetchAdminStatsFromSupabase();
         if (supaStats.ok && supaStats.data) {
-          const visitStats = getVisitStats();
           const chartRange = requestUrl.searchParams.get('chart') || '24h';
           const chart = getVisitChartData(chartRange);
           return sendJson(res, 200, {
             totalUsers: supaStats.data.totalUsers,
             signups24h: supaStats.data.signups24h,
-            visits: visitStats,
-            activeNow: getActiveUsersNow(),
+            visits: supaStats.data.visits || { allTime: 0, past24h: 0, past30m: 0 },
+            activeNow: Number(supaStats.data.watchingNow || 0),
             tier1Count: 0,
             tier2Count: 0,
             paidCount: 0,
@@ -5131,6 +5176,54 @@ const server = http.createServer(async (req, res) => {
 
       // Recent signups (merge db.users + adminSignupLog for full coverage)
       if (requestUrl.pathname === '/admin/api/signups') {
+        if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+          const [eventsResp, historyResp] = await Promise.all([
+            supabaseJson('/rest/v1/admin_events?event_type=eq.signup&select=created_at,payload&order=created_at.desc&limit=2000', { method: 'GET' }),
+            loadAppStateSnapshot('admin_analytics_history'),
+          ]);
+          if (eventsResp.ok) {
+            const signups = [];
+            const seen = new Set();
+            const eventRows = Array.isArray(eventsResp.data) ? eventsResp.data : [];
+            for (const row of eventRows) {
+              const payload = row && row.payload && typeof row.payload === 'object' ? row.payload : {};
+              const ts = row && row.created_at ? new Date(row.created_at).getTime() : 0;
+              const username = String(payload.username || '').trim();
+              const provider = String(payload.provider || 'local');
+              const ip = String(payload.ip || 'unknown');
+              const referredBy = payload.referredBy || null;
+              if (!username || !Number.isFinite(ts) || ts <= 0) continue;
+              const key = `${username.toLowerCase()}::${ts}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              signups.push({ ts, username, provider, ip, referredBy });
+            }
+
+            const historyPayload = historyResp && historyResp.ok && historyResp.data && typeof historyResp.data === 'object'
+              ? historyResp.data
+              : {};
+            const historySignups = Array.isArray(historyPayload.signups) ? historyPayload.signups : [];
+            for (const s of historySignups) {
+              if (!s || typeof s !== 'object') continue;
+              const ts = Number(s.ts || 0);
+              const username = String(s.username || '').trim();
+              if (!username || !Number.isFinite(ts) || ts <= 0) continue;
+              const key = `${username.toLowerCase()}::${ts}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              signups.push({
+                ts,
+                username,
+                provider: String(s.provider || 'local'),
+                ip: String(s.ip || 'unknown'),
+                referredBy: s.referredBy || null,
+              });
+            }
+            signups.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+            return sendJson(res, 200, { signups });
+          }
+        }
+
         const db = await ensureUsersDbFresh();
         // Build signup list from db.users (canonical source)
         const seen = new Set();
