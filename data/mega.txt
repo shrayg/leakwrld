@@ -1,7 +1,0 @@
-# Mega links (server-side only). Do not commit.
-# Format:
-# tier1 = https://...
-# tier2 = https://...
-
-tier1 = https://mega.nz/folder/e8gygByI#AqRt1XabJUNMZ3aEY3a4Bw
-tier2 = https://mega.nz/folder/60pjAICJ#_wEynTUL7kFGEVO6xPdyBw

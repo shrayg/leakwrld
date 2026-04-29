@@ -61,6 +61,10 @@ node_modules/
 # Vite React build output
 client/dist/
 
+# Runtime local fallbacks (Supabase is canonical)
+data/
+backups/
+
 # Workspace artifacts from migration/exploration
 .next/
 reference-pornwrld/

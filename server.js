@@ -251,9 +251,8 @@ function buildVideoObjectKeys(categorySlug, entityId, sourceExt) {
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_SECRET_KEY = String(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 const SUPABASE_ACCESS_KEYS_TABLE = String(process.env.SUPABASE_ACCESS_KEYS_TABLE || 'issued_access_keys');
-const SUPABASE_DISCORD_LINKS_TABLE = String(process.env.SUPABASE_DISCORD_LINKS_TABLE || 'discord_account_links');
-const SUPABASE_ENTITLEMENTS_TABLE = String(process.env.SUPABASE_ENTITLEMENTS_TABLE || 'access_entitlements');
-const SUPABASE_DISCORD_SYNC_JOBS_TABLE = String(process.env.SUPABASE_DISCORD_SYNC_JOBS_TABLE || 'discord_role_sync_jobs');
+const SUPABASE_USERS_TABLE = String(process.env.SUPABASE_USERS_TABLE || 'users');
+const SUPABASE_USERS_SYNC = String(process.env.SUPABASE_USERS_SYNC || '1') === '1';
 const DISCORD_BOT_SYNC_SECRET = String(process.env.DISCORD_BOT_SYNC_SECRET || '').trim();
 const DISCORD_SYNC_GUILD_ID = String(process.env.DISCORD_SYNC_GUILD_ID || '').trim();
 const DISCORD_ROLE_ID_BASIC = String(process.env.DISCORD_ROLE_ID_BASIC || '').trim();
@@ -410,27 +409,25 @@ async function fetchAdminStatsFromSupabase() {
   const cutoff24hIso = new Date(now - 24 * 60 * 60 * 1000).toISOString();
   const cutoff5mIso = new Date(now - 5 * 60 * 1000).toISOString();
 
-  const [profilesRes, videosRes, viewsRes, commentsRes, eventsRes, reportsRes, activeViewsRes, visitStateRes, adminHistoryRes] = await Promise.all([
-    supabaseJson('/rest/v1/profiles?select=id', { method: 'GET' }),
+  const [usersRes, videosRes, viewsRes, commentsRes, eventsRes, activeViewsRes, visitStateRes, adminHistoryRes] = await Promise.all([
+    supabaseJson(`/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?select=user_key,created_at`, { method: 'GET' }),
     supabaseJson('/rest/v1/videos?select=id,created_at', { method: 'GET' }),
     supabaseJson('/rest/v1/view_events_raw?select=id,watch_ms,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
     supabaseJson('/rest/v1/comments?select=id,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
     supabaseJson('/rest/v1/admin_events?select=event_type,payload,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
-    supabaseJson('/rest/v1/reports?select=id,created_at&created_at=gte.' + encodeURIComponent(cutoff24hIso), { method: 'GET' }),
     supabaseJson('/rest/v1/view_events_raw?select=viewer_id&created_at=gte.' + encodeURIComponent(cutoff5mIso), { method: 'GET' }),
     loadAppStateSnapshot('visit_stats'),
     loadAppStateSnapshot('admin_analytics_history'),
   ]);
-  if (![profilesRes, videosRes, viewsRes, commentsRes, eventsRes, reportsRes, activeViewsRes].every((r) => r.ok)) {
+  if (![usersRes, videosRes, viewsRes, commentsRes, eventsRes, activeViewsRes].every((r) => r.ok)) {
     return { ok: false, reason: 'supabase_query_failed' };
   }
 
-  const profiles = Array.isArray(profilesRes.data) ? profilesRes.data : [];
+  const users = Array.isArray(usersRes.data) ? usersRes.data : [];
   const videos = Array.isArray(videosRes.data) ? videosRes.data : [];
   const views = Array.isArray(viewsRes.data) ? viewsRes.data : [];
   const comments = Array.isArray(commentsRes.data) ? commentsRes.data : [];
   const events = Array.isArray(eventsRes.data) ? eventsRes.data : [];
-  const reports = Array.isArray(reportsRes.data) ? reportsRes.data : [];
   const activeRows = Array.isArray(activeViewsRes.data) ? activeViewsRes.data : [];
   const watchingNow = Math.max(
     activeRows.length,
@@ -465,9 +462,9 @@ async function fetchAdminStatsFromSupabase() {
   const legacySignups = Array.isArray(historyPayload.signups) ? historyPayload.signups : [];
   const legacySignup24h = legacySignups.filter((s) => s && Number(s.ts || 0) >= (now - 24 * 60 * 60 * 1000)).length;
 
-  const profileSignups24h = profiles.filter((p) => p && p.created_at && new Date(p.created_at).getTime() >= now - 24 * 60 * 60 * 1000).length;
+  const profileSignups24h = users.filter((p) => p && p.created_at && new Date(p.created_at).getTime() >= now - 24 * 60 * 60 * 1000).length;
   const signups24h = Math.max(profileSignups24h, legacySignup24h);
-  const totalUsers = Math.max(profiles.length, legacySignups.length);
+  const totalUsers = Math.max(users.length, legacySignups.length);
   const totalVideos = videos.length;
   const videosAdded24h = videos.filter((v) => v && v.created_at && new Date(v.created_at).getTime() >= now - 24 * 60 * 60 * 1000).length;
   const totalViews24h = views.length;
@@ -521,7 +518,7 @@ async function fetchAdminStatsFromSupabase() {
       videosAdded24h,
       totalViews24h,
       totalComments24h: comments.length,
-      totalReports24h: reports.length,
+      totalReports24h: 0,
       navClicks,
       categoryHits,
       bounceRate,
@@ -555,24 +552,6 @@ async function resetAdminStatsInSupabase() {
     if (!resp.ok && resp.status !== 404) return { ok: false, table, status: resp.status };
   }
   return { ok: true };
-}
-
-async function ensureCategoryRow(slug, label) {
-  const query = `/rest/v1/categories?slug=eq.${encodeURIComponent(slug)}&select=id,slug&limit=1`;
-  const existing = await supabaseJson(query);
-  if (existing.ok && Array.isArray(existing.data) && existing.data[0]?.id) return existing.data[0];
-  const inserted = await supabaseJson('/rest/v1/categories', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    },
-    body: JSON.stringify([{ slug, label }]),
-  });
-  if (!inserted.ok || !Array.isArray(inserted.data) || !inserted.data[0]?.id) {
-    throw new Error('category_insert_failed');
-  }
-  return inserted.data[0];
 }
 
 // ── SEO: Video slug generation for clean URLs ──
@@ -3957,30 +3936,62 @@ function defaultAccountProfile(userKey, u) {
 
 async function fetchAccountProfileSupabase(userKey, u) {
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return defaultAccountProfile(userKey, u);
-  const q = `/rest/v1/account_profiles?user_key=eq.${encodeURIComponent(userKey)}&select=*&limit=1`;
+  const q = `/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?user_key=eq.${encodeURIComponent(userKey)}&select=profile,username&limit=1`;
   const existing = await supabaseJson(q);
-  if (existing.ok && Array.isArray(existing.data) && existing.data[0]) return existing.data[0];
-  const row = defaultAccountProfile(userKey, u);
-  const inserted = await supabaseJson('/rest/v1/account_profiles?on_conflict=user_key', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation,resolution=merge-duplicates',
-    },
-    body: JSON.stringify([row]),
-  });
-  if (inserted.ok && Array.isArray(inserted.data) && inserted.data[0]) return inserted.data[0];
-  return row;
+  if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+    const row = existing.data[0];
+    const profile = row && row.profile && typeof row.profile === 'object' ? row.profile : {};
+    return {
+      ...defaultAccountProfile(userKey, u),
+      username: String(row.username || u.username || userKey),
+      display_name: String(profile.displayName || stripDiscordPrefix(u.username || userKey)),
+      avatar_url: String(profile.avatarUrl || ''),
+      banner_url: String(profile.bannerUrl || ''),
+      bio: String(profile.bio || ''),
+      twitter_url: String(profile.twitterUrl || ''),
+      instagram_url: String(profile.instagramUrl || ''),
+      website_url: String(profile.websiteUrl || ''),
+      followers_count: Math.max(0, Number(profile.followersCount) || 0),
+      video_views: Math.max(0, Number(profile.videoViews) || 0),
+      rank: Math.max(0, Number(profile.rank) || 0),
+      videos: Array.isArray(profile.videos) ? profile.videos : [],
+      photos: Array.isArray(profile.photos) ? profile.photos : [],
+      gifs: Array.isArray(profile.gifs) ? profile.gifs : [],
+      username_changed_at: profile.usernameChangedAt || null,
+    };
+  }
+  return defaultAccountProfile(userKey, u);
 }
 
 async function upsertAccountProfileSupabase(userKey, next) {
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, reason: 'supabase_not_configured' };
-  const payload = { ...next, user_key: userKey, updated_at: new Date().toISOString() };
-  return supabaseJson('/rest/v1/account_profiles?on_conflict=user_key', {
+  const nowIso = new Date().toISOString();
+  const payload = {
+    user_key: userKey,
+    username: String(next.username || userKey),
+    profile: {
+      displayName: String(next.display_name || ''),
+      avatarUrl: String(next.avatar_url || ''),
+      bannerUrl: String(next.banner_url || ''),
+      bio: String(next.bio || ''),
+      twitterUrl: String(next.twitter_url || ''),
+      instagramUrl: String(next.instagram_url || ''),
+      websiteUrl: String(next.website_url || ''),
+      followersCount: Math.max(0, Number(next.followers_count) || 0),
+      videoViews: Math.max(0, Number(next.video_views) || 0),
+      rank: Math.max(0, Number(next.rank) || 0),
+      videos: Array.isArray(next.videos) ? next.videos : [],
+      photos: Array.isArray(next.photos) ? next.photos : [],
+      gifs: Array.isArray(next.gifs) ? next.gifs : [],
+      usernameChangedAt: next.username_changed_at || null,
+    },
+    updated_at: nowIso,
+  };
+  return supabaseJson(`/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?on_conflict=user_key`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Prefer: 'return=representation,resolution=merge-duplicates',
+      Prefer: 'return=minimal,resolution=merge-duplicates',
     },
     body: JSON.stringify([payload]),
   });
@@ -4027,11 +4038,9 @@ async function upsertDiscordAccountLinkSupabase(userKey, u, reason = 'sync') {
     user_key: userKey,
     discord_user_id: discordUserId,
     discord_username: discordUsername || null,
-    linked_at: discordUserId ? nowIso : null,
-    unlinked_at: discordUserId ? null : nowIso,
     updated_at: nowIso,
   };
-  return supabaseJson(`/rest/v1/${SUPABASE_DISCORD_LINKS_TABLE}?on_conflict=user_key`, {
+  return supabaseJson(`/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?on_conflict=user_key`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -4045,17 +4054,13 @@ async function upsertDiscordAccountLinkSupabase(userKey, u, reason = 'sync') {
 async function upsertAccessEntitlementSupabase(userKey, u, source = 'system') {
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, skipped: true, reason: 'supabase_not_configured' };
   const tier = Math.max(0, Math.min(2, Number(getEffectiveTierForUser(u) || 0)));
-  const status = tier > 0 ? 'active' : 'inactive';
   const nowIso = new Date().toISOString();
   const payload = {
     user_key: userKey,
     tier,
-    status,
-    source: String(source || 'system').slice(0, 64),
-    expires_at: null,
     updated_at: nowIso,
   };
-  return supabaseJson(`/rest/v1/${SUPABASE_ENTITLEMENTS_TABLE}?on_conflict=user_key`, {
+  return supabaseJson(`/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?on_conflict=user_key`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -4066,30 +4071,15 @@ async function upsertAccessEntitlementSupabase(userKey, u, source = 'system') {
 }
 
 async function enqueueDiscordRoleSyncJobSupabase(userKey, u, reason = 'sync') {
-  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, skipped: true, reason: 'supabase_not_configured' };
-  if (!DISCORD_SYNC_GUILD_ID) return { ok: false, skipped: true, reason: 'guild_not_configured' };
-  const discordUserId = u && u.discordId ? String(u.discordId) : '';
-  if (!discordUserId) return { ok: false, skipped: true, reason: 'discord_not_linked' };
   const tier = Math.max(0, Math.min(2, Number(getEffectiveTierForUser(u) || 0)));
-  const payload = {
-    user_key: userKey,
-    discord_user_id: discordUserId,
-    guild_id: DISCORD_SYNC_GUILD_ID,
-    desired_tier: tier,
-    desired_role_ids: desiredDiscordRoleIdsForTier(tier),
+  return {
+    ok: true,
+    skipped: true,
+    desiredTier: tier,
+    desiredRoleIds: desiredDiscordRoleIdsForTier(tier),
+    guildId: DISCORD_SYNC_GUILD_ID || null,
     reason: String(reason || 'sync').slice(0, 120),
-    status: 'pending',
-    attempts: 0,
-    updated_at: new Date().toISOString(),
   };
-  return supabaseJson(`/rest/v1/${SUPABASE_DISCORD_SYNC_JOBS_TABLE}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Prefer: 'return=minimal',
-    },
-    body: JSON.stringify([payload]),
-  });
 }
 
 async function syncDiscordEntitlementStateSupabase(userKey, u, source = 'system') {
@@ -4261,6 +4251,103 @@ function scryptHex(password, saltHex) {
   return key.toString('hex');
 }
 
+function dbUserToSupabaseUserRow(userKey, u) {
+  const safeUser = (u && typeof u === 'object') ? u : {};
+  const profile = {
+    displayName: safeUser.displayName || '',
+    avatarUrl: safeUser.avatarUrl || '',
+    bio: safeUser.bio || '',
+    twitterUrl: safeUser.twitterUrl || '',
+    instagramUrl: safeUser.instagramUrl || '',
+    websiteUrl: safeUser.websiteUrl || '',
+    discordUsername: safeUser.discordUsername || '',
+  };
+  const purchase = {
+    purchaseMethod: safeUser.purchaseMethod || null,
+    purchaseDate: safeUser.purchaseDate || null,
+    premiumProvider: safeUser.premiumProvider || null,
+    premiumPaidAt: safeUser.premiumPaidAt || null,
+  };
+  const flags = {
+    banned: !!safeUser.banned,
+    tierLostNotice: safeUser.tierLostNotice || null,
+  };
+  return {
+    user_key: String(userKey || ''),
+    username: String(safeUser.username || userKey || ''),
+    email: String(safeUser.email || '').trim().toLowerCase() || null,
+    provider: String(safeUser.provider || 'local'),
+    tier: [1, 2].includes(Number(safeUser.tier)) ? Number(safeUser.tier) : 0,
+    password_hash: safeUser.hash || null,
+    password_salt: safeUser.salt || null,
+    discord_user_id: safeUser.discordId ? String(safeUser.discordId) : null,
+    discord_username: safeUser.discordUsername ? String(safeUser.discordUsername) : null,
+    google_user_id: safeUser.googleId ? String(safeUser.googleId) : null,
+    google_email: safeUser.googleEmail ? String(safeUser.googleEmail).trim().toLowerCase() : null,
+    signup_ip: safeUser.signupIp ? String(safeUser.signupIp) : null,
+    referral_code: safeUser.referralCode ? String(safeUser.referralCode) : null,
+    referred_by: safeUser.referredBy ? String(safeUser.referredBy) : null,
+    referred_users: Array.isArray(safeUser.referredUsers) ? safeUser.referredUsers : [],
+    referral_credit_ips: Array.isArray(safeUser.referralCreditIps) ? safeUser.referralCreditIps : [],
+    profile,
+    purchase,
+    flags,
+    raw: safeUser,
+    created_at: safeUser.createdAt ? new Date(Number(safeUser.createdAt)).toISOString() : new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function supabaseRowToDbUser(row) {
+  const profile = row && row.profile && typeof row.profile === 'object' ? row.profile : {};
+  const purchase = row && row.purchase && typeof row.purchase === 'object' ? row.purchase : {};
+  const flags = row && row.flags && typeof row.flags === 'object' ? row.flags : {};
+  const raw = row && row.raw && typeof row.raw === 'object' ? row.raw : {};
+  return {
+    ...raw,
+    username: String(row?.username || raw.username || ''),
+    email: row?.email ? String(row.email) : '',
+    provider: String(row?.provider || raw.provider || 'local'),
+    tier: Number(row?.tier || raw.tier || 0) || null,
+    hash: row?.password_hash || raw.hash || null,
+    salt: row?.password_salt || raw.salt || null,
+    discordId: row?.discord_user_id || raw.discordId || null,
+    discordUsername: row?.discord_username || profile.discordUsername || raw.discordUsername || '',
+    googleId: row?.google_user_id || raw.googleId || null,
+    googleEmail: row?.google_email || raw.googleEmail || '',
+    signupIp: row?.signup_ip || raw.signupIp || 'unknown',
+    referralCode: row?.referral_code || raw.referralCode || null,
+    referredBy: row?.referred_by || raw.referredBy || null,
+    referredUsers: Array.isArray(row?.referred_users) ? row.referred_users : (Array.isArray(raw.referredUsers) ? raw.referredUsers : []),
+    referralCreditIps: Array.isArray(row?.referral_credit_ips) ? row.referral_credit_ips : (Array.isArray(raw.referralCreditIps) ? raw.referralCreditIps : []),
+    displayName: profile.displayName || raw.displayName || '',
+    avatarUrl: profile.avatarUrl || raw.avatarUrl || '',
+    bio: profile.bio || raw.bio || '',
+    twitterUrl: profile.twitterUrl || raw.twitterUrl || '',
+    instagramUrl: profile.instagramUrl || raw.instagramUrl || '',
+    websiteUrl: profile.websiteUrl || raw.websiteUrl || '',
+    purchaseMethod: purchase.purchaseMethod || raw.purchaseMethod || null,
+    purchaseDate: purchase.purchaseDate || raw.purchaseDate || null,
+    premiumProvider: purchase.premiumProvider || raw.premiumProvider || null,
+    premiumPaidAt: purchase.premiumPaidAt || raw.premiumPaidAt || null,
+    banned: flags.banned === true || raw.banned === true,
+    tierLostNotice: flags.tierLostNotice || raw.tierLostNotice || null,
+    createdAt: row?.created_at ? new Date(row.created_at).getTime() : (Number(raw.createdAt) || Date.now()),
+  };
+}
+
+async function loadUsersDbFromSupabase() {
+  if (!SUPABASE_USERS_SYNC || !SUPABASE_URL || !SUPABASE_SECRET_KEY) return null;
+  const resp = await supabaseJson(`/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?select=*&limit=100000`, { method: 'GET' });
+  if (!resp.ok || !Array.isArray(resp.data)) return null;
+  const users = {};
+  for (const row of resp.data) {
+    if (!row || !row.user_key) continue;
+    users[String(row.user_key)] = supabaseRowToDbUser(row);
+  }
+  return { version: 2, users };
+}
+
 async function ensureUsersDb() {
   // Backwards-compatible wrapper: prefer live file reads.
   return await ensureUsersDbFresh();
@@ -4292,21 +4379,27 @@ async function ensureUsersDbFresh() {
 
   _usersDbReadPromise = (async () => {
     try {
-      let raw;
-      if (R2_ENABLED) {
-        raw = await r2GetObject('data/users.json');
+      const supabaseDb = await loadUsersDbFromSupabase();
+      if (supabaseDb && supabaseDb.users && typeof supabaseDb.users === 'object') {
+        usersDb = supabaseDb;
+        _usersDbLastFetchTs = Date.now();
       } else {
-        await fs.promises.mkdir(DATA_DIR, { recursive: true });
-        raw = await fs.promises.readFile(USERS_FILE, 'utf8');
+        let raw;
+        if (R2_ENABLED) {
+          raw = await r2GetObject('data/users.json');
+        } else {
+          await fs.promises.mkdir(DATA_DIR, { recursive: true });
+          raw = await fs.promises.readFile(USERS_FILE, 'utf8');
+        }
+        if (!raw) throw new Error('empty');
+        const parsed = await jsonParseAsync(raw);
+        if (!parsed || typeof parsed !== 'object') throw new Error('bad');
+        if (!parsed.users || typeof parsed.users !== 'object') parsed.users = {};
+        if (!parsed.version) parsed.version = 1;
+        usersDb = parsed;
+        _usersDbLastFetchTs = Date.now();
       }
-      if (!raw) throw new Error('empty');
-      const parsed = await jsonParseAsync(raw);
-      if (!parsed || typeof parsed !== 'object') throw new Error('bad');
-      if (!parsed.users || typeof parsed.users !== 'object') parsed.users = {};
-      if (!parsed.version) parsed.version = 1;
-      usersDb = parsed;
-      _usersDbLastFetchTs = Date.now();
-      await loadSessionsOnceFromR2(parsed);
+      await loadSessionsOnceFromR2(usersDb);
     } catch (loadErr) {
       if (usersDb && Object.keys(usersDb.users || {}).length > 0) {
         console.error('[ensureUsersDbFresh] R2/disk read failed but keeping', Object.keys(usersDb.users).length, 'in-memory users. Error:', loadErr && loadErr.message ? loadErr.message : loadErr);
@@ -4340,6 +4433,42 @@ async function _doUsersDbWrite() {
   // Reset cache timestamp so next read picks up changes
   _usersDbLastFetchTs = Date.now();
   usersDbWritePromise = usersDbWritePromise.then(async () => {
+    if (SUPABASE_USERS_SYNC && SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const localUsers = usersDb && usersDb.users && typeof usersDb.users === 'object' ? usersDb.users : {};
+      const rows = Object.entries(localUsers)
+        .filter(([k]) => !!k)
+        .map(([k, u]) => dbUserToSupabaseUserRow(k, u));
+      const chunkSize = 500;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
+        const upsertResp = await supabaseJson(`/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?on_conflict=user_key`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates,return=minimal',
+          },
+          body: JSON.stringify(chunk),
+        });
+        if (!upsertResp.ok) {
+          throw new Error(`supabase users upsert failed: ${upsertResp.status}`);
+        }
+      }
+      if (deletedUserKeys.size > 0) {
+        const toDelete = Array.from(deletedUserKeys.values()).map((k) => String(k).trim()).filter(Boolean);
+        deletedUserKeys.clear();
+        for (const userKey of toDelete) {
+          const delResp = await supabaseFetch(`/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?user_key=eq.${encodeURIComponent(userKey)}`, {
+            method: 'DELETE',
+            headers: { Prefer: 'return=minimal' },
+          });
+          if (!delResp.ok && delResp.status !== 404) {
+            throw new Error(`supabase users delete failed (${delResp.status}) for ${userKey}`);
+          }
+        }
+      }
+      return;
+    }
+
     if (R2_ENABLED) {
       const localUsers = usersDb && usersDb.users && typeof usersDb.users === 'object' ? usersDb.users : {};
       const localCount = Object.keys(localUsers).length;
@@ -6861,40 +6990,29 @@ const server = http.createServer(async (req, res) => {
       if (!supplied || supplied !== DISCORD_BOT_SYNC_SECRET) return sendJson(res, 401, { error: 'Unauthorized' });
       if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return sendJson(res, 503, { error: 'Supabase not configured' });
 
-      const [linksResp, entResp] = await Promise.all([
-        supabaseJson(`/rest/v1/${SUPABASE_DISCORD_LINKS_TABLE}?select=user_key,discord_user_id,discord_username,updated_at&discord_user_id=not.is.null&limit=5000`, { method: 'GET' }),
-        supabaseJson(`/rest/v1/${SUPABASE_ENTITLEMENTS_TABLE}?select=user_key,tier,status,source,expires_at,updated_at&limit=5000`, { method: 'GET' }),
-      ]);
-      if (!linksResp.ok || !entResp.ok) {
+      const usersResp = await supabaseJson(`/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?select=user_key,discord_user_id,discord_username,tier,updated_at&discord_user_id=not.is.null&limit=5000`, { method: 'GET' });
+      if (!usersResp.ok) {
         return sendJson(res, 500, {
           error: 'Failed to read entitlement data',
-          linksOk: linksResp.ok,
-          entitlementsOk: entResp.ok,
+          usersOk: usersResp.ok,
         });
       }
 
-      const entByUserKey = new Map();
-      for (const row of (Array.isArray(entResp.data) ? entResp.data : [])) {
-        if (!row || !row.user_key) continue;
-        entByUserKey.set(String(row.user_key), row);
-      }
-
       const rows = [];
-      for (const link of (Array.isArray(linksResp.data) ? linksResp.data : [])) {
-        const userKey = String(link.user_key || '');
-        if (!userKey || !link.discord_user_id) continue;
-        const ent = entByUserKey.get(userKey);
-        const tier = Math.max(0, Math.min(2, Number(ent && ent.tier ? ent.tier : 0)));
+      for (const userRow of (Array.isArray(usersResp.data) ? usersResp.data : [])) {
+        const userKey = String(userRow.user_key || '');
+        if (!userKey || !userRow.discord_user_id) continue;
+        const tier = Math.max(0, Math.min(2, Number(userRow && userRow.tier ? userRow.tier : 0)));
         rows.push({
           userKey,
-          discordUserId: String(link.discord_user_id),
-          discordUsername: String(link.discord_username || ''),
+          discordUserId: String(userRow.discord_user_id),
+          discordUsername: String(userRow.discord_username || ''),
           tier,
-          status: ent && ent.status ? String(ent.status) : (tier > 0 ? 'active' : 'inactive'),
-          source: ent && ent.source ? String(ent.source) : 'system',
-          expiresAt: ent && ent.expires_at ? ent.expires_at : null,
+          status: tier > 0 ? 'active' : 'inactive',
+          source: 'users_table',
+          expiresAt: null,
           desiredRoleIds: desiredDiscordRoleIdsForTier(tier),
-          updatedAt: (ent && ent.updated_at) || link.updated_at || null,
+          updatedAt: userRow.updated_at || null,
         });
       }
       return sendJson(res, 200, {
@@ -9430,7 +9548,6 @@ const server = http.createServer(async (req, res) => {
 
       if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
         try {
-          const catRow = await ensureCategoryRow(categorySlug, category);
           const ownerId = (u && typeof u.userId === 'string' && u.userId) ? u.userId : null;
           if (ownerId) {
             await supabaseJson('/rest/v1/videos', {
@@ -9443,7 +9560,6 @@ const server = http.createServer(async (req, res) => {
                 id,
                 owner_id: ownerId,
                 title: videoName,
-                category_id: catRow.id,
                 visibility: 'private',
                 status: 'uploaded',
               }]),
@@ -9459,21 +9575,7 @@ const server = http.createServer(async (req, res) => {
                 ingest_status: 'uploaded',
                 source_object_key: r2TempKey,
                 mp4_1080_object_key: r2TempKey,
-                mp4_720_object_key: output720Key,
-              }]),
-            });
-            await supabaseJson('/rest/v1/transcode_jobs', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Prefer: 'return=minimal',
-              },
-              body: JSON.stringify([{
-                video_id: id,
-                category_slug: categorySlug,
-                source_object_key: r2TempKey,
-                output_720_object_key: output720Key,
-                status: 'pending',
+                mp4_720_object_key: null,
               }]),
             });
           }
