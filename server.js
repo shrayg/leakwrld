@@ -4624,6 +4624,10 @@ function acquireSignupLock() {
 
 // ===== Shared signup guard: IP-duplicate check =====
 async function checkSignupBlocked(ip, db) {
+  // Default OFF: strict one-account-per-IP is too aggressive for shared/mobile IPs.
+  // Re-enable by setting TBW_SIGNUP_REQUIRE_UNIQUE_IP=1.
+  const requireUniqueIp = String(process.env.TBW_SIGNUP_REQUIRE_UNIQUE_IP || '0') === '1';
+  if (!requireUniqueIp) return { blocked: false };
   // Block if any existing user already signed up from this IP
   for (const u of Object.values(db.users)) {
     if (u.signupIp && u.signupIp === ip) {
@@ -4631,6 +4635,29 @@ async function checkSignupBlocked(ip, db) {
     }
   }
   return { blocked: false };
+}
+
+function findUserKeyByLoginIdentifier(db, identifier) {
+  const raw = String(identifier || '').trim();
+  if (!raw || !db || !db.users || typeof db.users !== 'object') return null;
+  const lowered = raw.toLowerCase();
+  // Email login
+  if (lowered.includes('@')) {
+    for (const [userKey, u] of Object.entries(db.users)) {
+      const em = String((u && u.email) || '').trim().toLowerCase();
+      if (em && em === lowered) return userKey;
+      if (String(userKey || '').toLowerCase() === lowered) return userKey;
+      if (String((u && u.username) || '').trim().toLowerCase() === lowered) return userKey;
+    }
+    return null;
+  }
+  // Username / user_key login
+  if (db.users[lowered]) return lowered;
+  for (const [userKey, u] of Object.entries(db.users)) {
+    if (String(userKey || '').toLowerCase() === lowered) return userKey;
+    if (String((u && u.username) || '').trim().toLowerCase() === lowered) return userKey;
+  }
+  return null;
 }
 
 function bumpSignupRate(ip) {
@@ -6860,13 +6887,14 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req, res);
       if (!body) return;
 
-      const username = String(body.username || '').trim();
+      const loginId = String(body.username || body.email || '').trim();
       const password = String(body.password || '');
-      if (!isValidUsername(username)) return sendJson(res, 401, { error: 'Invalid credentials' });
+      if (!loginId) return sendJson(res, 401, { error: 'Invalid credentials' });
       if (!isValidPassword(password)) return sendJson(res, 401, { error: 'Invalid credentials' });
 
       const db = await ensureUsersDbFresh();
-      const key = username.toLowerCase();
+      const key = findUserKeyByLoginIdentifier(db, loginId);
+      if (!key) return sendJson(res, 401, { error: 'Invalid credentials' });
       const record = db.users[key];
       if (!record || record.provider !== 'local') return sendJson(res, 401, { error: 'Invalid credentials' });
 

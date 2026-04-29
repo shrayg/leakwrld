@@ -97,7 +97,7 @@ export function AuthModal() {
         {authTab === 'login' ? (
           <form className="auth-form" id="auth-login" onSubmit={onLogin}>
             <label>
-              <span>Username</span>
+              <span>Username or Email</span>
               <input name="username" autoComplete="username" required minLength={3} value={username} onChange={(e) => setUsername(e.target.value)} />
             </label>
             <label>
