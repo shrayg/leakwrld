@@ -9908,9 +9908,15 @@ const server = http.createServer(async (req, res) => {
     const _clientIndex = path.join(_clientDist, 'index.html');
     const _methodUp = (req.method || 'GET').toUpperCase();
     if ((_methodUp === 'GET' || _methodUp === 'HEAD') && fs.existsSync(_clientIndex)) {
-      // Note: `/assets/*` is handled by a separate fallback block below (local `images/`+`thumbnails/` + optional R2).
-      // Keep this Vite-dist block focused on fonts/whitney to avoid short-circuiting `/assets/*` 404s.
-      if (pathname === '/whitney-fonts.css' || pathname.startsWith('/fonts/')) {
+      // Serve Vite-built assets and fonts from `client/dist`.
+      // Keep custom asset namespaces (`/assets/images|thumbnails|onlyfans|branding`) on the fallback block below.
+      const isCustomAssetNamespace =
+        pathname.startsWith('/assets/images/') ||
+        pathname.startsWith('/assets/thumbnails/') ||
+        pathname.startsWith('/assets/onlyfans/') ||
+        pathname.startsWith('/assets/branding/');
+      const isViteAssetPath = pathname.startsWith('/assets/') && !isCustomAssetNamespace;
+      if (isViteAssetPath || pathname === '/whitney-fonts.css' || pathname.startsWith('/fonts/')) {
         const _rel = pathname.replace(/^\/+/, '');
         const _assetPath = path.normalize(path.join(_clientDist, _rel));
         if (_assetPath.startsWith(path.normalize(_clientDist + path.sep))) {
