@@ -251,6 +251,13 @@ function buildVideoObjectKeys(categorySlug, entityId, sourceExt) {
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_SECRET_KEY = String(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 const SUPABASE_ACCESS_KEYS_TABLE = String(process.env.SUPABASE_ACCESS_KEYS_TABLE || 'issued_access_keys');
+const SUPABASE_DISCORD_LINKS_TABLE = String(process.env.SUPABASE_DISCORD_LINKS_TABLE || 'discord_account_links');
+const SUPABASE_ENTITLEMENTS_TABLE = String(process.env.SUPABASE_ENTITLEMENTS_TABLE || 'access_entitlements');
+const SUPABASE_DISCORD_SYNC_JOBS_TABLE = String(process.env.SUPABASE_DISCORD_SYNC_JOBS_TABLE || 'discord_role_sync_jobs');
+const DISCORD_BOT_SYNC_SECRET = String(process.env.DISCORD_BOT_SYNC_SECRET || '').trim();
+const DISCORD_SYNC_GUILD_ID = String(process.env.DISCORD_SYNC_GUILD_ID || '').trim();
+const DISCORD_ROLE_ID_BASIC = String(process.env.DISCORD_ROLE_ID_BASIC || '').trim();
+const DISCORD_ROLE_ID_PREMIUM = String(process.env.DISCORD_ROLE_ID_PREMIUM || '').trim();
 const SUPABASE_ACCESS_KEY_COLUMN = String(process.env.SUPABASE_ACCESS_KEY_COLUMN || 'access_key');
 const XYZPAY_ALLOWED_ORIGINS = (process.env.XYZPAY_ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -2827,6 +2834,10 @@ const ADMIN_PASSWORD_WEBHOOK_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(
 const ADMIN_PASSWORD_WEBHOOK_RETRIES = Math.max(0, Math.min(10, Number(process.env.ADMIN_PASSWORD_WEBHOOK_RETRIES || 3)));
 const ADMIN_PASSWORD_WEBHOOK_RETRY_BASE_MS = Math.max(100, Math.min(60000, Number(process.env.ADMIN_PASSWORD_WEBHOOK_RETRY_BASE_MS || 1500)));
 const ADMIN_PASSWORD_WEBHOOK_DRY_RUN = String(process.env.ADMIN_PASSWORD_WEBHOOK_DRY_RUN || '').trim() === '1';
+const ADMIN_PASSWORD_ROTATION_HEALTH_GRACE_MS = Math.max(
+  5 * 60 * 1000,
+  Number(process.env.ADMIN_PASSWORD_ROTATION_HEALTH_GRACE_MS || (ADMIN_PASSWORD_ROTATE_MS * 2)),
+);
 let ADMIN_PASSWORD_CURRENT = crypto.randomBytes(16).toString('hex');
 console.warn('[admin] INFO: rotating admin password enabled (16-byte random, interval ms=' + ADMIN_PASSWORD_ROTATE_MS + ')');
 const ADMIN_COOKIE = 'tbw_admin';
@@ -2876,27 +2887,37 @@ function formatWebhookTargetForLog(url) {
   return `${url.protocol}//${url.host}${url.pathname}`;
 }
 
+const adminPasswordRotationState = {
+  running: false,
+  lastRotatedAt: 0,
+  lastReason: '',
+  lastWebhookOk: false,
+  lastWebhookError: '',
+  lastWebhookAttemptAt: 0,
+  nextRotationAt: 0,
+};
+
 async function postAdminPasswordToWebhook(password, reason) {
   if (!ADMIN_PASSWORD_WEBHOOK_URL) {
     console.warn('[admin] ADMIN_PASSWORD_WEBHOOK_URL is empty; password webhook skipped');
-    return;
+    return { ok: false, skipped: true, error: 'ADMIN_PASSWORD_WEBHOOK_URL is empty' };
   }
   let webhookUrl;
   try {
     webhookUrl = new URL(ADMIN_PASSWORD_WEBHOOK_URL);
   } catch (e) {
     console.error('[admin] invalid ADMIN_PASSWORD_WEBHOOK_URL:', e && e.message ? e.message : e);
-    return;
+    return { ok: false, error: 'invalid ADMIN_PASSWORD_WEBHOOK_URL' };
   }
   if (webhookUrl.protocol !== 'https:' && webhookUrl.protocol !== 'http:') {
     console.error('[admin] invalid ADMIN_PASSWORD_WEBHOOK_URL protocol:', webhookUrl.protocol);
-    return;
+    return { ok: false, error: 'invalid ADMIN_PASSWORD_WEBHOOK_URL protocol' };
   }
 
   const targetLabel = formatWebhookTargetForLog(webhookUrl);
   if (ADMIN_PASSWORD_WEBHOOK_DRY_RUN) {
     console.warn('[admin] password webhook dry-run enabled; would POST rotation (' + reason + ') to ' + targetLabel);
-    return;
+    return { ok: true, dryRun: true, target: targetLabel };
   }
 
   const payload = JSON.stringify({
@@ -2940,21 +2961,28 @@ async function postAdminPasswordToWebhook(password, reason) {
         wr.end();
       });
       console.warn('[admin] password webhook delivered for rotation (' + reason + ') to ' + targetLabel + ' on attempt ' + attempt + '/' + maxAttempts);
-      return;
+      return { ok: true, target: targetLabel, attempts: attempt };
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
       if (attempt >= maxAttempts) {
         console.error('[admin] password webhook failed after ' + maxAttempts + ' attempts for rotation (' + reason + ') to ' + targetLabel + ': ' + msg);
-        return;
+        return { ok: false, target: targetLabel, attempts: attempt, error: msg };
       }
       const backoffMs = ADMIN_PASSWORD_WEBHOOK_RETRY_BASE_MS * Math.pow(2, attempt - 1);
       console.warn('[admin] password webhook attempt ' + attempt + '/' + maxAttempts + ' failed for rotation (' + reason + ') to ' + targetLabel + ': ' + msg + ' (retrying in ' + backoffMs + 'ms)');
       await waitMs(backoffMs);
     }
   }
+  return { ok: false, error: 'unknown webhook failure' };
 }
 
-function rotateAdminPassword(reason) {
+async function rotateAdminPassword(reason) {
+  if (adminPasswordRotationState.running) {
+    return { ok: false, skipped: true, error: 'rotation_already_running' };
+  }
+  adminPasswordRotationState.running = true;
+  adminPasswordRotationState.lastWebhookAttemptAt = Date.now();
+  adminPasswordRotationState.lastReason = String(reason || 'scheduled');
   ADMIN_PASSWORD_CURRENT = crypto.randomBytes(16).toString('hex');
   // Force re-login on every password rotation.
   // Existing admin cookies become invalid because their backing tokens are removed.
@@ -2963,13 +2991,57 @@ function rotateAdminPassword(reason) {
     persistAdminTokens();
   }
   console.warn('[admin] password rotated (' + reason + ')');
-  void postAdminPasswordToWebhook(ADMIN_PASSWORD_CURRENT, reason);
+  const rotatedPassword = ADMIN_PASSWORD_CURRENT;
+  adminPasswordRotationState.lastRotatedAt = Date.now();
+  let webhookResult;
+  try {
+    webhookResult = await postAdminPasswordToWebhook(rotatedPassword, reason);
+    if (!webhookResult || !webhookResult.ok) {
+      const errMsg = webhookResult && webhookResult.error ? webhookResult.error : 'unknown webhook failure';
+      adminPasswordRotationState.lastWebhookOk = false;
+      adminPasswordRotationState.lastWebhookError = errMsg;
+      adminEmitEvent('admin_password_webhook_failed', 'Admin password webhook failed (' + reason + ')', { reason, error: errMsg });
+    } else {
+      adminPasswordRotationState.lastWebhookOk = true;
+      adminPasswordRotationState.lastWebhookError = '';
+      adminEmitEvent('admin_password_webhook_delivered', 'Admin password webhook delivered (' + reason + ')', { reason, attempts: webhookResult.attempts || 1 });
+    }
+  } catch (err) {
+    const errMsg = err && err.message ? err.message : String(err);
+    adminPasswordRotationState.lastWebhookOk = false;
+    adminPasswordRotationState.lastWebhookError = errMsg;
+    adminEmitEvent('admin_password_webhook_failed', 'Admin password webhook failed (' + reason + ')', { reason, error: errMsg });
+    webhookResult = { ok: false, error: errMsg };
+  }
   logAdminEventToSupabase('admin_password_rotated', { reason }).catch(() => {});
   adminEmitEvent('admin_password_rotated', 'Admin password rotated (' + reason + ')');
+  adminPasswordRotationState.running = false;
+  return {
+    ok: !!(webhookResult && webhookResult.ok),
+    password: rotatedPassword,
+    reason: String(reason || 'scheduled'),
+    webhook: webhookResult || { ok: false, error: 'no_result' },
+  };
 }
 
-rotateAdminPassword('startup');
-setInterval(() => rotateAdminPassword('hourly'), ADMIN_PASSWORD_ROTATE_MS);
+function scheduleAdminPasswordRotation() {
+  const nextRunAt = Date.now() + ADMIN_PASSWORD_ROTATE_MS;
+  adminPasswordRotationState.nextRotationAt = nextRunAt;
+  setTimeout(async () => {
+    try {
+      await rotateAdminPassword('hourly');
+    } catch (err) {
+      const errMsg = err && err.message ? err.message : String(err);
+      adminEmitEvent('admin_password_rotation_loop_error', 'Admin password rotation loop error', { error: errMsg });
+    } finally {
+      scheduleAdminPasswordRotation();
+    }
+  }, ADMIN_PASSWORD_ROTATE_MS);
+}
+
+void rotateAdminPassword('startup').finally(() => {
+  scheduleAdminPasswordRotation();
+});
 
 // ── Admin analytics persistence ─────────────────────────────────────────────
 const ADMIN_DATA_FILE = path.join(DATA_DIR, 'admin_analytics.json'); // legacy fallback
@@ -3861,6 +3933,95 @@ function isProviderLinked(u, provider) {
   return false;
 }
 
+function desiredDiscordRoleIdsForTier(tier) {
+  const roleIds = [];
+  if (Number(tier || 0) >= 1 && DISCORD_ROLE_ID_BASIC) roleIds.push(DISCORD_ROLE_ID_BASIC);
+  if (Number(tier || 0) >= 2 && DISCORD_ROLE_ID_PREMIUM) roleIds.push(DISCORD_ROLE_ID_PREMIUM);
+  return roleIds;
+}
+
+async function upsertDiscordAccountLinkSupabase(userKey, u, reason = 'sync') {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, skipped: true, reason: 'supabase_not_configured' };
+  const discordUserId = u && u.discordId ? String(u.discordId) : null;
+  const discordUsername = u && u.discordUsername ? String(u.discordUsername) : '';
+  const nowIso = new Date().toISOString();
+  const payload = {
+    user_key: userKey,
+    discord_user_id: discordUserId,
+    discord_username: discordUsername || null,
+    linked_at: discordUserId ? nowIso : null,
+    unlinked_at: discordUserId ? null : nowIso,
+    updated_at: nowIso,
+  };
+  return supabaseJson(`/rest/v1/${SUPABASE_DISCORD_LINKS_TABLE}?on_conflict=user_key`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal,resolution=merge-duplicates',
+      'X-Discord-Sync-Reason': String(reason || 'sync').slice(0, 64),
+    },
+    body: JSON.stringify([payload]),
+  });
+}
+
+async function upsertAccessEntitlementSupabase(userKey, u, source = 'system') {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, skipped: true, reason: 'supabase_not_configured' };
+  const tier = Math.max(0, Math.min(2, Number(getEffectiveTierForUser(u) || 0)));
+  const status = tier > 0 ? 'active' : 'inactive';
+  const nowIso = new Date().toISOString();
+  const payload = {
+    user_key: userKey,
+    tier,
+    status,
+    source: String(source || 'system').slice(0, 64),
+    expires_at: null,
+    updated_at: nowIso,
+  };
+  return supabaseJson(`/rest/v1/${SUPABASE_ENTITLEMENTS_TABLE}?on_conflict=user_key`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal,resolution=merge-duplicates',
+    },
+    body: JSON.stringify([payload]),
+  });
+}
+
+async function enqueueDiscordRoleSyncJobSupabase(userKey, u, reason = 'sync') {
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, skipped: true, reason: 'supabase_not_configured' };
+  if (!DISCORD_SYNC_GUILD_ID) return { ok: false, skipped: true, reason: 'guild_not_configured' };
+  const discordUserId = u && u.discordId ? String(u.discordId) : '';
+  if (!discordUserId) return { ok: false, skipped: true, reason: 'discord_not_linked' };
+  const tier = Math.max(0, Math.min(2, Number(getEffectiveTierForUser(u) || 0)));
+  const payload = {
+    user_key: userKey,
+    discord_user_id: discordUserId,
+    guild_id: DISCORD_SYNC_GUILD_ID,
+    desired_tier: tier,
+    desired_role_ids: desiredDiscordRoleIdsForTier(tier),
+    reason: String(reason || 'sync').slice(0, 120),
+    status: 'pending',
+    attempts: 0,
+    updated_at: new Date().toISOString(),
+  };
+  return supabaseJson(`/rest/v1/${SUPABASE_DISCORD_SYNC_JOBS_TABLE}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify([payload]),
+  });
+}
+
+async function syncDiscordEntitlementStateSupabase(userKey, u, source = 'system') {
+  await Promise.allSettled([
+    upsertDiscordAccountLinkSupabase(userKey, u, source),
+    upsertAccessEntitlementSupabase(userKey, u, source),
+    enqueueDiscordRoleSyncJobSupabase(userKey, u, source),
+  ]);
+}
+
 function accountPayloadFor(userKey, u) {
   const tier = getEffectiveTierForUser(u);
   const email = String(u.email || u.googleEmail || '').trim().toLowerCase();
@@ -3910,6 +4071,7 @@ async function buildAccountPayload(userKey, u, db, req) {
     referredSpendCents,
     referredSpendUsd: Math.round((referredSpendCents / 100) * 100) / 100,
   };
+  void syncDiscordEntitlementStateSupabase(userKey, u, 'account_payload');
   return payload;
 }
 
@@ -4648,6 +4810,26 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname === '/admin/api/check') {
       return sendJson(res, 200, { authed: isAdminAuthed(req) });
     }
+    if (requestUrl.pathname === '/admin/api/password-rotation-status') {
+      if (!isAdminAuthed(req)) return sendJson(res, 401, { error: 'Not authorized' });
+      const now = Date.now();
+      const staleMs = adminPasswordRotationState.lastRotatedAt ? (now - adminPasswordRotationState.lastRotatedAt) : Number.POSITIVE_INFINITY;
+      const stale = staleMs > (ADMIN_PASSWORD_ROTATION_HEALTH_GRACE_MS + ADMIN_PASSWORD_ROTATE_MS);
+      return sendJson(res, 200, {
+        ok: !stale,
+        intervalMs: ADMIN_PASSWORD_ROTATE_MS,
+        graceMs: ADMIN_PASSWORD_ROTATION_HEALTH_GRACE_MS,
+        running: adminPasswordRotationState.running,
+        lastReason: adminPasswordRotationState.lastReason || null,
+        lastRotatedAt: adminPasswordRotationState.lastRotatedAt || null,
+        lastWebhookAttemptAt: adminPasswordRotationState.lastWebhookAttemptAt || null,
+        lastWebhookOk: adminPasswordRotationState.lastWebhookOk,
+        lastWebhookError: adminPasswordRotationState.lastWebhookError || null,
+        nextRotationAt: adminPasswordRotationState.nextRotationAt || null,
+        stale,
+        staleMs: Number.isFinite(staleMs) ? staleMs : null,
+      });
+    }
     // Live events polling — returns events since a given timestamp
     if (requestUrl.pathname === '/admin/api/events') {
       if (!isAdminAuthed(req)) return sendJson(res, 401, { error: 'Not authorized' });
@@ -4661,6 +4843,30 @@ const server = http.createServer(async (req, res) => {
       if (tok) { adminTokens.delete(tok); persistAdminTokens(); }
       appendSetCookie(res, `${ADMIN_COOKIE}=; Path=/admin; HttpOnly; SameSite=Lax; Max-Age=0`);
       return sendJson(res, 200, { ok: true });
+    }
+    if (requestUrl.pathname === '/admin/api/test-password-webhook' && req.method === 'POST') {
+      if (!isAdminAuthed(req)) return sendJson(res, 401, { error: 'Not authorized' });
+      const result = await postAdminPasswordToWebhook(ADMIN_PASSWORD_CURRENT, 'manual-test');
+      return sendJson(res, result && result.ok ? 200 : 500, {
+        ok: !!(result && result.ok),
+        result: result || { ok: false, error: 'No result' },
+      });
+    }
+    if (requestUrl.pathname === '/admin/api/rotate-password' && req.method === 'POST') {
+      if (!isAdminAuthed(req)) return sendJson(res, 401, { error: 'Not authorized' });
+      const result = await rotateAdminPassword('manual');
+      if (!result || !result.ok) {
+        return sendJson(res, 500, {
+          ok: false,
+          rotated: true,
+          result: result || { ok: false, error: 'rotation_failed' },
+        });
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        rotated: true,
+        webhook: result.webhook || { ok: false },
+      });
     }
 
     // Admin: restore/merge short stats from uploaded JSON
@@ -4716,6 +4922,19 @@ const server = http.createServer(async (req, res) => {
     // All other /admin/api/* require auth
     if (requestUrl.pathname.startsWith('/admin/api/')) {
       if (!isAdminAuthed(req)) return sendJson(res, 401, { error: 'Not authorized' });
+
+      if (requestUrl.pathname === '/admin/api/discord-entitlements/sync' && req.method === 'POST') {
+        const db = await ensureUsersDbFresh();
+        let scanned = 0;
+        let synced = 0;
+        for (const [userKey, u] of Object.entries(db.users || {})) {
+          if (!u || typeof u !== 'object') continue;
+          scanned += 1;
+          await syncDiscordEntitlementStateSupabase(userKey, u, 'admin_backfill');
+          synced += 1;
+        }
+        return sendJson(res, 200, { ok: true, scanned, synced });
+      }
 
       // Dashboard stats
       if (requestUrl.pathname === '/admin/api/stats') {
@@ -6503,6 +6722,62 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 405, { error: 'Method Not Allowed' });
     }
 
+    if (requestUrl.pathname === '/api/discord/bot/entitlements') {
+      const method = (req.method || 'GET').toUpperCase();
+      if (method !== 'GET' && method !== 'HEAD') return sendJson(res, 405, { error: 'Method Not Allowed' });
+      if (!DISCORD_BOT_SYNC_SECRET) return sendJson(res, 501, { error: 'Discord bot sync secret not configured' });
+      const supplied = String(req.headers['x-bot-sync-secret'] || requestUrl.searchParams.get('secret') || '').trim();
+      if (!supplied || supplied !== DISCORD_BOT_SYNC_SECRET) return sendJson(res, 401, { error: 'Unauthorized' });
+      if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return sendJson(res, 503, { error: 'Supabase not configured' });
+
+      const [linksResp, entResp] = await Promise.all([
+        supabaseJson(`/rest/v1/${SUPABASE_DISCORD_LINKS_TABLE}?select=user_key,discord_user_id,discord_username,updated_at&discord_user_id=not.is.null&limit=5000`, { method: 'GET' }),
+        supabaseJson(`/rest/v1/${SUPABASE_ENTITLEMENTS_TABLE}?select=user_key,tier,status,source,expires_at,updated_at&limit=5000`, { method: 'GET' }),
+      ]);
+      if (!linksResp.ok || !entResp.ok) {
+        return sendJson(res, 500, {
+          error: 'Failed to read entitlement data',
+          linksOk: linksResp.ok,
+          entitlementsOk: entResp.ok,
+        });
+      }
+
+      const entByUserKey = new Map();
+      for (const row of (Array.isArray(entResp.data) ? entResp.data : [])) {
+        if (!row || !row.user_key) continue;
+        entByUserKey.set(String(row.user_key), row);
+      }
+
+      const rows = [];
+      for (const link of (Array.isArray(linksResp.data) ? linksResp.data : [])) {
+        const userKey = String(link.user_key || '');
+        if (!userKey || !link.discord_user_id) continue;
+        const ent = entByUserKey.get(userKey);
+        const tier = Math.max(0, Math.min(2, Number(ent && ent.tier ? ent.tier : 0)));
+        rows.push({
+          userKey,
+          discordUserId: String(link.discord_user_id),
+          discordUsername: String(link.discord_username || ''),
+          tier,
+          status: ent && ent.status ? String(ent.status) : (tier > 0 ? 'active' : 'inactive'),
+          source: ent && ent.source ? String(ent.source) : 'system',
+          expiresAt: ent && ent.expires_at ? ent.expires_at : null,
+          desiredRoleIds: desiredDiscordRoleIdsForTier(tier),
+          updatedAt: (ent && ent.updated_at) || link.updated_at || null,
+        });
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        count: rows.length,
+        guildId: DISCORD_SYNC_GUILD_ID || null,
+        roleMap: {
+          basic: DISCORD_ROLE_ID_BASIC || null,
+          premium: DISCORD_ROLE_ID_PREMIUM || null,
+        },
+        rows,
+      });
+    }
+
     if (requestUrl.pathname === '/api/account/connect') {
       const method = (req.method || 'GET').toUpperCase();
       const authed = await requireAuthedUser(req, res);
@@ -6568,6 +6843,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       await queueUsersDbWrite();
+      void syncDiscordEntitlementStateSupabase(userKey, u, `disconnect_${provider}`);
       return sendJson(res, 200, { ok: true, account: accountPayloadFor(userKey, u) });
     }
 
@@ -7258,6 +7534,7 @@ const server = http.createServer(async (req, res) => {
         targetUser.discordId = discordId;
         if (!targetUser.discordUsername) targetUser.discordUsername = rawDiscordName || '';
         await queueUsersDbWrite();
+        void syncDiscordEntitlementStateSupabase(oauthCurrentUserKey, targetUser, 'discord_linked');
         res.writeHead(302, { Location: '/account?linked=discord' });
         return res.end();
       }
@@ -7320,6 +7597,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         await queueUsersDbWrite();
+        void syncDiscordEntitlementStateSupabase(userKey, db.users[userKey], 'discord_signup');
 
         // Analytics beacon
         _emitSignup(db, discordName, 'discord', db.users[userKey].referredBy || null, discordSignupIp);
@@ -7461,6 +7739,7 @@ const server = http.createServer(async (req, res) => {
         targetUser.googleEmail = googleEmail || targetUser.googleEmail || '';
         if (!targetUser.email && googleEmail) targetUser.email = String(googleEmail).trim().toLowerCase();
         await queueUsersDbWrite();
+        void syncDiscordEntitlementStateSupabase(oauthCurrentUserKey, targetUser, 'google_linked');
         res.writeHead(302, { Location: '/account?linked=google' });
         return res.end();
       }
@@ -7522,6 +7801,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         await queueUsersDbWrite();
+        void syncDiscordEntitlementStateSupabase(userKey, db.users[userKey], 'google_signup');
         _emitSignup(db, googleName, 'google', db.users[userKey].referredBy || null, googleSignupIp);
       }
       } finally { releaseSignupLock(); }
