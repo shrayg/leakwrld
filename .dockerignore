@@ -1,0 +1,21 @@
+node_modules
+npm-debug.log
+client/node_modules
+client/dist
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+terminals
+agent-transcripts
+mcps
+thumbnails
+design-extract-output
+reference-pornwrld
+.next
+*.log
+data
+images
+public
+Group 1.png
