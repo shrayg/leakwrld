@@ -8,6 +8,7 @@ primary_region = "iad"
   NODE_ENV = "production"
   PORT = "8080"
   TBW_SECURE_COOKIES = "1"
+  TBW_DATA_DIR = "/tmp/pornwrld-data"
 
 [http_service]
   internal_port = 8080

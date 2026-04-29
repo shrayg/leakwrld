@@ -85,7 +85,6 @@ const SITE_ORIGIN = normalizeSiteOrigin(process.env.TBW_PUBLIC_ORIGIN);
 const DISCORD_WEBHOOK_VISIT_STATS_URL = String(process.env.DISCORD_WEBHOOK_VISIT_STATS_URL || '').trim();
 const DISCORD_WEBHOOK_TIER_REACHED_URL = String(process.env.DISCORD_WEBHOOK_TIER_REACHED_URL || '').trim();
 const DISCORD_WEBHOOK_PAYMENTS_URL = String(process.env.DISCORD_WEBHOOK_PAYMENTS_URL || '').trim();
-const CRON_SECRET = String(process.env.CRON_SECRET || '').trim();
 const DISCORD_WEBHOOK_SIGNUPS_URL = String(process.env.DISCORD_WEBHOOK_SIGNUPS_URL || '').trim();
 const DISCORD_WEBHOOK_PURCHASE_EVENTS_URL = String(process.env.DISCORD_WEBHOOK_PURCHASE_EVENTS_URL || '').trim();
 const PATREON_REDEEM_WEBHOOK_URL = String(process.env.PATREON_REDEEM_WEBHOOK_URL || '').trim();
@@ -3705,12 +3704,6 @@ function isAdminAuthed(req) {
   return true;
 }
 
-function isCronAuthed(req) {
-  if (!CRON_SECRET) return false;
-  const authHeader = String(req.headers.authorization || '');
-  return authHeader === `Bearer ${CRON_SECRET}`;
-}
-
 async function readMegaLinks() {
   let raw;
   try {
@@ -4813,17 +4806,6 @@ const server = http.createServer(async (req, res) => {
       persistAdminTokens();
       appendSetCookie(res, `${ADMIN_COOKIE}=${token}; Path=/admin; HttpOnly; SameSite=Lax; Max-Age=${ADMIN_TOKEN_TTL / 1000 | 0}`);
       return sendJson(res, 200, { ok: true });
-    }
-    if (requestUrl.pathname === '/api/internal/rotate-admin-password') {
-      const method = (req.method || 'GET').toUpperCase();
-      if (method !== 'GET' && method !== 'POST') return sendJson(res, 405, { error: 'Method Not Allowed' });
-      if (!isCronAuthed(req)) return sendJson(res, 401, { error: 'Not authorized' });
-      const result = await rotateAdminPassword('vercel-cron');
-      return sendJson(res, result && result.ok ? 200 : 500, {
-        ok: !!(result && result.ok),
-        source: 'vercel-cron',
-        result: result || { ok: false, error: 'rotation_failed' },
-      });
     }
     if (requestUrl.pathname === '/admin/api/check') {
       return sendJson(res, 200, { authed: isAdminAuthed(req) });

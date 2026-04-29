@@ -35,6 +35,33 @@ fly logs
 curl https://<your-app>.fly.dev/api/health
 ```
 
+## No Tigris / no volume
+
+- This app does not require Tigris object storage.
+- `fly.toml` is configured without volumes.
+- Runtime scratch data is set to `TBW_DATA_DIR=/tmp/pornwrld-data` (ephemeral).
+- Durable app data should live in Supabase/R2.
+
+## Custom domain (`pornwrld.xyz`)
+
+```bash
+fly certs add pornwrld.xyz
+fly certs add www.pornwrld.xyz
+fly certs show pornwrld.xyz
+```
+
+Then in Porkbun DNS:
+- Add `A` for root `@` -> `66.241.125.157`
+- Add `AAAA` for root `@` -> `2a09:8280:1::10d:4568:0`
+- Add `CNAME` for `www` -> `pornwrld.fly.dev`
+
+Wait for DNS propagation, then re-run:
+
+```bash
+fly certs show pornwrld.xyz
+fly certs show www.pornwrld.xyz
+```
+
 ## Machine size recommendation
 
 - Default in `fly.toml`: `shared-cpu-1x`, `512MB`
