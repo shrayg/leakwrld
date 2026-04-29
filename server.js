@@ -651,6 +651,8 @@ const R2_ENDPOINT   = (process.env.CLOUDFLARE_R2_ENDPOINT || process.env.R2_ENDP
 const R2_BUCKET     = process.env.CLOUDFLARE_R2_BUCKET_RAW || process.env.R2_BUCKET || '';
 const R2_ENABLED    = !!(R2_ACCESS_KEY && R2_SECRET_KEY && R2_ENDPOINT && R2_BUCKET);
 const R2_PRESIGN_SECONDS = 600; // 10 min
+// App state is Supabase-backed. Keep R2 for media/assets only unless explicitly re-enabled.
+const R2_DATA_STATE_ENABLED = String(process.env.R2_DATA_STATE_ENABLED || '0') === '1';
 
 // Cloudflare R2 object key roots.
 // Desired canonical structure:
@@ -693,6 +695,10 @@ function sha256Hex(data) {
  */
 function s3UriEncode(str) {
   return encodeURIComponent(str).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+}
+
+function isR2DataStateKey(objectKey) {
+  return String(objectKey || '').startsWith('data/');
 }
 function r2PresignedUrl(objectKey, expiry = R2_PRESIGN_SECONDS) {
   const now = new Date();
@@ -974,6 +980,7 @@ async function r2HeadObject(objectKey) {
 }
 
 async function r2GetObject(objectKey) {
+  if (!R2_DATA_STATE_ENABLED && isR2DataStateKey(objectKey)) return null;
   const resp = await r2Request('GET', objectKey, null, {});
   if (resp.status === 404 || resp.status === 403) return null;
   if (resp.status !== 200) throw new Error(`R2 GET ${objectKey} → ${resp.status}`);
@@ -981,6 +988,7 @@ async function r2GetObject(objectKey) {
 }
 
 async function r2GetObjectBytes(objectKey) {
+  if (!R2_DATA_STATE_ENABLED && isR2DataStateKey(objectKey)) return null;
   const resp = await r2Request('GET', objectKey, null, {});
   if (resp.status === 404 || resp.status === 403) return null;
   if (resp.status !== 200) throw new Error(`R2 GET ${objectKey} → ${resp.status}`);
@@ -991,6 +999,7 @@ async function r2GetObjectBytes(objectKey) {
  * PUT an object to R2.
  */
 async function r2PutObject(objectKey, content, contentType) {
+  if (!R2_DATA_STATE_ENABLED && isR2DataStateKey(objectKey)) return;
   const buf = Buffer.from(content, 'utf8');
   const resp = await r2Request('PUT', objectKey, buf, { 'content-type': contentType || 'application/octet-stream' });
   if (resp.status < 200 || resp.status >= 300) {
@@ -1005,6 +1014,7 @@ async function r2PutObject(objectKey, content, contentType) {
  * @param {string} contentType
  */
 async function r2PutObjectBytes(objectKey, buf, contentType) {
+  if (!R2_DATA_STATE_ENABLED && isR2DataStateKey(objectKey)) return;
   const resp = await r2Request('PUT', objectKey, buf, { 'content-type': contentType || 'application/octet-stream' });
   if (resp.status < 200 || resp.status >= 300) {
     throw new Error(`R2 PUT(bytes) ${objectKey} → ${resp.status}: ${resp.body.toString('utf8').slice(0, 200)}`);
