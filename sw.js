@@ -1,8 +1,8 @@
-const CACHE_NAME = 'pornwrld-v104';
+const CACHE_NAME = 'pornwrld-v105';
 const PRECACHE_URLS = [
   '/',
   '/styles.css',
-  '/assets/images/face.png',
+  '/assets/images/site-icon.png',
   '/manifest.json',
 ];
 
