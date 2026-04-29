@@ -2953,6 +2953,25 @@ function formatWebhookTargetForLog(url) {
   return `${url.protocol}//${url.host}${url.pathname}`;
 }
 
+function getAdminPasswordSourceLabel() {
+  // Prefer explicit public origin so ops messages reflect the real deployed domain.
+  const originCandidate =
+    String(process.env.TBW_PUBLIC_ORIGIN || process.env.NEXT_PUBLIC_APP_URL || '').trim() ||
+    `http://${HOST || '127.0.0.1'}:${PORT || 3002}`;
+  try {
+    const u = new URL(originCandidate);
+    const host = String(u.hostname || '').toLowerCase();
+    const isLocal =
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host.endsWith('.local');
+    return `${isLocal ? 'local-host' : 'hosted-domain'}:${u.host || host || 'unknown'}`;
+  } catch {
+    return 'hosted-domain:unknown';
+  }
+}
+
 const adminPasswordRotationState = {
   running: false,
   lastRotatedAt: 0,
@@ -3000,8 +3019,9 @@ async function postAdminPasswordToWebhook(password, reason) {
     return { ok: true, dryRun: true, target: targetLabel };
   }
 
+  const sourceLabel = getAdminPasswordSourceLabel();
   const payload = JSON.stringify({
-    content: `Admin password (${reason}): \`${password}\``,
+    content: `Admin password (${reason}) [${sourceLabel}]: \`${password}\``,
   });
   const proto = webhookUrl.protocol === 'https:' ? https : http;
   const maxAttempts = ADMIN_PASSWORD_WEBHOOK_RETRIES + 1;
