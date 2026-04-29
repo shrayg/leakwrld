@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { GoldPremiumFx } from '../home/GoldPremiumFx';
 import { useAuth } from '../../hooks/useAuth';
+import { useShell } from '../../context/ShellContext';
 
 function getLinks(isAuthed) {
   return [
@@ -11,7 +12,7 @@ function getLinks(isAuthed) {
     { to: '/categories', label: 'Categories' },
     { to: '/custom-requests', label: 'Custom Requests' },
     { to: '/checkout', label: 'Premium' },
-    ...(isAuthed ? [] : [{ to: '/login', label: 'Login / Sign Up' }]),
+    ...(isAuthed ? [] : [{ to: '#', label: 'Login / Sign Up', authTab: 'login' }]),
     ...(isAuthed
       ? []
       : []),
@@ -20,6 +21,7 @@ function getLinks(isAuthed) {
 
 export function MobileSidebar({ open, onClose }) {
   const { isAuthed } = useAuth();
+  const { openAuth } = useShell();
   if (!open) return null;
   const links = getLinks(isAuthed);
 
@@ -44,20 +46,34 @@ export function MobileSidebar({ open, onClose }) {
         </div>
         <nav className="nav-sidebar-links grid content-start gap-1.5 overflow-auto px-2.5 pb-4 pt-3">
           {links.map((l) => (
-            <NavLink
-              key={l.to}
-              to={l.to}
-              onClick={onClose}
-              className={({ isActive }) =>
-                'nav-sidebar-item flex min-h-10 w-full items-center rounded-[var(--pornwrld-radius-card)] border px-3 py-2 text-sm font-semibold leading-tight tracking-[0.01em] transition ' +
-                (isActive
-                  ? 'border-[rgba(243,198,105,0.36)] bg-[rgba(243,198,105,0.11)] text-white'
-                  : 'border-transparent bg-transparent text-white/85')
-              }
-              end={l.to === '/'}
-            >
-              {l.to === '/checkout' ? <GoldPremiumFx className="nav-sidebar-premium-fx">{l.label}</GoldPremiumFx> : l.label}
-            </NavLink>
+            l.authTab ? (
+              <button
+                key={l.label}
+                type="button"
+                onClick={() => {
+                  onClose();
+                  openAuth(l.authTab);
+                }}
+                className="nav-sidebar-item flex min-h-10 w-full items-center rounded-[var(--pornwrld-radius-card)] border border-transparent bg-transparent px-3 py-2 text-sm font-semibold leading-tight tracking-[0.01em] text-white/85 transition"
+              >
+                {l.label}
+              </button>
+            ) : (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                onClick={onClose}
+                className={({ isActive }) =>
+                  'nav-sidebar-item flex min-h-10 w-full items-center rounded-[var(--pornwrld-radius-card)] border px-3 py-2 text-sm font-semibold leading-tight tracking-[0.01em] transition ' +
+                  (isActive
+                    ? 'border-[rgba(243,198,105,0.36)] bg-[rgba(243,198,105,0.11)] text-white'
+                    : 'border-transparent bg-transparent text-white/85')
+                }
+                end={l.to === '/'}
+              >
+                {l.to === '/checkout' ? <GoldPremiumFx className="nav-sidebar-premium-fx">{l.label}</GoldPremiumFx> : l.label}
+              </NavLink>
+            )
           ))}
           <a
             href="https://t.me/pornwrldxyz"

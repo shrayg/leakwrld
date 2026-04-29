@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useShell } from '../../context/ShellContext';
 import { useAuth } from '../../hooks/useAuth';
 
-/** Handles legacy query params: ?login=1, ?welcome=1, ?ref= */
+/** Handles legacy query params: ?login=1, ?auth=login|signup, ?welcome=1, ?ref= */
 export function GlobalUrlHooks() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { openAuth, openReferral } = useShell();
@@ -18,6 +18,14 @@ export function GlobalUrlHooks() {
       openAuth('login');
       const next = new URLSearchParams(searchParams);
       next.delete('login');
+      setSearchParams(next, { replace: true });
+    }
+
+    const auth = searchParams.get('auth');
+    if (auth === 'login' || auth === 'signup') {
+      openAuth(auth);
+      const next = new URLSearchParams(searchParams);
+      next.delete('auth');
       setSearchParams(next, { replace: true });
     }
 

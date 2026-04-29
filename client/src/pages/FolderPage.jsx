@@ -24,7 +24,7 @@ function thumbUrl(item) {
       (item.subfolder ? '&subfolder=' + encodeURIComponent(item.subfolder) : '')
     );
   }
-  return '/images/face.png';
+  return '/assets/images/face.png';
 }
 
 export function FolderPage({ seoFolder: propFolder }) {

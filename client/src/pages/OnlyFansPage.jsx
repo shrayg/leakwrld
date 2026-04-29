@@ -117,7 +117,34 @@ export function OnlyFansPage() {
             onClick={() => onCreatorClick(c)}
           >
             {c.thumbUrl ? (
-              <img className="of-creator-thumb" src={c.thumbUrl} alt="" loading="lazy" />
+              <img
+                className="of-creator-thumb"
+                src={c.thumbUrl}
+                alt=""
+                loading="lazy"
+                onError={(e) => {
+                  const el = e.currentTarget;
+                  const candidates = c.thumbUrlR2Candidates || (c.thumbUrlR2 ? [c.thumbUrlR2] : []);
+                  const placeholder = '/assets/images/face.png';
+                  const idx = parseInt(el.dataset.ofThumbR2Index || '0', 10);
+
+                  // If we have no candidates (R2 disabled or not configured), just show placeholder.
+                  if (!candidates.length) {
+                    el.src = placeholder;
+                    return;
+                  }
+
+                  // After exhausting candidates, show placeholder instead of leaving a broken image.
+                  if (Number.isNaN(idx) || idx >= candidates.length) {
+                    el.src = placeholder;
+                    return;
+                  }
+
+                  // Try the next presigned candidate on each load error.
+                  el.dataset.ofThumbR2Index = String(idx + 1);
+                  el.src = candidates[idx];
+                }}
+              />
             ) : (
               <div className="of-creator-thumb of-creator-thumb--placeholder" aria-hidden />
             )}
@@ -129,7 +156,7 @@ export function OnlyFansPage() {
             <div className="of-teaser-thumb">
               <img
                 className="of-teaser-blur"
-                src="/images/preview.jpg"
+                src="/assets/images/preview.jpg"
                 alt=""
                 loading="lazy"
                 decoding="async"

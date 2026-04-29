@@ -212,22 +212,7 @@ let uploadRequestsLoaded = false;
 const uploadRateLimit = new Map(); // userKey -> lastUploadTimestamp
 const UPLOAD_COOLDOWN_MS = 10 * 1000; // 10 seconds between individual uploads (allows batch uploading)
 
-const allowedFolders = new Map([
-  ['NSFW Straight', 'categories/nsfw-straight'],
-  ['Alt and Goth', 'categories/alt-and-goth'],
-  ['Petitie', 'categories/petitie'],
-  ['Teen (18+ only)', 'categories/teen-18-plus'],
-  ['MILF', 'categories/milf'],
-  ['Asian', 'categories/asian'],
-  ['Ebony', 'categories/ebony'],
-  ['Hentai', 'categories/hentai'],
-  ['Yuri', 'categories/yuri'],
-  ['Yaoi', 'categories/yaoi'],
-  ['Nip Slips', 'categories/nip-slips'],
-  ['Omegle', 'categories/omegle'],
-  ['OF Leaks', 'categories/of-leaks'],
-  ['Premium Leaks', 'categories/premium-leaks'],
-]);
+// NOTE: `allowedFolders` depends on R2 prefix constants declared later.
 
 const OMEGLE_SUBFOLDERS = ['Dick Reactions', 'Monkey App Streamers', 'Points Game', 'Regular Wins'];
 
@@ -666,6 +651,31 @@ const R2_ENDPOINT   = (process.env.CLOUDFLARE_R2_ENDPOINT || process.env.R2_ENDP
 const R2_BUCKET     = process.env.CLOUDFLARE_R2_BUCKET_RAW || process.env.R2_BUCKET || '';
 const R2_ENABLED    = !!(R2_ACCESS_KEY && R2_SECRET_KEY && R2_ENDPOINT && R2_BUCKET);
 const R2_PRESIGN_SECONDS = 600; // 10 min
+
+// Cloudflare R2 object key roots.
+// Desired canonical structure:
+// - pornwrld/videos/<category>/...
+// - pornwrld/assets/<site-assets...>
+const R2_ROOT_PREFIX = String(process.env.CLOUDFLARE_R2_ROOT_PREFIX || 'pornwrld').replace(/^\/+|\/+$/g, '');
+const R2_VIDEOS_PREFIX = String(process.env.CLOUDFLARE_R2_VIDEOS_PREFIX || `${R2_ROOT_PREFIX}/videos`).replace(/^\/+|\/+$/g, '');
+const R2_ASSETS_PREFIX = String(process.env.CLOUDFLARE_R2_ASSETS_PREFIX || `${R2_ROOT_PREFIX}/assets`).replace(/^\/+|\/+$/g, '');
+
+const allowedFolders = new Map([
+  ['NSFW Straight', `${R2_VIDEOS_PREFIX}/nsfw-straight`],
+  ['Alt and Goth', `${R2_VIDEOS_PREFIX}/alt-and-goth`],
+  ['Petitie', `${R2_VIDEOS_PREFIX}/petitie`],
+  ['Teen (18+ only)', `${R2_VIDEOS_PREFIX}/teen-18-plus`],
+  ['MILF', `${R2_VIDEOS_PREFIX}/milf`],
+  ['Asian', `${R2_VIDEOS_PREFIX}/asian`],
+  ['Ebony', `${R2_VIDEOS_PREFIX}/ebony`],
+  ['Hentai', `${R2_VIDEOS_PREFIX}/hentai`],
+  ['Yuri', `${R2_VIDEOS_PREFIX}/yuri`],
+  ['Yaoi', `${R2_VIDEOS_PREFIX}/yaoi`],
+  ['Nip Slips', `${R2_VIDEOS_PREFIX}/nip-slips`],
+  ['Omegle', `${R2_VIDEOS_PREFIX}/omegle`],
+  ['OF Leaks', `${R2_VIDEOS_PREFIX}/of-leaks`],
+  ['Premium Leaks', `${R2_VIDEOS_PREFIX}/premium-leaks`],
+]);
 
 // AWS Signature V4 helpers (no SDK needed) ────────────────────────────────────
 function hmacSha256(key, data) {
@@ -1654,9 +1664,18 @@ function queueShortStatsWrite() {
   let _writeViews = 0;
   for (const v of Object.values(shortStats)) _writeViews += (v && v.views) || 0;
   console.log(`[shortStats] Writing: ${Object.keys(shortStats).length} keys, ${_writeViews} total views`);
-  const snapshot = JSON.stringify(shortStats, null, 2);
+  // Storage minimization: persist only aggregated counters.
+  // `_votes` is per-user toggle state (large) and is only needed in-memory for immediate UX.
+  const snapshotObj = {};
+  for (const [k, v] of Object.entries(shortStats)) {
+    snapshotObj[k] = {
+      views: (v && typeof v.views === 'number') ? v.views : 0,
+      likes: (v && typeof v.likes === 'number') ? v.likes : 0,
+      dislikes: (v && typeof v.dislikes === 'number') ? v.dislikes : 0,
+    };
+  }
+  const snapshot = JSON.stringify(snapshotObj, null, 2);
   shortStatsWritePromise = shortStatsWritePromise.then(async () => {
-    const snapshotObj = JSON.parse(snapshot);
     if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
       const stateResp = await saveAppStateSnapshot('short_stats', snapshotObj);
       if (!stateResp.ok) {
@@ -2022,10 +2041,34 @@ async function ensureCommentsFresh() {
 }
 
 function queueCommentsWrite() {
-  const snapshot = JSON.stringify(videoComments);
+  // Storage minimization: persist comments without per-user `_votes`.
+  // `_userKey` is kept for short anti-spam windows (comment/reply rate limiting).
+  const snapshotObj = {};
+  for (const [key, arr] of Object.entries(videoComments || {})) {
+    if (!Array.isArray(arr)) continue;
+    snapshotObj[key] = arr.map((c) => ({
+      id: c.id,
+      user: c.user,
+      text: c.text,
+      ts: c.ts,
+      _userKey: c._userKey,
+      likes: (typeof c.likes === 'number') ? c.likes : 0,
+      dislikes: (typeof c.dislikes === 'number') ? c.dislikes : 0,
+      replies: Array.isArray(c.replies) ? c.replies.map((r) => ({
+        id: r.id,
+        user: r.user,
+        text: r.text,
+        ts: r.ts,
+        _userKey: r._userKey,
+        likes: (typeof r.likes === 'number') ? r.likes : 0,
+        dislikes: (typeof r.dislikes === 'number') ? r.dislikes : 0,
+      })) : [],
+    }));
+  }
+  const snapshot = JSON.stringify(snapshotObj);
   commentsWritePromise = commentsWritePromise.then(async () => {
     if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
-      const stateResp = await saveAppStateSnapshot('video_comments', videoComments);
+      const stateResp = await saveAppStateSnapshot('video_comments', snapshotObj);
       if (!stateResp.ok) {
         console.error('comments Supabase state write error:', stateResp.status || stateResp.reason || 'unknown');
       }
@@ -2756,9 +2799,9 @@ async function prewarmR2ListCache() {
   if (!R2_ENABLED) return;
   console.log('[prewarm] Warming R2 list cache for all folders...');
   const prefixes = [];
-  for (const [, basePath] of allowedFolders) {
+  for (const [folderName, basePath] of allowedFolders) {
     for (const tf of ['tier 1', 'tier 2']) {
-      if (basePath === 'porn/omegle') {
+      if (folderName === 'Omegle') {
         for (const sf of OMEGLE_SUBFOLDERS) {
           prefixes.push(basePath + '/' + tf + '/' + sf + '/');
         }
@@ -5151,50 +5194,6 @@ const server = http.createServer(async (req, res) => {
 
       // Dashboard stats
       if (requestUrl.pathname === '/admin/api/stats') {
-        const supaStats = await fetchAdminStatsFromSupabase();
-        if (supaStats.ok && supaStats.data) {
-          const chartRange = requestUrl.searchParams.get('chart') || '24h';
-          const chart = getVisitChartData(chartRange);
-          return sendJson(res, 200, {
-            totalUsers: supaStats.data.totalUsers,
-            signups24h: supaStats.data.signups24h,
-            visits: supaStats.data.visits || { allTime: 0, past24h: 0, past30m: 0 },
-            activeNow: Number(supaStats.data.watchingNow || 0),
-            tier1Count: 0,
-            tier2Count: 0,
-            paidCount: 0,
-            categoryHits: supaStats.data.categoryHits,
-            hourlyVisits: getHourlyVisitData(),
-            chart,
-            navClicks: supaStats.data.navClicks,
-            bounceRate: supaStats.data.bounceRate,
-            avgViewTime: supaStats.data.avgViewTime,
-            avgShortsTime: supaStats.data.avgShortsTime,
-            avgVideoWatch: supaStats.data.avgVideoWatch,
-            totalSessions24h: supaStats.data.totalSessions24h,
-            totalShortsViews24h: supaStats.data.totalShortsViews24h,
-            totalVideoWatches24h: supaStats.data.totalVideoWatches24h,
-            totalVideos: supaStats.data.totalVideos,
-            totalViews: supaStats.data.totalViews24h,
-            totalLikes: 0,
-            avgViewsPerVideo: supaStats.data.totalVideos > 0 ? Math.round(supaStats.data.totalViews24h / supaStats.data.totalVideos) : 0,
-            avgViewsPerUser: supaStats.data.totalUsers > 0 ? Math.round(supaStats.data.totalViews24h / supaStats.data.totalUsers) : 0,
-            totalComments: supaStats.data.totalComments24h,
-            totalCommentReplies: 0,
-            videosWithComments: 0,
-            engagementRate: 0,
-            topVideos: [],
-            peakHour: null,
-            uploadsTotal: 0,
-            uploadsPending: 0,
-            uploadsApproved: 0,
-            returnRate: 0,
-            trackedUsers: 0,
-            returningUsers: 0,
-            source: supaStats.data.source,
-            generatedAt: supaStats.data.generatedAt,
-          });
-        }
         const db = await ensureUsersDbFresh();
         const totalUsers = Object.keys(db.users || {}).length;
         const now = Date.now();
@@ -5828,15 +5827,15 @@ const server = http.createServer(async (req, res) => {
         try {
           // Search across all known folders
           const prefixes = [
-            'porn/omegle/previews/',
-            'porn/omegle/tier 1/Dick Reactions/',
-            'porn/omegle/tier 1/Monkey App Streamers/',
-            'porn/omegle/tier 1/Points Game/',
-            'porn/omegle/tier 1/Regular Wins/',
-            'porn/omegle/tier 2/Dick Reactions/',
-            'porn/omegle/tier 2/Monkey App Streamers/',
-            'porn/omegle/tier 2/Points Game/',
-            'porn/omegle/tier 2/Regular Wins/',
+            `${R2_VIDEOS_PREFIX}/omegle/previews/`,
+            `${R2_VIDEOS_PREFIX}/omegle/tier 1/Dick Reactions/`,
+            `${R2_VIDEOS_PREFIX}/omegle/tier 1/Monkey App Streamers/`,
+            `${R2_VIDEOS_PREFIX}/omegle/tier 1/Points Game/`,
+            `${R2_VIDEOS_PREFIX}/omegle/tier 1/Regular Wins/`,
+            `${R2_VIDEOS_PREFIX}/omegle/tier 2/Dick Reactions/`,
+            `${R2_VIDEOS_PREFIX}/omegle/tier 2/Monkey App Streamers/`,
+            `${R2_VIDEOS_PREFIX}/omegle/tier 2/Points Game/`,
+            `${R2_VIDEOS_PREFIX}/omegle/tier 2/Regular Wins/`,
           ];
           const allResults = [];
           for (const prefix of prefixes) {
@@ -6392,6 +6391,32 @@ const server = http.createServer(async (req, res) => {
       const db = await ensureUsersDbFresh();
       const refUserKey = findUserKeyByReferralCode(db, code);
       if (!refUserKey) {
+        // If Vite-built assets are missing, allow loading from the repo's external `images/` and `thumbnails/`
+        // roots under the new `/assets/...` URL paths.
+        if (pathname.startsWith('/assets/images/') || pathname.startsWith('/assets/thumbnails/')) {
+          const imagesRoot =
+            resolveEnvPath(process.env.TBW_IMAGES_ROOT, path.resolve(__dirname, 'images')) || path.resolve(__dirname, 'images');
+          const thumbsRoot =
+            resolveEnvPath(process.env.TBW_THUMBNAILS_ROOT, path.resolve(__dirname, 'thumbnails')) || path.resolve(__dirname, 'thumbnails');
+          const ASSET_PREFIX_IMAGES = '/assets/images/';
+          const ASSET_PREFIX_THUMBS = '/assets/thumbnails/';
+          const externalRoot = pathname.startsWith(ASSET_PREFIX_IMAGES) ? imagesRoot : thumbsRoot;
+          const prefixLen = pathname.startsWith(ASSET_PREFIX_IMAGES) ? ASSET_PREFIX_IMAGES.length : ASSET_PREFIX_THUMBS.length;
+
+          try {
+            const rel = decodeURIComponent(pathname.slice(prefixLen));
+            const abs = path.resolve(externalRoot, path.normalize(rel));
+            if (abs.startsWith(path.resolve(externalRoot) + path.sep)) {
+              const st = await fs.promises.stat(abs).catch(() => null);
+              if (st && st.isFile()) {
+                const raw = await fs.promises.readFile(abs);
+                const ct = getContentType(abs);
+                res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'public, max-age=31536000, immutable' });
+                return res.end(_methodUp === 'HEAD' ? Buffer.alloc(0) : raw);
+              }
+            }
+          } catch (_) {}
+        }
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         return res.end('Not Found');
       }
@@ -9030,13 +9055,80 @@ const server = http.createServer(async (req, res) => {
         { slug: 'lil-tay', name: 'Lil Tay', ext: '.jpg' },
         { slug: 'megnutt', name: 'Megnutt', ext: '.jpg' },
       ];
-      const result = CREATORS.map((c) => ({
-        slug: c.slug,
-        name: c.name,
-        thumbUrl: R2_ENABLED
-          ? r2PresignedUrl(`porn/onlyfans/thumbnails/${c.slug}${c.ext}`, 3600)
-          : null,
-      }));
+      const slugSet = new Set(CREATORS.map((c) => c.slug.toLowerCase()));
+      /** @type {Map<string, string>} */
+      const thumbKeyBySlug = new Map(); // slug -> exact R2 objectKey
+
+      if (R2_ENABLED && slugSet.size > 0) {
+        // Discover the actual objectKey by listing a few likely prefixes.
+        // This is intentionally conservative to avoid scanning the whole bucket.
+        const prefixes = [
+          `${R2_ASSETS_PREFIX}/onlyfans/thumbnails/`,
+          `${R2_VIDEOS_PREFIX}/onlyfans/thumbnails/`,
+          `${R2_ROOT_PREFIX}/onlyfans/thumbnails/`,
+          `${R2_ASSETS_PREFIX}/onlyfans/`,
+          `${R2_VIDEOS_PREFIX}/onlyfans/`,
+          `${R2_ROOT_PREFIX}/onlyfans/`,
+          `porn/onlyfans/thumbnails/`,
+          `porn/onlyfans/`,
+          // Broader fallbacks (some buckets store creator images directly under thumbnails/images).
+          `${R2_ASSETS_PREFIX}/thumbnails/`,
+          `${R2_ASSETS_PREFIX}/images/`,
+          `${R2_VIDEOS_PREFIX}/thumbnails/`,
+          `${R2_VIDEOS_PREFIX}/images/`,
+          'porn/thumbnails/',
+          'porn/images/',
+        ];
+
+        for (const prefix of prefixes) {
+          try {
+            const items = await r2ListObjects(prefix, 400);
+            for (const item of items) {
+              const keyLc = String(item.key || '').toLowerCase();
+              for (const slug of slugSet) {
+                if (!thumbKeyBySlug.has(slug) && keyLc.includes(slug)) {
+                  thumbKeyBySlug.set(slug, item.key);
+                }
+              }
+              if (thumbKeyBySlug.size === slugSet.size) break;
+            }
+          } catch (e) {
+            // Best-effort: listing failures should not break the endpoint.
+          }
+        }
+      }
+
+      const result = CREATORS.map((c) => {
+        // Best-effort candidate list to survive migrations/renames in R2.
+        // Frontend will try these sequentially on `img` load errors.
+        const extCandidates = Array.from(new Set([c.ext, '.jpg', '.png', '.jpeg']));
+        const keyCandidates = [];
+        for (const ext of extCandidates) {
+          keyCandidates.push(`${R2_ASSETS_PREFIX}/onlyfans/thumbnails/${c.slug}${ext}`);
+          keyCandidates.push(`${R2_VIDEOS_PREFIX}/onlyfans/thumbnails/${c.slug}${ext}`);
+          keyCandidates.push(`${R2_ROOT_PREFIX}/onlyfans/thumbnails/${c.slug}${ext}`); // root-level fallback
+          keyCandidates.push(`porn/onlyfans/thumbnails/${c.slug}${ext}`); // legacy fallback
+        }
+
+        const discoveredKey = thumbKeyBySlug.get(c.slug.toLowerCase());
+        const mergedKeyCandidates = discoveredKey ? [discoveredKey, ...keyCandidates] : keyCandidates;
+        const uniqueKeys = Array.from(new Set(mergedKeyCandidates));
+
+        const thumbUrlR2Candidates = R2_ENABLED
+          ? uniqueKeys.map((k) => r2PresignedUrl(k, 3600))
+          : [];
+
+        return {
+          slug: c.slug,
+          name: c.name,
+          // Prefer the public URL so the frontend loads everything from `/assets/...`.
+          // If the public object isn't reachable, the client can fall back to presigned R2 URLs.
+          thumbUrl: `/assets/onlyfans/thumbnails/${c.slug}${c.ext}`,
+          // Back-compat: keep old single-field behavior.
+          thumbUrlR2: thumbUrlR2Candidates[0] || null,
+          thumbUrlR2Candidates,
+        };
+      });
       res.setHeader('Cache-Control', 'public, max-age=300');
       return sendJson(res, 200, { creators: result });
     }
@@ -9110,7 +9202,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': imgData.ct, 'Cache-Control': 'public, max-age=60', 'Access-Control-Allow-Origin': imgOrigin });
         res.end(imgData.buf);
       } catch {
-        res.writeHead(302, { Location: '/images/face.png' });
+        res.writeHead(302, { Location: '/assets/images/face.png' });
         res.end();
       }
       return;
@@ -9743,12 +9835,12 @@ const server = http.createServer(async (req, res) => {
     const _staticMethodEarly = (req.method || 'GET').toUpperCase();
     if (_staticMethodEarly === 'GET' || _staticMethodEarly === 'HEAD') {
       const _legacyImageRedirect = {
-        '/face.png': '/images/face.png',
-        '/preview.png': '/images/preview.jpg',
-        '/top_preview.png': '/images/top_preview.png',
-        '/checkout-images/image1.png': '/images/checkout/image1.png',
-        '/checkout-images/image2.png': '/images/checkout/image2.jpg',
-        '/checkout-images/image3.png': '/images/checkout/image3.jpg',
+        '/face.png': '/assets/images/face.png',
+        '/preview.png': '/assets/images/preview.jpg',
+        '/top_preview.png': '/assets/images/top_preview.png',
+        '/checkout-images/image1.png': '/assets/images/checkout/image1.png',
+        '/checkout-images/image2.png': '/assets/images/checkout/image2.jpg',
+        '/checkout-images/image3.png': '/assets/images/checkout/image3.jpg',
       };
       const _imgRedirectTo = _legacyImageRedirect[pathname];
       if (_imgRedirectTo) {
@@ -9796,7 +9888,9 @@ const server = http.createServer(async (req, res) => {
     const _clientIndex = path.join(_clientDist, 'index.html');
     const _methodUp = (req.method || 'GET').toUpperCase();
     if ((_methodUp === 'GET' || _methodUp === 'HEAD') && fs.existsSync(_clientIndex)) {
-      if (pathname.startsWith('/assets/') || pathname === '/whitney-fonts.css' || pathname.startsWith('/fonts/')) {
+      // Note: `/assets/*` is handled by a separate fallback block below (local `images/`+`thumbnails/` + optional R2).
+      // Keep this Vite-dist block focused on fonts/whitney to avoid short-circuiting `/assets/*` 404s.
+      if (pathname === '/whitney-fonts.css' || pathname.startsWith('/fonts/')) {
         const _rel = pathname.replace(/^\/+/, '');
         const _assetPath = path.normalize(path.join(_clientDist, _rel));
         if (_assetPath.startsWith(path.normalize(_clientDist + path.sep))) {
@@ -9842,6 +9936,80 @@ const server = http.createServer(async (req, res) => {
           return res.end(_methodUp === 'HEAD' ? '' : _html);
         }
       }
+    }
+
+    // Allow loading static images from repo `images/` + `thumbnails/` under the new `/assets/...` URL paths,
+    // even when the Vite `client/dist` output isn't present (e.g., local dev).
+    if (
+      pathname.startsWith('/assets/images/') ||
+      pathname.startsWith('/assets/thumbnails/') ||
+      pathname.startsWith('/assets/onlyfans/') ||
+      pathname.startsWith('/assets/branding/')
+    ) {
+      const imagesRoot =
+        resolveEnvPath(process.env.TBW_IMAGES_ROOT, path.resolve(__dirname, 'images')) || path.resolve(__dirname, 'images');
+      const thumbsRoot =
+        resolveEnvPath(process.env.TBW_THUMBNAILS_ROOT, path.resolve(__dirname, 'thumbnails')) || path.resolve(__dirname, 'thumbnails');
+
+      const ASSET_PREFIX_IMAGES = '/assets/images/';
+      const ASSET_PREFIX_THUMBS = '/assets/thumbnails/';
+      const ASSET_PREFIX_ONLYFANS = '/assets/onlyfans/';
+      const ASSET_PREFIX_BRANDING = '/assets/branding/';
+
+      let externalRoot = thumbsRoot;
+      let prefixLen = ASSET_PREFIX_THUMBS.length;
+      if (pathname.startsWith(ASSET_PREFIX_IMAGES)) { externalRoot = imagesRoot; prefixLen = ASSET_PREFIX_IMAGES.length; }
+      else if (pathname.startsWith(ASSET_PREFIX_THUMBS)) { externalRoot = thumbsRoot; prefixLen = ASSET_PREFIX_THUMBS.length; }
+      else if (pathname.startsWith(ASSET_PREFIX_ONLYFANS)) { externalRoot = thumbsRoot; prefixLen = ASSET_PREFIX_ONLYFANS.length; }
+      else if (pathname.startsWith(ASSET_PREFIX_BRANDING)) { externalRoot = imagesRoot; prefixLen = ASSET_PREFIX_BRANDING.length; }
+
+      // 1) Serve from local disk first (dev/local).
+      try {
+        const rel = decodeURIComponent(pathname.slice(prefixLen));
+        const externalRootResolved = path.resolve(externalRoot);
+        const abs = path.resolve(externalRootResolved, path.normalize(rel));
+        // Robust containment check (string `startsWith` is brittle across Windows casing/normalization).
+        const relToRoot = path.relative(externalRootResolved, abs);
+        if (relToRoot && !relToRoot.startsWith('..') && !path.isAbsolute(relToRoot)) {
+          const st = await fs.promises.stat(abs).catch(() => null);
+          if (st && st.isFile()) {
+            const raw = await fs.promises.readFile(abs);
+            const ct = getContentType(abs);
+            res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'public, max-age=31536000, immutable' });
+            return res.end(_methodUp === 'HEAD' ? Buffer.alloc(0) : raw);
+          }
+        }
+      } catch (_) {}
+
+      // 2) Fallback: stream from R2 using the `assets/` prefix (production).
+      if (R2_ENABLED) {
+        try {
+          // pathname = /assets/<subpath>
+          const rel2 = decodeURIComponent(pathname.slice('/assets/'.length));
+          // Prevent path traversal style requests.
+          if (!rel2 || rel2.includes('..') || rel2.startsWith('/') || rel2.includes('\\')) {
+            throw new Error('invalid rel2');
+          }
+
+          const allowed =
+            rel2.startsWith('images/') ||
+            rel2.startsWith('thumbnails/') ||
+            rel2.startsWith('onlyfans/') ||
+            rel2.startsWith('branding/');
+          if (allowed) {
+            const objectKey = `${R2_ASSETS_PREFIX}/${rel2}`;
+            const buf = await r2GetObjectBytes(objectKey);
+            if (buf) {
+              const ct = getContentType(rel2);
+              res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'public, max-age=31536000, immutable' });
+              return res.end(_methodUp === 'HEAD' ? Buffer.alloc(0) : buf);
+            }
+          }
+        } catch (_) {}
+      }
+
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('Not Found');
     }
 
     if (
@@ -10142,7 +10310,7 @@ const server = http.createServer(async (req, res) => {
             "@type": "Organization",
             "name": "Pornwrld",
             "url": origin + '/',
-            "logo": { "@type": "ImageObject", "url": origin + '/images/face.png' }
+            "logo": { "@type": "ImageObject", "url": origin + '/assets/images/face.png' }
           }
         };
         if (vDurSec > 0) {

@@ -20,13 +20,13 @@ const SHORTS_CATEGORIES = ['Omegle', 'IRL Dick Flashing', 'TikTok', 'Snapchat', 
 
 /** Thumbnails match homepage / categories cards (same “folder” icons as before) */
 const TABS = [
-  { label: 'Everything', cats: 'ALL', thumb: '/thumbnails/shorts.png' },
-  { label: 'Omegle', cats: 'Omegle', thumb: '/thumbnails/omegle.jpg' },
-  { label: 'Dick Flashing', cats: 'Dick Flashing', thumb: '/thumbnails/irldickflashing.jpg' },
-  { label: 'TikTok', cats: 'TikTok', thumb: '/thumbnails/tiktok.jpg' },
-  { label: 'Snapchat', cats: 'Snapchat', thumb: '/thumbnails/snapchat.jpg' },
-  { label: 'Nip Slips', cats: 'Streamer Slips', thumb: '/thumbnails/liveslips.png' },
-  { label: 'Feet', cats: 'Feet', thumb: '/thumbnails/feet.jpg' },
+  { label: 'Everything', cats: 'ALL', thumb: '/assets/thumbnails/shorts.png' },
+  { label: 'Omegle', cats: 'Omegle', thumb: '/assets/thumbnails/omegle.jpg' },
+  { label: 'Dick Flashing', cats: 'Dick Flashing', thumb: '/assets/thumbnails/irldickflashing.jpg' },
+  { label: 'TikTok', cats: 'TikTok', thumb: '/assets/thumbnails/tiktok.jpg' },
+  { label: 'Snapchat', cats: 'Snapchat', thumb: '/assets/thumbnails/snapchat.jpg' },
+  { label: 'Nip Slips', cats: 'Streamer Slips', thumb: '/assets/thumbnails/liveslips.png' },
+  { label: 'Feet', cats: 'Feet', thumb: '/assets/thumbnails/feet.jpg' },
 ];
 
 const MOBILE_PRELOAD_OFFSETS = [-2, -1, 1, 2];

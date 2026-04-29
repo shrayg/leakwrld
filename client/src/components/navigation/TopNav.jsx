@@ -376,8 +376,8 @@ export function TopNav({ menuOpen = false, onToggleMenu }) {
               <path d="M4 17H20" className={cn('origin-center transition-all duration-300', menuOpen && '-translate-y-[5px] -rotate-45')} />
             </svg>
           </Button>
-          <Link to="/" className="nav-brand items-center whitespace-nowrap rounded-[var(--pornwrld-radius-card)] px-2.5 py-2 text-[17px] font-semibold tracking-[0.03em] text-white no-underline transition hover:bg-white/10 hover:text-[var(--pornwrld-gold)]">
-            Pornwrld
+          <Link to="/" className="nav-brand items-center whitespace-nowrap rounded-[var(--pornwrld-radius-card)] px-1.5 py-1.5 text-white no-underline transition hover:bg-white/10 hover:text-[var(--pornwrld-gold)]" aria-label="Pornwrld Home">
+            <img src="/assets/branding/pornwrld-logo.png" alt="Pornwrld" className="h-[34px] w-auto max-w-[170px] object-contain" />
           </Link>
         </div>
 

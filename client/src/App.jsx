@@ -14,9 +14,6 @@ import { AccountPage } from './pages/AccountPage';
 import { LiveCamsPage } from './pages/LiveCamsPage';
 import { CustomRequestsPage } from './pages/CustomRequestsPage';
 import { BlogPage } from './pages/BlogPage';
-import { LoginPage } from './pages/LoginPage';
-import { SignupPage } from './pages/SignupPage';
-import { CreateAccountPage } from './pages/CreateAccountPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { VideoBySlugPage } from './pages/VideoBySlugPage';
 import { AgeGateModal } from './components/shell/AgeGateModal';
@@ -68,12 +65,12 @@ export default function App() {
           <Route path="/changelog" element={<ChangelogPage />} />
           <Route path="/brand" element={<BrandPage />} />
           <Route path="/premium" element={<Navigate to="/checkout" replace />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/login.html" element={<Navigate to="/login" replace />} />
-          <Route path="/signup" element={<SignupPage />} />
-          <Route path="/signup.html" element={<Navigate to="/signup" replace />} />
-          <Route path="/create-account" element={<CreateAccountPage />} />
-          <Route path="/create-account.html" element={<Navigate to="/create-account" replace />} />
+          <Route path="/login" element={<Navigate to="/?auth=login" replace />} />
+          <Route path="/login.html" element={<Navigate to="/?auth=login" replace />} />
+          <Route path="/signup" element={<Navigate to="/?auth=signup" replace />} />
+          <Route path="/signup.html" element={<Navigate to="/?auth=signup" replace />} />
+          <Route path="/create-account" element={<Navigate to="/?auth=signup" replace />} />
+          <Route path="/create-account.html" element={<Navigate to="/?auth=signup" replace />} />
           <Route path="/folder" element={<FolderPage />} />
           <Route path="/folder.html" element={<FolderPage />} />
           <Route path="/video" element={<VideoPage />} />

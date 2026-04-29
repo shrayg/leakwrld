@@ -7,22 +7,22 @@ import { displayFolderCountLabel } from '../lib/folderCountsDisplay';
 
 /** Same folder keys / thumbs as `HomeFolderGrid`, plus Shorts (no folder count API). */
 const ROWS = [
-  { kind: 'folder', countKey: 'NSFW Straight', to: '/nsfw-straight', thumb: '/thumbnails/omegle.jpg', title: 'NSFW Straight' },
-  { kind: 'folder', countKey: 'Alt and Goth', to: '/alt-and-goth', thumb: '/thumbnails/tiktok.jpg', title: 'Alt and Goth' },
-  { kind: 'folder', countKey: 'Petitie', to: '/petitie', thumb: '/thumbnails/snapchat.jpg', title: 'Petitie' },
-  { kind: 'folder', countKey: 'Teen (18+ only)', to: '/teen-18-plus', thumb: '/thumbnails/liveslips.png', title: 'Teen (18+ only)' },
-  { kind: 'folder', countKey: 'MILF', to: '/milf', thumb: '/thumbnails/feet.jpg', title: 'MILF' },
-  { kind: 'folder', countKey: 'Asian', to: '/asian', thumb: '/thumbnails/omegle.jpg', title: 'Asian' },
-  { kind: 'folder', countKey: 'Ebony', to: '/ebony', thumb: '/thumbnails/tiktok.jpg', title: 'Ebony' },
-  { kind: 'folder', countKey: 'Hentai', to: '/hentai', thumb: '/thumbnails/snapchat.jpg', title: 'Hentai' },
-  { kind: 'folder', countKey: 'Yuri', to: '/yuri', thumb: '/thumbnails/liveslips.png', title: 'Yuri' },
-  { kind: 'folder', countKey: 'Yaoi', to: '/yaoi', thumb: '/thumbnails/feet.jpg', title: 'Yaoi' },
-  { kind: 'folder', countKey: 'Nip Slips', to: '/nip-slips', thumb: '/thumbnails/liveslips.png', title: 'Nip Slips' },
-  { kind: 'folder', countKey: 'Omegle', to: '/omegle', thumb: '/thumbnails/omegle.jpg', title: 'Omegle' },
-  { kind: 'folder', countKey: 'OF Leaks', to: '/of-leaks', thumb: '/thumbnails/onlyfans.jpg', title: 'OF Leaks' },
-  { kind: 'folder', countKey: 'Premium Leaks', to: '/premium-leaks', thumb: '/thumbnails/onlyfans.jpg', title: 'Premium Leaks' },
-  { kind: 'onlyfans', to: '/onlyfans', thumb: '/thumbnails/onlyfans.jpg', title: 'OnlyFans Leaks', chip: 'By creator' },
-  { kind: 'shorts', to: '/shorts', thumb: '/thumbnails/shorts.png', title: 'Shorts', chip: 'Vertical clips' },
+  { kind: 'folder', countKey: 'NSFW Straight', to: '/nsfw-straight', thumb: '/assets/thumbnails/omegle.jpg', title: 'NSFW Straight' },
+  { kind: 'folder', countKey: 'Alt and Goth', to: '/alt-and-goth', thumb: '/assets/thumbnails/tiktok.jpg', title: 'Alt and Goth' },
+  { kind: 'folder', countKey: 'Petitie', to: '/petitie', thumb: '/assets/thumbnails/snapchat.jpg', title: 'Petitie' },
+  { kind: 'folder', countKey: 'Teen (18+ only)', to: '/teen-18-plus', thumb: '/assets/thumbnails/liveslips.png', title: 'Teen (18+ only)' },
+  { kind: 'folder', countKey: 'MILF', to: '/milf', thumb: '/assets/thumbnails/feet.jpg', title: 'MILF' },
+  { kind: 'folder', countKey: 'Asian', to: '/asian', thumb: '/assets/thumbnails/omegle.jpg', title: 'Asian' },
+  { kind: 'folder', countKey: 'Ebony', to: '/ebony', thumb: '/assets/thumbnails/tiktok.jpg', title: 'Ebony' },
+  { kind: 'folder', countKey: 'Hentai', to: '/hentai', thumb: '/assets/thumbnails/snapchat.jpg', title: 'Hentai' },
+  { kind: 'folder', countKey: 'Yuri', to: '/yuri', thumb: '/assets/thumbnails/liveslips.png', title: 'Yuri' },
+  { kind: 'folder', countKey: 'Yaoi', to: '/yaoi', thumb: '/assets/thumbnails/feet.jpg', title: 'Yaoi' },
+  { kind: 'folder', countKey: 'Nip Slips', to: '/nip-slips', thumb: '/assets/thumbnails/liveslips.png', title: 'Nip Slips' },
+  { kind: 'folder', countKey: 'Omegle', to: '/omegle', thumb: '/assets/thumbnails/omegle.jpg', title: 'Omegle' },
+  { kind: 'folder', countKey: 'OF Leaks', to: '/of-leaks', thumb: '/assets/thumbnails/onlyfans.jpg', title: 'OF Leaks' },
+  { kind: 'folder', countKey: 'Premium Leaks', to: '/premium-leaks', thumb: '/assets/thumbnails/onlyfans.jpg', title: 'Premium Leaks' },
+  { kind: 'onlyfans', to: '/onlyfans', thumb: '/assets/thumbnails/onlyfans.jpg', title: 'OnlyFans Leaks', chip: 'By creator' },
+  { kind: 'shorts', to: '/shorts', thumb: '/assets/thumbnails/shorts.png', title: 'Shorts', chip: 'Vertical clips' },
 ];
 
 export function CategoriesPage() {
@@ -30,7 +30,7 @@ export function CategoriesPage() {
   const [counts, setCounts] = useState(null);
   const teaserThumb = useMemo(() => {
     const thumbs = ROWS.map((r) => r.thumb).filter(Boolean);
-    if (!thumbs.length) return '/images/face.png';
+    if (!thumbs.length) return '/assets/images/face.png';
     return thumbs[Math.floor(Math.random() * thumbs.length)];
   }, []);
 

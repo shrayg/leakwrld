@@ -150,7 +150,9 @@ export function TopNavModern({ menuOpen = false, onToggleMenu }) {
           <span />
           <span />
         </button>
-        <Link to="/" className="pw-nav-brand">Pornwrld</Link>
+        <Link to="/" className="pw-nav-brand" aria-label="Pornwrld Home">
+          <img src="/assets/branding/pornwrld-logo.png" alt="Pornwrld" className="pw-nav-brand-logo" />
+        </Link>
         <button type="button" className="pw-nav-search" onClick={() => navigate('/search')}>
           Search videos and categories
         </button>

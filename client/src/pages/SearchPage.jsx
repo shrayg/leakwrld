@@ -17,7 +17,7 @@ function sortParams(uiSort) {
 }
 
 export function SearchPage() {
-  const { openReferral } = useShell();
+  const { openReferral, openAuth } = useShell();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const qParam = searchParams.get('q') || '';
@@ -251,9 +251,9 @@ export function SearchPage() {
         <div className="search-empty-state">
           <div className="search-empty-title">Sign in to search</div>
           <div className="search-empty-sub">Create an account or log in to search videos</div>
-          <Link className="search-unlock-btn" to={'/login?redirect=' + encodeURIComponent('/search?q=' + encodeURIComponent(query.trim()))}>
+          <button type="button" className="search-unlock-btn" onClick={() => openAuth('login')}>
             Sign In
-          </Link>
+          </button>
         </div>
       )}
 

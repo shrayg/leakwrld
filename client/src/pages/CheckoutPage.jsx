@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useShell } from '../context/ShellContext';
 import { PatreonMarkIcon } from '../components/icons/PatreonMarkIcon';
 import { PageHero } from '../components/layout/PageHero';
 import { FooterSection } from '../components/ui/footer-section';
@@ -166,6 +167,7 @@ async function fetchJson(url, body) {
 }
 
 export function CheckoutPage() {
+  const { openAuth } = useShell();
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
   const [searchParams] = useSearchParams();
@@ -343,9 +345,8 @@ export function CheckoutPage() {
     } catch {
       /* ignore */
     }
-    window.location.href =
-      '/login?redirect=' + encodeURIComponent('/checkout') + '&plan=' + encodeURIComponent(plan);
-  }, []);
+    openAuth('login');
+  }, [openAuth]);
 
   const openScriptCheckout = useCallback((url, qty, existingPopup) => {
     const targetUrl = withQty(url, qty);
@@ -389,7 +390,7 @@ export function CheckoutPage() {
       if (res.status === 401) {
         setPatreonMsg({ text: 'Please log in first, then try unlocking again.', error: true, warm: false });
         setTimeout(() => {
-          window.location.href = '/login?redirect=' + encodeURIComponent('/checkout');
+          openAuth('login');
         }, 1200);
         return;
       }
@@ -626,10 +627,10 @@ export function CheckoutPage() {
 
           <div className="image-slots" aria-label="Preview images">
             <div className="image-slot">
-              <img src="/images/checkout/image1.png" alt="Preview 1" loading="lazy" decoding="async" />
+              <img src="/assets/images/checkout/image1.png" alt="Preview 1" loading="lazy" decoding="async" />
             </div>
             <div className="image-slot">
-              <img src="/images/checkout/image2.jpg" alt="Preview 2" loading="lazy" decoding="async" />
+              <img src="/assets/images/checkout/image2.jpg" alt="Preview 2" loading="lazy" decoding="async" />
             </div>
           </div>
 
@@ -717,9 +718,13 @@ export function CheckoutPage() {
                       <div className="price price--free">$0</div>
                       <div className="daily-price daily-price--dim">Shorts · teasers · ads</div>
                     </div>
-                    <Link className="btn btn-free checkout-tier-card__cta" to="/signup">
+                    <button
+                      className="btn btn-free checkout-tier-card__cta"
+                      type="button"
+                      onClick={() => openAuth('signup')}
+                    >
                       Stay on free
-                    </Link>
+                    </button>
                   </div>
                 </article>
 

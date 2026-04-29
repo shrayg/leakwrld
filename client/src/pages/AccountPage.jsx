@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { disconnectProvider, fetchAccount, fetchConnectUrl, updateAccount } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
+import { useShell } from '../context/ShellContext';
 
 const PRIMARY_TABS = ['profile', 'referrals'];
 const CONTENT_TABS = ['videos', 'photos', 'gifs', 'about'];
@@ -16,6 +17,7 @@ function toNum(v) {
 
 export function AccountPage() {
   const { refresh: refreshAuth } = useAuth();
+  const { openAuth } = useShell();
   const [loading, setLoading] = useState(true);
   const [account, setAccount] = useState(null);
   const [error, setError] = useState('');
@@ -180,8 +182,8 @@ export function AccountPage() {
           <h2>Account</h2>
           {error ? <p className="account-profile-alert">{error}</p> : null}
           <div className="account-profile-auth-actions">
-            <Link to="/login" className="account-profile-btn account-profile-btn--gold">Log in</Link>
-            <Link to="/signup" className="account-profile-btn account-profile-btn--ghost">Create account</Link>
+            <button type="button" className="account-profile-btn account-profile-btn--gold" onClick={() => openAuth('login')}>Log in</button>
+            <button type="button" className="account-profile-btn account-profile-btn--ghost" onClick={() => openAuth('signup')}>Create account</button>
           </div>
         </div>
       </div>
@@ -203,7 +205,7 @@ export function AccountPage() {
         <div className="account-profile-shell">
           <div className="account-profile-header-row">
             <div className="account-profile-avatar-wrap">
-              <img src={form.avatarUrl || '/images/face.png'} className="account-profile-avatar" alt="Profile" />
+              <img src={form.avatarUrl || '/assets/images/face.png'} className="account-profile-avatar" alt="Profile" />
             </div>
             <div className="account-profile-head-copy">
               <h1>{form.displayName || form.username}</h1>

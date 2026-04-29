@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useShell } from '../../context/ShellContext';
 import { fetchReferralStatus } from '../../api/client';
@@ -8,7 +7,7 @@ import { GoldPremiumFx } from './GoldPremiumFx';
 /** Referral progress + CTAs — paired with leaderboard on the home row. */
 export function HeroReferralGoal() {
   const { isAuthed } = useAuth();
-  const { openReferral } = useShell();
+  const { openReferral, openAuth } = useShell();
   const [moreOpen, setMoreOpen] = useState(false);
   const [count, setCount] = useState(0);
   const [goal, setGoal] = useState(1);
@@ -52,9 +51,9 @@ export function HeroReferralGoal() {
             Referral progress and payout tracking unlock after signup.
           </p>
           <div className="hero-referral-goal__actions">
-            <Link to="/signup" className="referral-cta-primary">
+            <button type="button" className="referral-cta-primary" onClick={() => openAuth('signup')}>
               Create free account
-            </Link>
+            </button>
             <button
               type="button"
               className="referral-more-btn"

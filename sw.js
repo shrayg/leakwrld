@@ -2,7 +2,7 @@ const CACHE_NAME = 'pornwrld-v104';
 const PRECACHE_URLS = [
   '/',
   '/styles.css',
-  '/images/face.png',
+  '/assets/images/face.png',
   '/manifest.json',
 ];
 
