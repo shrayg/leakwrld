@@ -69,7 +69,9 @@ export function FaqsPage() {
         },
         {
           heading: 'Where can I get support?',
-          paragraphs: ['Use the Help page or contact us through the Support link in the top navigation.'],
+          paragraphs: [
+            'Use the Help center (/help) for troubleshooting. For anything else — billing, technical issues, video reports, or DMCA/takedowns — contact us only through our official Discord (discord.gg/pornwrld) or Telegram (t.me/pornwrldxyz). Those are the only channels we use.',
+          ],
         },
       ]}
     />
@@ -144,7 +146,7 @@ export function HelpPage() {
           heading: 'Account and billing',
           paragraphs: [
             'If premium access did not update after payment or key redemption, log out/in once and check your tier badge.',
-            'For unresolved billing cases, contact support with your username and transaction details.',
+            'For unresolved billing cases, message us on Discord or Telegram with your username and transaction details — those are our only official support channels.',
           ],
         },
       ]}

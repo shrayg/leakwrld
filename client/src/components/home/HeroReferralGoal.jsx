@@ -151,7 +151,6 @@ export function HeroReferralGoal() {
             </svg>
           </button>
         </div>
-
         <div
           className={'referral-more-panel' + (moreOpen ? ' is-open' : '')}
           id="referral-more-panel"

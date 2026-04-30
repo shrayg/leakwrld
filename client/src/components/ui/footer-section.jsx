@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'motion/react';
 import { CircleHelp, FrameIcon, Send, ShieldCheck } from 'lucide-react';
+import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../../constants/officialContact';
 
 const footerLinks = [
   {
@@ -27,12 +28,15 @@ const footerLinks = [
     links: [
       { title: 'Blog', href: '/blog' },
       { title: 'Changelog', href: '/changelog' },
-      { title: 'Help', href: 'https://t.me/pornwrldxyz', external: true },
+      { title: 'Help center', href: '/help', external: false },
     ],
   },
   {
-    label: 'Social Links',
-    links: [{ title: 'Telegram', href: 'https://t.me/pornwrldxyz', icon: Send, external: true }],
+    label: 'Official contact',
+    links: [
+      { title: 'Discord', href: OFFICIAL_DISCORD_INVITE_URL, external: true },
+      { title: 'Telegram', href: OFFICIAL_TELEGRAM_URL, icon: Send, external: true },
+    ],
   },
 ];
 
@@ -97,10 +101,16 @@ export function FooterSection() {
             </span>
             <span>
               <CircleHelp className="footer-link-icon" />
-              Need support?{' '}
-              <a href="https://t.me/pornwrldxyz" target="_blank" rel="noopener noreferrer" className="site-footer-upgraded__meta-link">
+              Issues, reports &amp; DMCA:{' '}
+              <a href={OFFICIAL_DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer" className="site-footer-upgraded__meta-link">
+                Discord
+              </a>{' '}
+              or{' '}
+              <a href={OFFICIAL_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="site-footer-upgraded__meta-link">
                 Telegram
               </a>
+              {' — '}
+              our only official channels.
             </span>
           </div>
         </AnimatedContainer>

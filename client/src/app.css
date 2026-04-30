@@ -13,12 +13,36 @@
     var(--color-bg);
 }
 
+/*
+ * Modern `.top-nav.pw-nav` is two rows (brand row + tab row). Legacy `:root { --nav-height: 64px }`
+ * leaves `body { padding-top }` too short, so the fixed header overlaps the left side of the page
+ * (account “Profile” sat under the logo bar and looked unclickable).
+ */
+html:has(.site-theme-pornwrld) {
+  --nav-height: 132px;
+}
+
+@media (max-width: 860px) {
+  html:has(.site-theme-pornwrld) {
+    --nav-height: 124px;
+  }
+}
+
 .main-content {
   flex: 1;
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
   padding: 16px;
+  /*
+   * Contain descendants that reuse nav tab styles (high z-index).
+   * Without this, e.g. `.pw-nav-tabs { z-index: 7001 }` on account tabs can paint above
+   * the fixed `.leaderboard-wrapper` (z-index 5000) because stacking is per subtree.
+   * `z-index: 1` caps the whole `<main>` layer below the dock (5000) while keeping
+   * top nav / modals (6999+ overlays) above via their own layers.
+   */
+  position: relative;
+  z-index: 1;
 }
 
 
@@ -334,29 +358,43 @@
   font-size: 12px;
 }
 
-.account-profile-primary-tabs,
-.account-profile-content-tabs {
-  display: flex;
-  gap: 8px;
+/* Account + referral panels reuse main nav glide (see `PwNavTabRow`) */
+.account-pw-tabs.pw-nav-tabs {
+  width: 100%;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  margin: 0 0 10px;
+  padding: 6px 0 12px;
+  z-index: auto;
+}
+
+.account-profile-shell > .account-pw-tabs.pw-nav-tabs:first-of-type {
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 12px 0;
 }
 
-.account-profile-primary-tabs button,
-.account-profile-content-tabs button {
-  border: 1px solid transparent;
-  background: transparent;
-  color: rgba(255, 245, 251, 0.76);
-  min-height: 34px;
-  padding: 0 12px;
-  cursor: pointer;
+.account-profile-shell > .account-pw-tabs.pw-nav-tabs + .account-pw-tabs.pw-nav-tabs {
+  margin-top: -2px;
+  margin-bottom: 12px;
+  padding-top: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.account-profile-primary-tabs button.is-active,
-.account-profile-content-tabs button.is-active {
-  color: #fff5fb;
-  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+.account-ref-program .account-ref-program__pw-tabs.account-pw-tabs {
+  margin-top: 4px;
+  margin-bottom: 14px;
+  padding-top: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.account-pw-tabs.pw-nav-tabs:not(.pw-nav-tab-row--sentence) .pw-nav-tab {
+  letter-spacing: 0.06em;
+}
+
+.pw-nav-tab-row--sentence .pw-nav-tab {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .account-profile-grid {
@@ -393,7 +431,8 @@
 }
 
 .account-profile-about,
-.account-profile-referrals,
+.account-ref-program,
+.account-affiliate,
 .account-profile-providers,
 .account-profile-edit {
   margin-top: 14px;
@@ -404,7 +443,8 @@
 }
 
 .account-profile-about h3,
-.account-profile-referrals h3,
+.account-ref-program h3,
+.account-affiliate h3,
 .account-profile-providers h3,
 .account-profile-edit h3 {
   margin: 0 0 8px;
@@ -413,7 +453,10 @@
 
 .account-profile-about p,
 .account-profile-about li,
-.account-profile-referrals p {
+.account-ref-program p,
+.account-ref-program li,
+.account-affiliate p,
+.account-affiliate li {
   color: rgba(255, 245, 251, 0.78);
 }
 
@@ -492,6 +535,532 @@
   background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   border-radius: var(--pornwrld-radius-card);
   padding: 12px;
+}
+
+/* Account — referral program (two-column tools + earnings) */
+.account-ref-program {
+  border-color: color-mix(in srgb, var(--color-primary) 28%, rgba(255, 255, 255, 0.12));
+  padding: 18px;
+}
+
+.account-ref-program__page-title {
+  margin: 0 0 16px;
+  font-size: clamp(18px, 2vw, 22px);
+  font-weight: 600;
+  color: #fff5fb;
+}
+
+.account-ref-program__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.account-ref-program__card-title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 245, 251, 0.86);
+}
+
+.account-ref-program__steps {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: rgba(255, 245, 251, 0.78);
+}
+
+.account-ref-program__steps li::marker {
+  color: color-mix(in srgb, var(--color-primary) 85%, #fff);
+}
+
+.account-ref-program__tools {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--pornwrld-radius-card);
+  background: rgba(12, 12, 14, 0.55);
+  padding: 14px;
+}
+
+.account-ref-program__code-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.account-ref-program__code {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 8px 12px;
+  border-radius: var(--pornwrld-radius-card);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff5fb;
+}
+
+.account-ref-program__link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.account-ref-program__link-preview {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 12px;
+  color: rgba(255, 245, 251, 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-ref-program__kicker {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-primary) 90%, #fff);
+}
+
+.account-ref-program__sub {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.account-ref-program__share-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.account-ref-program__share-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff5fb;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.account-ref-program__share-btn:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.account-ref-program__share-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 245, 251, 0.92);
+}
+
+.account-ref-program__share-action {
+  font-size: 13px;
+  color: rgba(255, 245, 251, 0.78);
+}
+
+.account-ref-program__btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff5fb;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+}
+
+.account-ref-program__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.account-ref-program__btn--primary {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.account-ref-program__btn--ghost {
+  background: transparent;
+}
+
+.account-ref-program__btn--telegram {
+  border-color: rgba(100, 180, 255, 0.45);
+  background: color-mix(in srgb, #5ba3ff 16%, transparent);
+}
+
+.account-ref-program__stats-wrap {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.account-ref-program__stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.account-ref-stat-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--pornwrld-radius-card);
+  background: rgba(0, 0, 0, 0.25);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.account-ref-stat-card--accent {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, rgba(0, 0, 0, 0.3));
+}
+
+.account-ref-stat-card__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.account-ref-stat-card__value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff5fb;
+}
+
+.account-ref-stat-card__hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.48);
+  line-height: 1.3;
+}
+
+.account-ref-program__rewards {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--pornwrld-radius-card);
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.account-ref-program__rewards h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff5fb;
+}
+
+.account-ref-program__rewards ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(255, 245, 251, 0.78);
+}
+
+.account-ref-claimed__amount {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.account-ref-claimed__label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.account-ref-claimed__amount strong {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff5fb;
+}
+
+.account-ref-claimed__note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 245, 251, 0.72);
+}
+
+.account-ref-program__telegram {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.account-ref-program__telegram-lede {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: rgba(255, 245, 251, 0.85);
+}
+
+.account-ref-program__telegram-pending {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 245, 251, 0.78);
+}
+
+@media (max-width: 900px) {
+  .account-ref-program__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-ref-program__stat-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .account-ref-program__share-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-ref-program__stat-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Account — affiliate partnership tracks */
+.account-affiliate {
+  border-color: color-mix(in srgb, var(--color-primary) 22%, rgba(255, 255, 255, 0.12));
+  padding: 20px;
+}
+
+.account-affiliate__hero {
+  margin-bottom: 18px;
+}
+
+.account-affiliate__hero h3 {
+  margin: 0 0 10px;
+  font-size: clamp(18px, 2vw, 22px);
+  font-weight: 700;
+  color: #fff5fb;
+}
+
+.account-affiliate__lede {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(255, 245, 251, 0.82);
+  max-width: 85ch;
+}
+
+.account-affiliate__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.account-affiliate-card {
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(165deg, color-mix(in srgb, var(--color-primary) 12%, rgba(14, 14, 18, 0.92)) 0%, rgba(10, 10, 14, 0.94) 100%);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.account-affiliate-card--creator {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, rgba(255, 255, 255, 0.1));
+}
+
+.account-affiliate-card__head {
+  margin-bottom: 14px;
+}
+
+.account-affiliate-card__head h4 {
+  margin: 8px 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff5fb;
+}
+
+.account-affiliate-card__sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 245, 251, 0.76);
+}
+
+.account-affiliate-card__badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 48%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: #fff5fb;
+}
+
+.account-affiliate-card__badge--creator {
+  border-color: rgba(120, 200, 255, 0.45);
+  background: color-mix(in srgb, #78c8ff 12%, transparent);
+}
+
+.account-affiliate-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+}
+
+.account-affiliate-goal__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.account-affiliate-goal__label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.account-affiliate-goal__count {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff5fb;
+  white-space: nowrap;
+}
+
+.account-affiliate-bar {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.account-affiliate-bar__fill {
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 88%, #fff), color-mix(in srgb, var(--color-primary-dark) 75%, #301018));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.account-affiliate-card--creator .account-affiliate-bar__fill {
+  background: linear-gradient(90deg, color-mix(in srgb, #78c8ff 70%, var(--color-primary)), var(--color-primary));
+}
+
+.account-affiliate-goal__detail {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.account-affiliate-card__reward {
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 245, 251, 0.88);
+  padding: 10px 12px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.account-affiliate-card__reward strong {
+  color: #fff5fb;
+}
+
+.account-affiliate-card__ready {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-primary-light) 85%, #fff);
+}
+
+.account-affiliate-card__nudge {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 245, 251, 0.68);
+}
+
+.account-affiliate__footer {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.account-affiliate__footer p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(255, 245, 251, 0.82);
+}
+
+.account-affiliate__telegram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: var(--pornwrld-radius-card);
+  font-weight: 700;
+  font-size: 13px;
+  text-decoration: none;
+  border: 1px solid rgba(100, 180, 255, 0.45);
+  background: color-mix(in srgb, #5ba3ff 18%, transparent);
+  color: #fff5fb;
+}
+
+.account-affiliate__telegram:hover {
+  filter: brightness(1.06);
+}
+
+.account-affiliate__telegram-pending {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(255, 245, 251, 0.78);
+}
+
+@media (max-width: 900px) {
+  .account-affiliate__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .account-profile-alert,
@@ -2508,6 +3077,13 @@
 }
 
 /* Two-layer modern nav, sharp and tokenized */
+.top-nav.pw-nav {
+  display: block;
+  height: auto;
+  overflow: visible;
+  padding: 0;
+}
+
 .pw-nav {
   height: auto;
   min-height: 0;
@@ -2528,6 +3104,9 @@
   min-height: 60px;
   padding: 10px 14px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: visible;
+  position: relative;
+  z-index: 7002;
 }
 
 .pw-nav-burger {
@@ -2587,6 +3166,19 @@
 
 .pw-nav-profile {
   justify-self: end;
+  position: relative;
+  z-index: 7300;
+}
+
+.pw-nav-profile .profile {
+  z-index: 7301;
+}
+
+.pw-nav-profile .profile-dropdown {
+  z-index: 7350;
+  background: #000 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 .pw-nav-tabs {

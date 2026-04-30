@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { fetchRandomVideos } from '../../api/client';
 import { ProfileMenu } from '../auth/ProfileMenu';
+import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../../constants/officialContact';
 
 const CATEGORY_ITEMS = [
   { label: 'NSFW Straight', to: '/nsfw-straight' },
@@ -36,7 +37,8 @@ const NAV_ITEMS = [
   { key: 'shorts', label: 'Shorts', to: '/shorts' },
   { key: 'custom', label: 'Custom Requests', to: '/custom-requests' },
   { key: 'premium', label: 'Premium', to: '/checkout', premium: true },
-  { key: 'support', label: 'Contact Us', href: 'https://t.me/pornwrldxyz' },
+  { key: 'discord', label: 'Discord', href: OFFICIAL_DISCORD_INVITE_URL },
+  { key: 'telegram', label: 'Telegram', href: OFFICIAL_TELEGRAM_URL },
 ];
 
 function isItemActive(pathname, item) {

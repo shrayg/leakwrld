@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
+import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../../constants/officialContact';
 
 export function TosDmcaFooter() {
   const [open, setOpen] = useState(false);
@@ -24,6 +25,17 @@ export function TosDmcaFooter() {
               </p>
               <p>
                 <strong>DMCA</strong>: If you believe content infringes your copyright, submit a notice to the site operator with: (1) your contact info, (2) the specific URL(s), (3) a good‑faith statement, and (4) a statement under penalty of perjury that you are authorized to act, plus your physical or electronic signature. We will act on valid notices promptly.
+              </p>
+              <p>
+                <strong>Where to reach us</strong>: Discord and Telegram are our <strong>only</strong> official channels for DMCA notices, takedowns, abuse reports, and general issues —{' '}
+                <a href={OFFICIAL_DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+                  discord.gg/pornwrld
+                </a>{' '}
+                ·{' '}
+                <a href={OFFICIAL_TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+                  t.me/pornwrldxyz
+                </a>
+                .
               </p>
             </div>
           </div>

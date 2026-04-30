@@ -6,6 +6,7 @@ import { ProfileMenu } from '../auth/ProfileMenu';
 import { useNavOverflowSplit } from '../../hooks/useNavOverflowSplit';
 import { useAuth } from '../../hooks/useAuth';
 import { cn } from '../../lib/utils';
+import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../../constants/officialContact';
 
 /** Must match `.site-theme-pornwrld .top-nav-links { gap }` for overflow measurement */
 const NAV_LINK_GAP_PX = 6;
@@ -15,7 +16,8 @@ const NAV_ENTRIES = [
   { key: 'home', kind: 'link', to: '/', label: 'Home', end: true },
   { key: 'shorts', kind: 'link', to: '/shorts', label: 'Shorts' },
   { key: 'custom', kind: 'custom', to: '/custom-requests', label: 'Custom Requests' },
-  { key: 'support', kind: 'external', href: 'https://t.me/pornwrldxyz', label: 'Contact Us' },
+  { key: 'discord', kind: 'external', href: OFFICIAL_DISCORD_INVITE_URL, label: 'Discord' },
+  { key: 'support', kind: 'external', href: OFFICIAL_TELEGRAM_URL, label: 'Telegram' },
   { key: 'premium', kind: 'link', to: '/checkout', label: 'Premium', premium: true },
   { key: 'search', kind: 'search', label: 'Search' },
 ];
@@ -74,6 +76,16 @@ function NavIcon({ kind }) {
         focusable="false"
       >
         <path d="M10.8 16.5 7 12.7l1.4-1.4 2.4 2.4 5-5 1.4 1.4z" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (kind === 'discord') {
+    return (
+      <svg className="h-4 w-4 shrink-0" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path
+          d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037 19.59 19.59 0 0 0-.608 1.25 13.47 13.47 0 0 0-5.487 0 19.37 19.37 0 0 0-.618-1.25.077.077 0 0 0-.079-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.319 13.58.1 18.058a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 5.993 3.03.077.077 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 12.6 12.6 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.29.074.074 0 0 1 .078-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .079.009c.12.098.246.196.373.29a.078.078 0 0 1-.006.128 12.33 12.33 0 0 1-1.873.891.076.076 0 0 0-.04.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.029 19.84 19.84 0 0 0 6.002-3.03.078.078 0 0 0 .032-.054c.5-5.177-.838-9.674-3.548-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.419 0 1.333-.956 2.419-2.157 2.419zm7.975 0c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.211 0 2.176 1.095 2.157 2.419 0 1.333-.955 2.419-2.157 2.419z"
+          fill="currentColor"
+        />
       </svg>
     );
   }

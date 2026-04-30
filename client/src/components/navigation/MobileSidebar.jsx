@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { GoldPremiumFx } from '../home/GoldPremiumFx';
 import { useAuth } from '../../hooks/useAuth';
 import { useShell } from '../../context/ShellContext';
+import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../../constants/officialContact';
 
 function getLinks(isAuthed) {
   return [
@@ -76,13 +77,22 @@ export function MobileSidebar({ open, onClose }) {
             )
           ))}
           <a
-            href="https://t.me/pornwrldxyz"
+            href={OFFICIAL_DISCORD_INVITE_URL}
             target="_blank"
             rel="noopener noreferrer"
             onClick={onClose}
             className="nav-sidebar-item flex min-h-10 w-full items-center rounded-[var(--pornwrld-radius-card)] border border-transparent bg-transparent px-3 py-2 text-sm font-semibold leading-tight tracking-[0.01em] text-white/85 transition"
           >
-            Contact Us
+            Discord (official)
+          </a>
+          <a
+            href={OFFICIAL_TELEGRAM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onClose}
+            className="nav-sidebar-item flex min-h-10 w-full items-center rounded-[var(--pornwrld-radius-card)] border border-transparent bg-transparent px-3 py-2 text-sm font-semibold leading-tight tracking-[0.01em] text-white/85 transition"
+          >
+            Telegram (official)
           </a>
         </nav>
       </div>

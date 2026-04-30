@@ -1,27 +1,18 @@
 # Schema + RLS Summary
 
-## Core tables
-- Profiles/social: `profiles`, `channels`, `subscriptions`
-- Video graph: `videos`, `video_assets`, `categories`, `tags`, `video_tags`
+## Canonical model
+- Users: `users` (single source of truth for identity, profile JSON, auth/provider fields, tier, referrals)
+- Video graph: `videos`, `video_assets`
 - Engagement: `comments`, `comment_reactions`, `video_reactions`
-- Library: `playlists`, `playlist_items`
-- Analytics: `view_events_raw`, `video_metrics_daily`
-- Trust/safety: `reports`, `moderation_flags`, `copyright_claims`
-- Compliance/preferences: `consent_preferences`, `age_gate_events`
+- Analytics/events: `view_events_raw`, `admin_events`, `app_state`
+
+Legacy duplicate profile storage (`profiles`, `account_profiles`) and age verification persistence (`age_gate_events`) are removed in consolidation migrations.
 
 ## RLS policies
-- `profiles`: public read, owner write.
-- `channels`: public read, owner write.
-- `videos`: public read only when `visibility='public' and status='ready'`; owner write.
-- `comments`: public read non-deleted; author write.
-- `reports`: reporter can insert.
-- `moderation_flags`: service-role read boundary.
+- `users`: service-role policy for backend writes/reads.
+- Additional table policies depend on active app usage and are managed by migrations.
 
-## Index and scale guidance
-- Primary keys are UUIDs for global-write friendliness.
-- Daily aggregates separate from raw events for write/read optimization.
-- Status columns (`videos.status`, `reports.status`) support async queue transitions.
-
-## Migration files
-- `supabase/migrations/20260425194000_mvp_schema.sql`
-- `supabase/migrations/20260425195000_jobs.sql`
+## Migration files (key)
+- `supabase/migrations/20260429060000_canonical_users.sql`
+- `supabase/migrations/20260429070000_drop_unused_schema.sql`
+- `supabase/migrations/20260429190000_merge_profiles_drop_age_gate.sql`

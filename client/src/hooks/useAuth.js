@@ -17,7 +17,13 @@ export function useAuth() {
         return null;
       }
       const user = data.authed
-        ? { authed: true, tier: data.tier, username: data.username, tierLabel: data.tierLabel }
+        ? {
+            authed: true,
+            tier: data.tier,
+            username: data.username,
+            tierLabel: data.tierLabel,
+            avatarUrl: String(data.avatarUrl ?? '').trim(),
+          }
         : { authed: false };
       cache = { user, loading: false, error: null };
       setState({ ...cache });

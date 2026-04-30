@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchMe } from '../api/client';
 import { PageHero } from '../components/layout/PageHero';
+import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../constants/officialContact';
 
 export function CustomRequestsPage() {
   const [tierOk, setTierOk] = useState(null);
@@ -68,7 +69,7 @@ export function CustomRequestsPage() {
         )}
 
         {tierOk === true && (
-          <a href="https://t.me/pornwrldxyz" target="_blank" rel="noopener noreferrer" className="cr-upgrade-btn pornwrld-cr-btn" id="cr-upgrade-btn">
+          <a href={OFFICIAL_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="cr-upgrade-btn pornwrld-cr-btn" id="cr-upgrade-btn">
             Submit your request
           </a>
         )}
@@ -81,11 +82,15 @@ export function CustomRequestsPage() {
       </div>
 
       <p className="pornwrld-cr-footnote">
-        Or message us directly on{' '}
-        <a href="https://t.me/pornwrldxyz" target="_blank" rel="noopener noreferrer">
+        Or reach us on{' '}
+        <a href={OFFICIAL_DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+          Discord
+        </a>{' '}
+        or{' '}
+        <a href={OFFICIAL_TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
           Telegram
         </a>
-        .
+        — our only official contact channels.
       </p>
     </main>
   );

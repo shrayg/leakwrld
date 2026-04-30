@@ -1,15 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { AccountAffiliateProgram } from '../components/account/AccountAffiliateProgram';
+import { AccountReferralPanel } from '../components/account/AccountReferralPanel';
 import { disconnectProvider, fetchAccount, fetchConnectUrl, updateAccount } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { useShell } from '../context/ShellContext';
+import { UserAvatar } from '../components/ui/UserAvatar';
+import { PwNavTabRow } from '../components/ui/PwNavTabRow';
 
-const PRIMARY_TABS = ['profile', 'referrals'];
+const PRIMARY_TABS = ['profile', 'referrals', 'affiliate'];
 const CONTENT_TABS = ['videos', 'photos', 'gifs', 'about'];
 
-function toUsd(cents) {
-  return `$${(Math.max(0, Number(cents) || 0) / 100).toFixed(2)}`;
-}
+const PRIMARY_TAB_LABELS = {
+  profile: 'Profile',
+  referrals: 'Referral Program',
+  affiliate: 'Affiliate Program',
+};
+
+const CONTENT_TAB_LABELS = {
+  videos: 'Videos',
+  photos: 'Photos',
+  gifs: 'GIFs',
+  about: 'About',
+};
 
 function toNum(v) {
   return Number(v || 0).toLocaleString();
@@ -18,6 +31,8 @@ function toNum(v) {
 export function AccountPage() {
   const { refresh: refreshAuth } = useAuth();
   const { openAuth } = useShell();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [account, setAccount] = useState(null);
   const [error, setError] = useState('');
@@ -84,12 +99,68 @@ export function AccountPage() {
     };
   }, [loadAccount]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '');
+    const tab = String(params.get('tab') || '').toLowerCase();
+    if (tab && PRIMARY_TABS.includes(tab)) {
+      setPrimaryTab(tab);
+    }
+    const panel = String(params.get('panel') || '').toLowerCase();
+    if (panel && CONTENT_TABS.includes(panel)) {
+      setContentTab(panel);
+    }
+  }, [location.search]);
+
+  const applyAccountSearch = useCallback(
+    (updates) => {
+      const params = new URLSearchParams(location.search || '');
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value === null || value === undefined || value === '') params.delete(key);
+        else params.set(key, value);
+      });
+      const qs = params.toString();
+      navigate(qs ? `/account?${qs}` : '/account');
+    },
+    [location.search, navigate],
+  );
+
+  const primaryTabsConfig = useMemo(() => PRIMARY_TABS.map((key) => ({ key, label: PRIMARY_TAB_LABELS[key] })), []);
+  const contentTabsConfig = useMemo(() => CONTENT_TABS.map((key) => ({ key, label: CONTENT_TAB_LABELS[key] })), []);
+
+  const setPrimaryTabAndUrl = useCallback(
+    (tab) => {
+      setPrimaryTab(tab);
+      if (tab === 'referrals') applyAccountSearch({ tab: 'referrals', panel: '' });
+      else if (tab === 'affiliate') applyAccountSearch({ tab: 'affiliate', panel: '' });
+      else applyAccountSearch({ tab: 'profile', panel: contentTab });
+    },
+    [applyAccountSearch, contentTab],
+  );
+
+  const setContentTabAndUrl = useCallback(
+    (panel) => {
+      setContentTab(panel);
+      applyAccountSearch({ tab: 'profile', panel });
+    },
+    [applyAccountSearch],
+  );
+
   const mediaList = useMemo(() => {
     const p = account?.profile || {};
     if (contentTab === 'photos') return Array.isArray(p.photos) ? p.photos : [];
     if (contentTab === 'gifs') return Array.isArray(p.gifs) ? p.gifs : [];
     return Array.isArray(p.videos) ? p.videos : [];
   }, [account, contentTab]);
+
+  function mediaThumbStyle(item) {
+    const u = String(item?.url || '').trim();
+    if (!u || !/\.(jpe?g|png|webp|gif)$/i.test(u.split('?')[0] || '')) return undefined;
+    return {
+      backgroundImage: `url(${u})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+    };
+  }
 
   async function saveProfile(e) {
     e.preventDefault();
@@ -160,17 +231,6 @@ export function AccountPage() {
     }
   }
 
-  async function copyReferral() {
-    const url = account?.referral?.url;
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setSaveMessage('Referral link copied.');
-    } catch {
-      setSaveMessage('Could not copy referral link.');
-    }
-  }
-
   if (loading) {
     return <div className="account-profile-page"><div className="account-profile-shell"><p>Loading account...</p></div></div>;
   }
@@ -196,16 +256,22 @@ export function AccountPage() {
   return (
     <div className="account-profile-page">
       <section className="account-profile-hero">
-        <div
-          className="account-profile-banner"
-          style={{
-            backgroundImage: form.bannerUrl ? `url(${form.bannerUrl})` : undefined,
-          }}
-        />
         <div className="account-profile-shell">
+          <div
+            className="account-profile-banner"
+            style={{
+              backgroundImage: form.bannerUrl ? `url(${form.bannerUrl})` : undefined,
+            }}
+          />
           <div className="account-profile-header-row">
             <div className="account-profile-avatar-wrap">
-              <img src={form.avatarUrl || '/assets/images/face.png'} className="account-profile-avatar" alt="Profile" />
+              <UserAvatar
+                username={form.username || form.displayName || 'Account'}
+                src={form.avatarUrl}
+                size={108}
+                className="account-profile-avatar"
+                alt=""
+              />
             </div>
             <div className="account-profile-head-copy">
               <h1>{form.displayName || form.username}</h1>
@@ -227,28 +293,25 @@ export function AccountPage() {
       </section>
 
       <div className="account-profile-shell">
-        <div className="account-profile-primary-tabs">
-          {PRIMARY_TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              className={primaryTab === tab ? 'is-active' : ''}
-              onClick={() => setPrimaryTab(tab)}
-            >
-              {tab === 'referrals' ? 'Referral Program' : 'Profile'}
-            </button>
-          ))}
-        </div>
+        <PwNavTabRow
+          activeKey={primaryTab}
+          tabs={primaryTabsConfig}
+          onChange={setPrimaryTabAndUrl}
+          className="account-pw-tabs"
+          glideClassName="account-pw-glide"
+          ariaLabel="Account sections"
+        />
 
         {primaryTab === 'profile' ? (
           <>
-            <div className="account-profile-content-tabs">
-              {CONTENT_TABS.map((tab) => (
-                <button key={tab} type="button" className={contentTab === tab ? 'is-active' : ''} onClick={() => setContentTab(tab)}>
-                  {tab[0].toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
-            </div>
+            <PwNavTabRow
+              activeKey={contentTab}
+              tabs={contentTabsConfig}
+              onChange={setContentTabAndUrl}
+              className="account-pw-tabs"
+              glideClassName="account-pw-glide"
+              ariaLabel="Profile content"
+            />
 
             {contentTab === 'about' ? (
               <section className="account-profile-about">
@@ -266,7 +329,7 @@ export function AccountPage() {
               <section className="account-profile-grid">
                 {mediaList.length ? mediaList.map((item, idx) => (
                   <a key={idx} href={item.url} target="_blank" rel="noopener noreferrer" className="account-profile-grid-card">
-                    <div className="account-profile-grid-thumb" />
+                    <div className="account-profile-grid-thumb" style={mediaThumbStyle(item)} />
                     <p>{item.title || 'Untitled'}</p>
                     <span>{toNum(item.views || 0)} views</span>
                   </a>
@@ -297,20 +360,10 @@ export function AccountPage() {
               </form>
             ) : null}
           </>
+        ) : primaryTab === 'referrals' ? (
+          <AccountReferralPanel referral={account.referral} onToast={setSaveMessage} />
         ) : (
-          <section className="account-profile-referrals">
-            <h3>Referral Program</h3>
-            <div className="account-profile-ref-card">
-              <p><strong>Your code:</strong> {account.referral?.code || '—'}</p>
-              <p><strong>Referred members:</strong> {toNum(account.referral?.count || 0)}</p>
-              <p><strong>Referred spend:</strong> {toUsd(account.referral?.referredSpendCents || 0)}</p>
-              <p><strong>Current goal:</strong> {toNum(account.referral?.count || 0)} / {toNum(account.referral?.goal || 1)}</p>
-              <div className="account-profile-edit-actions">
-                <button type="button" onClick={copyReferral}>Copy referral link</button>
-                <a href={account.referral?.url || '#'} target="_blank" rel="noopener noreferrer">Open link</a>
-              </div>
-            </div>
-          </section>
+          <AccountAffiliateProgram affiliate={account.affiliate} />
         )}
 
         <section className="account-profile-providers">

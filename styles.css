@@ -525,6 +525,34 @@ optgroup {
   fill: #2AABEE;
 }
 
+.profile-discord-external {
+  position: relative;
+  z-index: auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(30, 30, 36, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  text-decoration: none;
+}
+
+.profile-discord-external:hover {
+  transform: translateY(-1px);
+  border-color: rgba(88, 101, 242, 0.45);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+
+.profile-discord-external svg {
+  width: 22px;
+  height: 22px;
+  fill: #5865f2;
+}
+
 .profile-telegram-external[hidden] {
   display: none !important;
 }
@@ -4848,6 +4876,7 @@ body.cp-fs-active {
 }
 
 /* ===== REFERRAL LEADERBOARD (LEFT SIDE — COLLAPSIBLE) ===== */
+/* Stacks above all `<main>` chrome (see `app.css` `.main-content`), but below nav (7000+) and modals (~9990+). */
 .leaderboard-wrapper {
   position: fixed;
   left: 1px;
@@ -4855,6 +4884,7 @@ body.cp-fs-active {
   transform: translateY(-50%);
   z-index: 5000;
   overflow: visible;
+  isolation: isolate;
 }
 
 /* Panel + tab move as one unit; chevron rotates via .leaderboard-tab-icon */

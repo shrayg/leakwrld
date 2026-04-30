@@ -8,6 +8,15 @@ const { promisify } = require('util');
 const { URL } = require('url');
 const { execFile } = require('child_process');
 const { normalizeAccessKey, planFromProductSlug, tierForPaidPlan } = require('./lib/xyzpurchase');
+const {
+  planAmountCents,
+  planKeyForTier,
+  displayLabelForTier,
+  displayPriceForTier,
+  effectiveVaultTier,
+  hasPremiumVaultAccess,
+  omeglePayTierFromPlan,
+} = require('./lib/planCatalog');
 const _gzipAsync = promisify(zlib.gzip);
 const _brotliAsync = promisify(zlib.brotliCompress);
 
@@ -527,7 +536,6 @@ async function resetAdminStatsInSupabase() {
     admin_events: '?created_at=gte.1970-01-01T00:00:00.000Z',
     view_events_raw: '?created_at=gte.1970-01-01T00:00:00.000Z',
     video_metrics_daily: '?metric_date=gte.1970-01-01',
-    age_gate_events: '?created_at=gte.1970-01-01T00:00:00.000Z',
   };
   for (const [table, filter] of Object.entries(filters)) {
     const resp = await supabaseFetch(`/rest/v1/${encodeURIComponent(table)}${filter}`, {
@@ -1518,6 +1526,8 @@ function tierFromCount(count) {
 
 function tierLabelFromTier(tier) {
   const t = Number(tier || 0);
+  if (t >= 4) return 'TIER 4';
+  if (t >= 3) return 'TIER 3';
   if (t >= 2) return 'TIER 2';
   if (t >= 1) return 'TIER 1';
   return 'NO TIER';
@@ -1528,7 +1538,7 @@ function normalizeManualTier(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
   const t = Math.floor(n);
-  if (t === 1 || t === 2) return t;
+  if (t >= 1 && t <= 4) return t;
   return null;
 }
 
@@ -1709,6 +1719,7 @@ function scheduleShortStatsPersist() {
 }
 
 // ── Recommendation telemetry/profile stores ──────────────────────────────────
+// (Not Supabase `public.profiles` — that legacy table is dropped after merge into `public.users`; see supabase/migrations/20260429190000_merge_profiles_drop_age_gate.sql.)
 const RECO_EVENTS_FILE = path.join(DATA_DIR, 'reco_events.json');
 const RECO_PROFILES_FILE = path.join(DATA_DIR, 'user_profiles.json');
 const RECO_PROGRESS_FILE = path.join(DATA_DIR, 'user_video_progress.json');
@@ -3236,8 +3247,16 @@ const patreonPatrons = {};
 const patreonNotifyDedup = new Map();
 const PATREON_PATRONS_R2_KEY = 'data/patreon-patrons.json';
 const PATREON_WEBHOOK_SECRET = String(process.env.PATREON_WEBHOOK_SECRET || '').trim();
-const PATREON_PRICE_BASIC_CENTS = parseInt(process.env.PATREON_PRICE_BASIC_CENTS || '999', 10);
-const PATREON_PRICE_PREMIUM_CENTS = parseInt(process.env.PATREON_PRICE_PREMIUM_CENTS || '2499', 10);
+const PATREON_PRICE_TIER1_CENTS = parseInt(
+  process.env.PATREON_PRICE_TIER1_CENTS || process.env.PATREON_PRICE_BASIC_CENTS || '499',
+  10,
+);
+const PATREON_PRICE_TIER2_CENTS = parseInt(
+  process.env.PATREON_PRICE_TIER2_CENTS || process.env.PATREON_PRICE_PREMIUM_CENTS || '999',
+  10,
+);
+const PATREON_PRICE_TIER3_CENTS = parseInt(process.env.PATREON_PRICE_TIER3_CENTS || '1999', 10);
+const PATREON_PRICE_TIER4_CENTS = parseInt(process.env.PATREON_PRICE_TIER4_CENTS || '4999', 10);
 
 function patreonNormalizeEmail(raw) {
   return String(raw || '').trim().toLowerCase();
@@ -3245,10 +3264,12 @@ function patreonNormalizeEmail(raw) {
 
 function patreonTierFromCents(cents) {
   const c = Number(cents) || 0;
-  if (c >= PATREON_PRICE_PREMIUM_CENTS) return 2;
-  if (c >= PATREON_PRICE_BASIC_CENTS) return 1;
-  if (c > 0) return 1;
-  return 0;
+  if (c <= 0) return 0;
+  if (c >= PATREON_PRICE_TIER4_CENTS) return 4;
+  if (c >= PATREON_PRICE_TIER3_CENTS) return 3;
+  if (c >= PATREON_PRICE_TIER2_CENTS) return 2;
+  if (c >= PATREON_PRICE_TIER1_CENTS) return 1;
+  return 1;
 }
 
 function patreonVerifySignature(rawBody, signature) {
@@ -3667,12 +3688,6 @@ function computeGeoTopCountries() {
   return { total, top, other };
 }
 
-function planAmountCents(plan) {
-  const p = String(plan || '').toLowerCase();
-  if (p === 'premium') return 1500;
-  return 0;
-}
-
 function parseRevenueRange(range) {
   const r = String(range || '').toLowerCase();
   if (r === '1h') return 60 * 60 * 1000;
@@ -3981,6 +3996,8 @@ function sanitizeMediaEntries(entries) {
       title: trimText(e.title, 120),
       url: normalizeOptionalUrl(e.url),
       views: Math.max(0, Number(e.views) || 0),
+      watchSeconds: Math.max(0, Math.floor(Number(e.watchSeconds || e.watch_seconds || 0) || 0)),
+      watchMs: Math.max(0, Math.floor(Number(e.watchMs || e.watch_ms || 0) || 0)),
     }))
     .filter((e) => e.url);
 }
@@ -4004,6 +4021,7 @@ function defaultAccountProfile(userKey, u) {
     photos: [],
     gifs: [],
     username_changed_at: null,
+    creator_watch_hours: 0,
   };
 }
 
@@ -4031,6 +4049,7 @@ async function fetchAccountProfileSupabase(userKey, u) {
       photos: Array.isArray(profile.photos) ? profile.photos : [],
       gifs: Array.isArray(profile.gifs) ? profile.gifs : [],
       username_changed_at: profile.usernameChangedAt || null,
+      creator_watch_hours: Math.max(0, Number(profile.creatorWatchHours || profile.creator_watch_hours || 0) || 0),
     };
   }
   return defaultAccountProfile(userKey, u);
@@ -4057,6 +4076,7 @@ async function upsertAccountProfileSupabase(userKey, next) {
       photos: Array.isArray(next.photos) ? next.photos : [],
       gifs: Array.isArray(next.gifs) ? next.gifs : [],
       usernameChangedAt: next.username_changed_at || null,
+      creatorWatchHours: Math.max(0, Number(next.creator_watch_hours ?? next.creatorWatchHours ?? 0) || 0),
     },
     updated_at: nowIso,
   };
@@ -4086,6 +4106,53 @@ function computeReferralSpendCents(db, u) {
     cents += planAmountCents(p.plan);
   }
   return cents;
+}
+
+/** Referred users who upgraded (tier ≥1) or appear in payment log with paid plan. */
+function countReferredPaidUsers(db, u) {
+  const referredKeys = Array.isArray(u.referredUsers) ? u.referredUsers : [];
+  const paid = new Set();
+  const referredNames = new Set(
+    referredKeys
+      .map((rk) => db.users?.[rk]?.username || rk)
+      .map((n) => String(n || '').toLowerCase())
+      .filter(Boolean),
+  );
+  for (const rk of referredKeys) {
+    const ru = db.users?.[rk];
+    if (!ru || typeof ru !== 'object') continue;
+    const name = String((ru.username || rk || '')).toLowerCase();
+    if (!name) continue;
+    if (getEffectiveTierForUser(ru) >= 1) paid.add(name);
+  }
+  for (const p of adminPaymentLog) {
+    if (!p || typeof p !== 'object') continue;
+    const username = String(p.username || '').toLowerCase();
+    if (!referredNames.has(username)) continue;
+    if (planAmountCents(p.plan) > 0) paid.add(username);
+  }
+  return paid.size;
+}
+
+/** Creator affiliate progress from linked profile media + optional manual hours in profile JSON. */
+function affiliateCreatorProgress(profile) {
+  const pr = profile && typeof profile === 'object' ? profile : {};
+  const lists = [
+    ...(Array.isArray(pr.videos) ? pr.videos : []),
+    ...(Array.isArray(pr.photos) ? pr.photos : []),
+    ...(Array.isArray(pr.gifs) ? pr.gifs : []),
+  ];
+  let sec = 0;
+  for (const e of lists) {
+    if (!e || typeof e !== 'object') continue;
+    sec += Math.max(0, Number(e.watchSeconds || e.watch_seconds || 0));
+    sec += Math.floor(Math.max(0, Number(e.watchMs || e.watch_ms || 0)) / 1000);
+  }
+  const manualHours = Math.max(0, Number(pr.creator_watch_hours ?? pr.creatorWatchHours ?? 0) || 0);
+  return {
+    mediaCount: lists.length,
+    watchHours: sec / 3600 + manualHours,
+  };
 }
 
 function isProviderLinked(u, provider) {
@@ -4126,7 +4193,7 @@ async function upsertDiscordAccountLinkSupabase(userKey, u, reason = 'sync') {
 
 async function upsertAccessEntitlementSupabase(userKey, u, source = 'system') {
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, skipped: true, reason: 'supabase_not_configured' };
-  const tier = Math.max(0, Math.min(2, Number(getEffectiveTierForUser(u) || 0)));
+  const tier = Math.max(0, Math.min(4, Number(getEffectiveTierForUser(u) || 0)));
   const nowIso = new Date().toISOString();
   const payload = {
     user_key: userKey,
@@ -4144,7 +4211,7 @@ async function upsertAccessEntitlementSupabase(userKey, u, source = 'system') {
 }
 
 async function enqueueDiscordRoleSyncJobSupabase(userKey, u, reason = 'sync') {
-  const tier = Math.max(0, Math.min(2, Number(getEffectiveTierForUser(u) || 0)));
+  const tier = Math.max(0, Math.min(4, Number(getEffectiveTierForUser(u) || 0)));
   return {
     ok: true,
     skipped: true,
@@ -4188,6 +4255,21 @@ function accountPayloadFor(userKey, u) {
       goal: 1,
       referredSpendCents: 0,
       referredSpendUsd: 0,
+      commissionPercent: 10,
+      estimatedCommissionCents: 0,
+      claimedPayoutCents: 0,
+      telegramPayoutUrl: '',
+    },
+    affiliate: {
+      referralGoal: 100,
+      paidReferralsGoal: 10,
+      creatorWatchHoursGoal: 500,
+      creatorMediaGoal: 100,
+      referralCount: 0,
+      paidReferralsCount: 0,
+      creatorWatchHours: 0,
+      creatorMediaCount: 0,
+      telegramPayoutUrl: '',
     },
   };
 }
@@ -4203,6 +4285,10 @@ async function buildAccountPayload(userKey, u, db, req) {
   const base = getRequestOrigin(req);
   const url = `${base}/${code}`;
   const referredSpendCents = computeReferralSpendCents(db, u);
+  const commissionPercent = 10;
+  const estimatedCommissionCents = Math.floor((Math.max(0, referredSpendCents) * commissionPercent) / 100);
+  const claimedPayoutCents = Math.max(0, Math.floor(Number(u.referralClaimedCents || 0) || 0));
+  const telegramPayoutUrl = String(process.env.TBW_TELEGRAM_PAYOUT_URL || '').trim();
   payload.profile = profile;
   payload.referral = {
     code,
@@ -4211,7 +4297,27 @@ async function buildAccountPayload(userKey, u, db, req) {
     goal,
     referredSpendCents,
     referredSpendUsd: Math.round((referredSpendCents / 100) * 100) / 100,
+    commissionPercent,
+    estimatedCommissionCents,
+    claimedPayoutCents,
+    telegramPayoutUrl,
   };
+
+  const referralActualCount = Array.isArray(u.referredUsers) ? u.referredUsers.length : 0;
+  const paidReferralsCount = countReferredPaidUsers(db, u);
+  const cr = affiliateCreatorProgress(profile);
+  payload.affiliate = {
+    referralGoal: 100,
+    paidReferralsGoal: 10,
+    creatorWatchHoursGoal: 500,
+    creatorMediaGoal: 100,
+    referralCount: referralActualCount,
+    paidReferralsCount,
+    creatorWatchHours: Math.round(Math.max(0, cr.watchHours) * 100) / 100,
+    creatorMediaCount: Math.max(0, Math.floor(cr.mediaCount)),
+    telegramPayoutUrl,
+  };
+
   void syncDiscordEntitlementStateSupabase(userKey, u, 'account_payload');
   return payload;
 }
@@ -4341,16 +4447,19 @@ function dbUserToSupabaseUserRow(userKey, u) {
     premiumProvider: safeUser.premiumProvider || null,
     premiumPaidAt: safeUser.premiumPaidAt || null,
   };
+  const priorFlags =
+    safeUser.supabaseFlags && typeof safeUser.supabaseFlags === 'object' ? safeUser.supabaseFlags : {};
   const flags = {
+    ...priorFlags,
     banned: !!safeUser.banned,
-    tierLostNotice: safeUser.tierLostNotice || null,
+    tierLostNotice: safeUser.tierLostNotice != null ? safeUser.tierLostNotice : priorFlags.tierLostNotice ?? null,
   };
   return {
     user_key: String(userKey || ''),
     username: String(safeUser.username || userKey || ''),
     email: String(safeUser.email || '').trim().toLowerCase() || null,
     provider: String(safeUser.provider || 'local'),
-    tier: [1, 2].includes(Number(safeUser.tier)) ? Number(safeUser.tier) : 0,
+    tier: [1, 2, 3, 4].includes(Number(safeUser.tier)) ? Number(safeUser.tier) : 0,
     password_hash: safeUser.hash || null,
     password_salt: safeUser.salt || null,
     discord_user_id: safeUser.discordId ? String(safeUser.discordId) : null,
@@ -4405,6 +4514,8 @@ function supabaseRowToDbUser(row) {
     premiumPaidAt: purchase.premiumPaidAt || raw.premiumPaidAt || null,
     banned: flags.banned === true || raw.banned === true,
     tierLostNotice: flags.tierLostNotice || raw.tierLostNotice || null,
+    supabaseFlags: { ...flags },
+    referralClaimedCents: Math.max(0, Math.floor(Number(flags.referral_claimed_cents ?? 0) || 0)),
     createdAt: row?.created_at ? new Date(row.created_at).getTime() : (Number(raw.createdAt) || Date.now()),
   };
 }
@@ -5570,7 +5681,7 @@ const server = http.createServer(async (req, res) => {
         const key = String(body.key || '');
         const newTier = parseInt(body.tier, 10);
         if (!key) return sendJson(res, 400, { error: 'Missing key' });
-        if (![0, 1, 2].includes(newTier)) return sendJson(res, 400, { error: 'Tier must be 0, 1, or 2' });
+        if (![0, 1, 2, 3, 4].includes(newTier)) return sendJson(res, 400, { error: 'Tier must be 0–4' });
         const db = await ensureUsersDbFresh();
         const u = db.users[key];
         if (!u) return sendJson(res, 404, { error: 'User not found' });
@@ -5586,7 +5697,7 @@ const server = http.createServer(async (req, res) => {
         // Write immediately so tier change persists
         await _doUsersDbWrite();
         const displayName = (u.username || u.discordUsername || key).replace(/^discord:/, '');
-        const tierLabels = { 0: 'Free', 1: 'Tier 1', 2: 'Premium' };
+        const tierLabels = { 0: 'Free', 1: 'Tier 1', 2: 'Tier 2', 3: 'Tier 3', 4: 'Tier 4' };
         adminEmitEvent('tier', displayName + ' set to ' + (tierLabels[newTier] || newTier));
         return sendJson(res, 200, { ok: true, tier: u.tier });
       }
@@ -5599,7 +5710,7 @@ const server = http.createServer(async (req, res) => {
         const username = String(body.username || '').trim();
         const newTier = parseInt(body.tier, 10);
         if (!username) return sendJson(res, 400, { error: 'Missing username' });
-        if (![0, 1, 2].includes(newTier)) return sendJson(res, 400, { error: 'Tier must be 0, 1, or 2' });
+        if (![0, 1, 2, 3, 4].includes(newTier)) return sendJson(res, 400, { error: 'Tier must be 0–4' });
         const db = await ensureUsersDbFresh();
         const key = findUserKeyByUsername(db, username);
         if (!key) return sendJson(res, 404, { error: 'User not found' });
@@ -5617,7 +5728,7 @@ const server = http.createServer(async (req, res) => {
         // Write immediately so tier change persists
         await _doUsersDbWrite();
         const displayName = (u.username || u.discordUsername || key).replace(/^discord:/, '');
-        const tierLabels = { 0: 'Free', 1: 'Tier 1', 2: 'Premium' };
+        const tierLabels = { 0: 'Free', 1: 'Tier 1', 2: 'Tier 2', 3: 'Tier 3', 4: 'Tier 4' };
         adminEmitEvent('tier', displayName + ' set to ' + (tierLabels[newTier] || newTier));
         return sendJson(res, 200, { ok: true, tier: u.tier, key });
       }
@@ -6049,7 +6160,7 @@ const server = http.createServer(async (req, res) => {
       const plan = String(body.plan || '').trim();
       if (!refCode) return sendJson(res, 400, { error: 'Missing refCode' });
       if (!plan) return sendJson(res, 400, { error: 'Missing plan' });
-      const newTier = plan === 'premium' || plan === 'tier2' ? 2 : plan === 'basic' || plan === 'tier1' ? 1 : null;
+      const newTier = omeglePayTierFromPlan(plan);
       if (newTier === null) return sendJson(res, 400, { error: 'Invalid plan' });
       const db = await ensureUsersDbFresh();
       const userKey = findUserKeyByReferralCode(db, refCode);
@@ -6062,7 +6173,7 @@ const server = http.createServer(async (req, res) => {
       await _doUsersDbWrite();
       console.log(`[omeglepay webhook] Set tier ${newTier} for user ${userKey} (ref ${refCode})`);
       // Notify Discord payment channel
-      const _planLabel = plan === 'basic' ? 'Basic — $9.99' : newTier >= 2 ? 'Premium — $24.99' : 'Tier 1 (referral)';
+      const _planLabel = `${displayLabelForTier(newTier)} — ${displayPriceForTier(newTier)}`;
       const _dispName = (u.username || u.discordUsername || userKey).replace(/^discord:/, '');
       _beacon(DISCORD_WEBHOOK_PAYMENTS_URL, {
         embeds: [{
@@ -6079,7 +6190,7 @@ const server = http.createServer(async (req, res) => {
       });
       // Add to admin payment log so it shows in dashboard
       try {
-        const _planKey = plan === 'basic' ? 'basic' : newTier >= 2 ? 'premium' : 'tier1';
+        const _planKey = planKeyForTier(newTier) || String(plan).toLowerCase();
         adminPush(adminPaymentLog, {
           ts: Date.now(), username: _dispName, userKey, plan: _planKey, method: 'card (omeglepay)',
           screenshotKey: null, screenshotB64: null, contentType: null, grantedTier: newTier,
@@ -6293,7 +6404,7 @@ const server = http.createServer(async (req, res) => {
         if (!patreonNotifyDedup.has(_dedupKey)) {
           patreonNotifyDedup.set(_dedupKey, Date.now());
           setTimeout(() => patreonNotifyDedup.delete(_dedupKey), 5 * 60 * 1000);
-          const _planLabel = tier === 2 ? 'Premium' : 'Basic';
+          const _planLabel = displayLabelForTier(tier);
           const _amountStr = '$' + (cents / 100).toFixed(2);
           _beacon(PATREON_REDEEM_WEBHOOK_URL, {
             embeds: [{
@@ -6373,8 +6484,8 @@ const server = http.createServer(async (req, res) => {
       try { adminEmitEvent('redeem_success', `${userKey} redeemed patreon (tier ${newTier})`); } catch {}
 
       const _dispName = (u.username || userKey).replace(/^discord:/, '');
-      const _planLabel = newTier >= 2 ? 'Premium (Tier 2)' : 'Basic (Tier 1)';
-      const _planPrice = newTier >= 2 ? '$24.99' : '$9.99';
+      const _planLabel = `${displayLabelForTier(newTier)} (Tier ${newTier})`;
+      const _planPrice = displayPriceForTier(newTier);
       _beacon(ACCESS_REDEEM_WEBHOOK_URL, {
         embeds: [{
           title: 'Patreon Membership Redeemed',
@@ -6391,7 +6502,7 @@ const server = http.createServer(async (req, res) => {
       });
 
       try {
-        const _planKey = newTier >= 2 ? 'premium' : 'basic';
+        const _planKey = planKeyForTier(newTier) || 'tier' + newTier;
         adminPush(adminPaymentLog, {
           ts: Date.now(), username: _dispName, userKey, plan: _planKey, method: 'patreon',
           screenshotKey: null, screenshotB64: null, contentType: null, grantedTier: newTier,
@@ -6959,7 +7070,8 @@ const server = http.createServer(async (req, res) => {
       const tier = getEffectiveTierForUser(u);
       const tierLabel = tierLabelFromTier(tier);
       const displayName = stripDiscordPrefix(u.username || userKey);
-      return sendJson(res, 200, { authed: true, username: displayName, tier, tierLabel });
+      const avatarUrl = String(u.avatarUrl || '').trim();
+      return sendJson(res, 200, { authed: true, username: displayName, tier, tierLabel, avatarUrl });
     }
 
     if (requestUrl.pathname === '/api/account') {
@@ -7085,7 +7197,7 @@ const server = http.createServer(async (req, res) => {
       for (const userRow of (Array.isArray(usersResp.data) ? usersResp.data : [])) {
         const userKey = String(userRow.user_key || '');
         if (!userKey || !userRow.discord_user_id) continue;
-        const tier = Math.max(0, Math.min(2, Number(userRow && userRow.tier ? userRow.tier : 0)));
+        const tier = Math.max(0, Math.min(4, Number(userRow && userRow.tier ? userRow.tier : 0)));
         rows.push({
           userKey,
           discordUserId: String(userRow.discord_user_id),
@@ -7215,6 +7327,10 @@ const server = http.createServer(async (req, res) => {
       const base = getRequestOrigin(req);
       const url = `${base}/${code}`;
       const referredSpendCents = computeReferralSpendCents(db, u);
+      const commissionPercent = 10;
+      const estimatedCommissionCents = Math.floor((Math.max(0, referredSpendCents) * commissionPercent) / 100);
+      const claimedPayoutCents = Math.max(0, Math.floor(Number(u.referralClaimedCents || 0) || 0));
+      const telegramPayoutUrl = String(process.env.TBW_TELEGRAM_PAYOUT_URL || '').trim();
       return sendJson(res, 200, {
         code,
         url,
@@ -7224,6 +7340,10 @@ const server = http.createServer(async (req, res) => {
         tierLabel,
         referredSpendCents,
         referredSpendUsd: Math.round((referredSpendCents / 100) * 100) / 100,
+        commissionPercent,
+        estimatedCommissionCents,
+        claimedPayoutCents,
+        telegramPayoutUrl,
       });
     }
 
@@ -7261,257 +7381,13 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { page, totalPages, entries });
     }
 
-    // ===== PAYMENT SCREENSHOT SUBMISSION =====
-
+    // Manual screenshot / gift-card payments removed — checkout is Patreon-only.
     if (requestUrl.pathname === '/api/payment-screenshot') {
       const method = (req.method || 'GET').toUpperCase();
       if (method !== 'POST') return sendJson(res, 405, { error: 'Method Not Allowed' });
-
-      // Collect raw body (max 8 MB)
-      const MAX_SIZE = 8 * 1024 * 1024;
-      const rawBuf = await new Promise((resolve) => {
-        const chunks = [];
-        let size = 0;
-        req.on('data', (chunk) => {
-          size += chunk.length;
-          if (size > MAX_SIZE) { req.destroy(); resolve(null); return; }
-          chunks.push(chunk);
-        });
-        req.on('end', () => resolve(Buffer.concat(chunks)));
-        req.on('error', () => resolve(null));
+      return sendJson(res, 410, {
+        error: 'Manual payment submission is disabled. Subscribe on Patreon and unlock with your Patreon email.',
       });
-      if (!rawBuf) return sendJson(res, 413, { error: 'Payload too large' });
-
-      // Parse multipart boundary
-      const ct = String(req.headers['content-type'] || '');
-      const boundaryMatch = ct.match(/boundary=(?:"([^"]+)"|([^\s;]+))/i);
-      if (!boundaryMatch) return sendJson(res, 400, { error: 'Missing boundary' });
-      const boundary = boundaryMatch[1] || boundaryMatch[2];
-
-      // Simple multipart parser
-      const delimiter = Buffer.from('--' + boundary);
-      const parts = [];
-      let pos = 0;
-      while (pos < rawBuf.length) {
-        const start = rawBuf.indexOf(delimiter, pos);
-        if (start === -1) break;
-        const afterDelim = start + delimiter.length;
-        // Check for closing --
-        if (rawBuf[afterDelim] === 0x2D && rawBuf[afterDelim + 1] === 0x2D) break;
-        // Skip \r\n after delimiter
-        const headStart = (rawBuf[afterDelim] === 0x0D && rawBuf[afterDelim + 1] === 0x0A)
-          ? afterDelim + 2
-          : afterDelim;
-        // Find header/body separator (\r\n\r\n)
-        const sep = Buffer.from('\r\n\r\n');
-        const headerEnd = rawBuf.indexOf(sep, headStart);
-        if (headerEnd === -1) break;
-        const headers = rawBuf.slice(headStart, headerEnd).toString('utf8');
-        const bodyStart = headerEnd + 4;
-        const nextDelim = rawBuf.indexOf(delimiter, bodyStart);
-        const bodyEnd = nextDelim !== -1 ? nextDelim - 2 : rawBuf.length; // -2 for \r\n before delimiter
-        const body = rawBuf.slice(bodyStart, Math.max(bodyStart, bodyEnd));
-
-        const nameMatch = headers.match(/name="([^"]+)"/);
-        const filenameMatch = headers.match(/filename="([^"]+)"/);
-        const ctMatch = headers.match(/Content-Type:\s*(.+)/i);
-
-        parts.push({
-          name: nameMatch ? nameMatch[1] : '',
-          filename: filenameMatch ? filenameMatch[1] : null,
-          contentType: ctMatch ? ctMatch[1].trim() : null,
-          data: body,
-        });
-        pos = nextDelim !== -1 ? nextDelim : rawBuf.length;
-      }
-
-      const planPart  = parts.find(p => p.name === 'plan');
-      const methodPart = parts.find(p => p.name === 'method');
-      const screenshotPart = parts.find(p => p.name === 'screenshot' && p.filename);
-      const giftcardCodePart = parts.find(p => p.name === 'giftcard_code');
-
-      const plan   = planPart  ? planPart.data.toString('utf8').trim()  : 'unknown';
-      const payMethod = methodPart ? methodPart.data.toString('utf8').trim() : 'unknown';
-      const giftcardCode = giftcardCodePart ? giftcardCodePart.data.toString('utf8').trim() : null;
-      const isGiftCard = payMethod === 'giftcard';
-
-      if (!isGiftCard && !screenshotPart) {
-        console.error('[payment-screenshot] No screenshot found. Parts:', parts.map(p => ({ name: p.name, filename: p.filename, size: p.data.length })));
-        return sendJson(res, 400, { error: 'No screenshot attached' });
-      }
-      if (isGiftCard && !giftcardCode) {
-        return sendJson(res, 400, { error: 'No gift card code provided' });
-      }
-
-      // Get user info — require login (use requireAuthedUser for R2 session sync)
-      const authed = await requireAuthedUser(req, res);
-      if (!authed) return;
-      const { userKey, record } = authed;
-
-      let username = 'anonymous';
-      let grantedTier = 0;
-      const tierForPlan = { tier1: 1, basic: 1, premium: 2 };
-
-      try {
-
-        username = record.username || record.discordUsername || 'anonymous';
-        const newTier = tierForPlan[plan] || 0;
-        
-        if (newTier <= 0) {
-          console.error('[payment] Invalid plan:', plan);
-          return sendJson(res, 400, { error: 'Invalid plan selected.' });
-        }
-
-        // Grant the tier
-        record.tier = newTier;
-        record.purchaseMethod = payMethod;
-        record.purchaseDate = Date.now();
-        grantedTier = newTier;
-        
-        // CRITICAL: Write immediately for payment — do NOT use debounced schedule
-        await _doUsersDbWrite();
-
-        // Verify the tier was actually set
-        const verifyDb = usersDb;
-        const verifyRecord = verifyDb && verifyDb.users ? verifyDb.users[userKey] : null;
-        if (!verifyRecord || verifyRecord.tier !== newTier) {
-          console.error('[payment] Tier verification failed. Expected:', newTier, 'Got:', verifyRecord ? verifyRecord.tier : 'no record');
-          return sendJson(res, 500, { error: 'Failed to save tier. Please contact support with your screenshot.' });
-        }
-        
-        console.log('[payment] Tier granted successfully:', username, 'plan:', plan, 'tier:', newTier);
-        adminEmitEvent('payment', username + ' purchased ' + (newTier === 2 ? 'Premium' : 'Tier 1') + ' via ' + payMethod);
-      } catch (err) {
-        console.error('[payment] Error granting tier:', err);
-        return sendJson(res, 500, { error: 'Failed to process payment. Please contact support.' });
-      }
-
-      const PLAN_LABELS = { basic: 'Basic — $9.99', premium: 'Premium — $24.99' };
-      const METHOD_LABELS = { paypal: 'PayPal', cashapp: 'Cash App', zelle: 'Zelle', venmo: 'Venmo', applepay: 'Apple Pay', giftcard: 'Gift Card' };
-
-      // Send to Discord webhook
-      if (DISCORD_WEBHOOK_PAYMENTS_URL && isGiftCard) {
-        // Gift card: send embed with code (no screenshot)
-        const gcEmbedPayload = JSON.stringify({
-          embeds: [{
-            title: '🎁 Gift Card Code Submitted',
-            color: 0x00ff87,
-            fields: [
-              { name: 'User', value: username, inline: true },
-              { name: 'Plan', value: PLAN_LABELS[plan] || plan, inline: true },
-              { name: 'Method', value: 'Gift Card', inline: true },
-              { name: 'Code', value: '`' + giftcardCode + '`', inline: false },
-            ],
-            timestamp: new Date().toISOString(),
-          }],
-        });
-        try {
-          const webhookUrl = new URL(DISCORD_WEBHOOK_PAYMENTS_URL);
-          const postOpts = {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          };
-          const webhookReq = https.request(webhookUrl, postOpts);
-          webhookReq.on('error', () => {});
-          webhookReq.write(gcEmbedPayload);
-          webhookReq.end();
-        } catch { /* non-critical */ }
-      } else if (DISCORD_WEBHOOK_PAYMENTS_URL && !isGiftCard) {
-        // Regular: send embed with attached screenshot image
-        const embedPayload = JSON.stringify({
-          embeds: [{
-            title: '💰 Payment Screenshot Submitted',
-            color: 0xffd700,
-            fields: [
-              { name: 'User', value: username, inline: true },
-              { name: 'Plan', value: PLAN_LABELS[plan] || plan, inline: true },
-              { name: 'Method', value: METHOD_LABELS[payMethod] || payMethod, inline: true },
-            ],
-            image: { url: 'attachment://screenshot.png' },
-            timestamp: new Date().toISOString(),
-          }],
-        });
-
-        const discordBoundary = '----PaymentBoundary' + Date.now();
-        const parts2 = [];
-
-        parts2.push(
-          `--${discordBoundary}\r\n` +
-          `Content-Disposition: form-data; name="payload_json"\r\n` +
-          `Content-Type: application/json\r\n\r\n` +
-          embedPayload + '\r\n'
-        );
-
-        const fileHeader =
-          `--${discordBoundary}\r\n` +
-          `Content-Disposition: form-data; name="files[0]"; filename="screenshot.png"\r\n` +
-          `Content-Type: ${screenshotPart.contentType || 'image/png'}\r\n\r\n`;
-
-        const fileFooter = `\r\n--${discordBoundary}--\r\n`;
-
-        const bodyBuf = Buffer.concat([
-          Buffer.from(parts2.join('')),
-          Buffer.from(fileHeader),
-          screenshotPart.data,
-          Buffer.from(fileFooter),
-        ]);
-
-        try {
-          const webhookUrl = new URL(DISCORD_WEBHOOK_PAYMENTS_URL);
-          const postOpts = {
-            method: 'POST',
-            headers: {
-              'Content-Type': `multipart/form-data; boundary=${discordBoundary}`,
-              'Content-Length': bodyBuf.length,
-            },
-          };
-          const webhookReq = https.request(webhookUrl, postOpts);
-          webhookReq.on('error', () => {});
-          webhookReq.write(bodyBuf);
-          webhookReq.end();
-        } catch { /* non-critical */ }
-      }
-
-      // Persist screenshot to R2 so it survives server resets
-      let screenshotKey = null;
-      if (screenshotPart) {
-        try {
-          const ts = Date.now();
-          const safeUser = String(username || 'user').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 48) || 'user';
-          const ext = (screenshotPart.contentType || '').toLowerCase().includes('jpeg') ? 'jpg'
-            : (screenshotPart.contentType || '').toLowerCase().includes('webp') ? 'webp'
-            : 'png';
-          screenshotKey = `data/payments/${ts}_${safeUser}.${ext}`;
-          if (R2_ENABLED) {
-            await r2PutObjectBytes(screenshotKey, screenshotPart.data, screenshotPart.contentType || 'image/png');
-          } else {
-            const dir = path.join(DATA_DIR, 'payments');
-            await fs.promises.mkdir(dir, { recursive: true });
-            await fs.promises.writeFile(path.join(dir, `${ts}_${safeUser}.${ext}`), screenshotPart.data);
-          }
-        } catch (e) {
-          console.error('Failed to persist payment screenshot:', e && e.message ? e.message : e);
-        }
-      }
-
-      // Admin payment log
-      try {
-        const logEntry = {
-          ts: Date.now(), username, userKey, plan, method: payMethod,
-          screenshotKey,
-          grantedTier,
-        };
-        if (isGiftCard) {
-          logEntry.giftcardCode = giftcardCode;
-        }
-        if (screenshotPart) {
-          logEntry.screenshotB64 = screenshotPart.data.slice(0, 200 * 1024).toString('base64');
-          logEntry.contentType = screenshotPart.contentType || 'image/png';
-        }
-        adminPush(adminPaymentLog, logEntry, 500);
-      } catch {}
-
-      return sendJson(res, 200, { ok: true, grantedTier });
     }
 
     // ===== STRIPE PREMIUM (TIER 2) =====
@@ -8169,6 +8045,7 @@ const server = http.createServer(async (req, res) => {
 
       const tier = getEffectiveTierForUser(u);
       if (tier < 1) return sendJson(res, 403, { error: 'Tier required' });
+      const vaultTier = effectiveVaultTier(tier);
 
       // Track category hit for admin
       adminCategoryHits[folder] = (adminCategoryHits[folder] || 0) + 1;
@@ -8177,7 +8054,7 @@ const server = http.createServer(async (req, res) => {
 
       // ── Cache: reuse R2 listing for 2 minutes per tier+folder+subfolder ──
       if (!global._listCache) global._listCache = {};
-      const _listCacheKey = `${tier}:${folder}:${subfolder}`;
+      const _listCacheKey = `${vaultTier}:${folder}:${subfolder}`;
       const _listCached = global._listCache[_listCacheKey];
       if (_listCached && (Date.now() - _listCached.ts < 600000)) { // 10 min cache
         // Refresh stats in cached results (views/likes change frequently)
@@ -8223,8 +8100,8 @@ const server = http.createServer(async (req, res) => {
       // Collect _mediaKeyCache entries for caching
       const _cacheEntries = [];
 
-      // Tier folders to scan: tier 2 users get both tier 2 + tier 1, tier 1 gets tier 1 only
-      const tierFolders = tier >= 2 ? ['tier 2', 'tier 1'] : ['tier 1'];
+      // Tier folders to scan: vault tier 2+ get both tier 2 + tier 1 (user tiers 3–4 map to vault 2)
+      const tierFolders = vaultTier >= 2 ? ['tier 2', 'tier 1'] : ['tier 1'];
 
       // Omegle: if subfolder specified, serve that subfolder; otherwise serve ALL subfolders flat
       if (folder === 'Omegle') {
@@ -8360,7 +8237,7 @@ const server = http.createServer(async (req, res) => {
           for (const item of uncached) {
             const ck = _thumbCacheKey(item.folder, item.subfolder || '', item.name);
             if (_thumbInFlight[ck]) continue; // already in progress
-            const tierCandidates = (getEffectiveTierForUser(u) >= 2) ? ['tier 2', 'tier 1'] : ['tier 1'];
+            const tierCandidates = hasPremiumVaultAccess(getEffectiveTierForUser(u)) ? ['tier 2', 'tier 1'] : ['tier 1'];
             const bp = allowedFolders.get(item.folder);
             if (!bp) continue;
             (async () => {
@@ -8513,6 +8390,7 @@ const server = http.createServer(async (req, res) => {
       const { record: u } = authed;
       const tier = getEffectiveTierForUser(u);
       if (tier < 1) return sendJson(res, 403, { error: 'Tier required' });
+      const vaultTier = effectiveVaultTier(tier);
 
       const limit = Math.min(50, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '50', 10) || 50));
       const offset = Math.max(0, parseInt(requestUrl.searchParams.get('offset') || '0', 10) || 0);
@@ -8524,7 +8402,7 @@ const server = http.createServer(async (req, res) => {
 
       if (!R2_ENABLED) return sendJson(res, 200, { files: [], total: 0 });
 
-      const tierFolders = tier >= 2 ? ['tier 2', 'tier 1'] : ['tier 1'];
+      const tierFolders = vaultTier >= 2 ? ['tier 2', 'tier 1'] : ['tier 1'];
       const cacheKey = tierFolders.join('+') + (categories.length ? ':' + categories.sort().join(',') : '');
       const cached = global._videoListCache[cacheKey];
       let allItems;
@@ -9501,21 +9379,22 @@ const server = http.createServer(async (req, res) => {
 
       const tier = getEffectiveTierForUser(u);
       if (tier < 1) return sendText(res, 403, 'Tier required');
+      const vaultTier = effectiveVaultTier(tier);
 
       if (folder === 'Omegle' && subfolder && !OMEGLE_SUBFOLDERS.includes(subfolder)) {
         return sendText(res, 400, 'Invalid subfolder');
       }
 
       // Check cache for resolved object key (avoids HEAD requests)
-      const mediaCacheKey = `${tier}:${folder}:${subfolder}:${name}`;
+      const mediaCacheKey = `${vaultTier}:${folder}:${subfolder}:${name}`;
       const cachedKey = global._mediaKeyCache[mediaCacheKey];
       let objectKey;
 
       if (cachedKey && (Date.now() - cachedKey.ts < _MEDIA_KEY_TTL)) {
         objectKey = cachedKey.key;
       } else {
-        // Tier 2 can access both tier 2 and tier 1 files; try user's tier first, fall back
-        const tierCandidates = tier >= 2 ? ['tier 2', 'tier 1'] : ['tier 1'];
+        // Vault tier 2+ can access both R2 prefixes; tiers 3–4 use vault tier 2 paths
+        const tierCandidates = vaultTier >= 2 ? ['tier 2', 'tier 1'] : ['tier 1'];
         if (folder === 'Omegle' && subfolder) {
           for (const tf of tierCandidates) {
             objectKey = basePath + '/' + tf + '/' + subfolder + '/' + name;

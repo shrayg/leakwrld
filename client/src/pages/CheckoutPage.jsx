@@ -1,107 +1,160 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useShell } from '../context/ShellContext';
 import { PatreonMarkIcon } from '../components/icons/PatreonMarkIcon';
 import { PageHero } from '../components/layout/PageHero';
 import { FooterSection } from '../components/ui/footer-section';
+import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../constants/officialContact';
 import './checkout/checkout-page.css';
 
 /** Public URLs — set in repo-root `.env` (`VITE_*`, loaded by Vite). Never commit secrets; values are embedded in the JS bundle. */
-const SUPPORT_TELEGRAM_URL = String(import.meta.env.VITE_SUPPORT_TELEGRAM_URL || '').trim();
-const GIFTCARD_PRODUCT_URL = String(import.meta.env.VITE_GIFTCARD_PRODUCT_URL || '').trim();
+
+const SUPPORT_TELEGRAM_URL = String(import.meta.env.VITE_SUPPORT_TELEGRAM_URL || OFFICIAL_TELEGRAM_URL).trim();
+const SUPPORT_DISCORD_URL = String(import.meta.env.VITE_SUPPORT_DISCORD_URL || OFFICIAL_DISCORD_INVITE_URL).trim();
 
 /** After opening Patreon, remind returning users where to enter email (see visibility/focus handler). */
 const PATREON_RETURN_GUIDE_KEY = 'checkout_expect_patreon_unlock';
 
+/** Default Patreon checkout links (override with `VITE_PATREON_CHECKOUT_*_URL` in `.env`). */
+const DEFAULT_PATREON_CHECKOUT_URLS = {
+  basic: 'https://www.patreon.com/checkout/PornWrld?rid=28462115',
+  premium: 'https://www.patreon.com/checkout/PornWrld?rid=28462116',
+  ultimate: 'https://www.patreon.com/checkout/PornWrld?rid=28462118',
+  elite: 'https://www.patreon.com/checkout/PornWrld?rid=28462122',
+};
+
+const PLAN_ORDER = ['basic', 'premium', 'ultimate', 'elite'];
+
 const PLANS = {
   basic: {
     label: 'Basic',
-    price: '$9.99',
-    checkoutUrl: String(import.meta.env.VITE_PATREON_CHECKOUT_BASIC_URL || '').trim(),
+    price: '$4.99',
+    blurb: '/mo',
+    tierNum: 1,
+    checkoutUrl: String(
+      import.meta.env.VITE_PATREON_CHECKOUT_BASIC_URL || DEFAULT_PATREON_CHECKOUT_URLS.basic,
+    ).trim(),
+    cardClass: 'basic',
+    btnClass: 'btn-basic',
   },
   premium: {
     label: 'Premium',
-    price: '$24.99',
-    checkoutUrl: String(import.meta.env.VITE_PATREON_CHECKOUT_PREMIUM_URL || '').trim(),
+    price: '$9.99',
+    blurb: '/mo',
+    tierNum: 2,
+    checkoutUrl: String(
+      import.meta.env.VITE_PATREON_CHECKOUT_PREMIUM_URL || DEFAULT_PATREON_CHECKOUT_URLS.premium,
+    ).trim(),
+    cardClass: 'premium',
+    btnClass: 'btn-premium',
+  },
+  ultimate: {
+    label: 'Ultimate',
+    price: '$19.99',
+    blurb: '/mo',
+    tierNum: 3,
+    checkoutUrl: String(
+      import.meta.env.VITE_PATREON_CHECKOUT_ULTIMATE_URL || DEFAULT_PATREON_CHECKOUT_URLS.ultimate,
+    ).trim(),
+    cardClass: 'ultimate',
+    btnClass: 'btn-ultimate',
+  },
+  elite: {
+    label: 'Elite',
+    price: '$49.99',
+    blurb: '/mo',
+    tierNum: 4,
+    checkoutUrl: String(
+      import.meta.env.VITE_PATREON_CHECKOUT_ELITE_URL ||
+        import.meta.env.VITE_PATREON_CHECKOUT_SOVEREIGN_URL ||
+        DEFAULT_PATREON_CHECKOUT_URLS.elite,
+    ).trim(),
+    cardClass: 'elite',
+    btnClass: 'btn-elite',
   },
 };
 
-const METHODS = {
-  cashapp: { user: '$shreygg', display: 'Cash App' },
-  venmo: { user: 'ieatrocks123', display: 'Venmo' },
-  paypal: { user: 'indoshray@gmail.com', display: 'PayPal' },
-  zelle: { user: '+1 (571) 326-6602', display: 'Zelle' },
-  applepay: { user: '+1 (571) 326-6602', display: 'Apple Pay' },
-  giftcard: {
-    user: '',
-    display: 'Gift Card',
-    isGiftCard: true,
-    link: GIFTCARD_PRODUCT_URL,
-  },
-};
-
-/** Same 10 rows for Free | Basic | Premium — cells align horizontally per feature. */
+/** Free + four paid columns — cells align per row. */
 const TIER_COMPARE_ROWS = [
   {
     label: 'Full-length library',
     free: '500+ previews',
     basic: '1,000+ videos',
     premium: '5,000+ videos',
+    ultimate: '5,000+ videos',
+    elite: '5,000+ videos',
   },
   {
     label: 'OnlyFans leaks vault',
     free: false,
     basic: false,
     premium: true,
+    ultimate: true,
+    elite: true,
   },
   {
     label: 'HD playback (full videos)',
     free: false,
     basic: true,
     premium: true,
+    ultimate: true,
+    elite: true,
   },
   {
     label: 'Ad-free experience',
     free: false,
     basic: true,
     premium: true,
+    ultimate: true,
+    elite: true,
   },
   {
     label: 'Daily new uploads',
     free: false,
     basic: '+10 GB / day',
     premium: '+10 GB + mega vault sync',
+    ultimate: '+10 GB + mega vault sync',
+    elite: '+10 GB + mega vault sync',
   },
   {
     label: 'Banana Girl & niche vaults',
     free: false,
     basic: false,
     premium: true,
+    ultimate: true,
+    elite: true,
   },
   {
     label: 'Custom model videos',
     free: false,
     basic: false,
     premium: true,
+    ultimate: true,
+    elite: true,
   },
   {
     label: 'Exclusive drops & early access',
     free: false,
     basic: false,
     premium: true,
+    ultimate: true,
+    elite: true,
   },
   {
-    label: 'Manual upgrade lane',
+    label: 'Support priority',
     free: '—',
     basic: 'Standard',
-    premium: 'Fastest',
+    premium: 'Priority',
+    ultimate: 'High priority',
+    elite: 'Top priority',
   },
   {
-    label: 'After purchase',
-    free: 'Preview only',
-    basic: 'Lifetime Tier 1',
-    premium: 'Lifetime Tier 2',
+    label: 'Billing',
+    free: '—',
+    basic: 'Patreon monthly',
+    premium: 'Patreon monthly',
+    ultimate: 'Patreon monthly',
+    elite: 'Patreon monthly',
   },
 ];
 
@@ -126,25 +179,31 @@ function CheckoutCompareCell({ value }) {
 function faqItems() {
   return [
     {
-      q: 'How long does it take to gain access?',
-      a: 'Access is instant! Once your payment is verified, your account is upgraded immediately.',
+      q: 'How do I pay and unlock?',
+      a: 'Choose a tier and complete checkout on Patreon. Then return here, enter the same email you use on Patreon, and tap Unlock — we match your pledge to your account.',
     },
     {
-      q: 'What payment methods do you accept?',
-      a: 'We accept Cash App, Venmo, PayPal, Zelle, and Apple Pay.',
+      q: 'How long does access take?',
+      a: 'Usually seconds after Patreon shows an active pledge. If you just subscribed, wait a moment and try Unlock again.',
     },
     {
-      q: 'How do I contact support?',
-      a: SUPPORT_TELEGRAM_URL ? (
+      q: 'What if my payment or unlock fails?',
+      a: (
         <>
-          Message us on{' '}
-          <a href={SUPPORT_TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
-            Telegram
-          </a>
-          .
+          We only support billing help through our official{' '}
+          <a href={SUPPORT_DISCORD_URL} target="_blank" rel="noopener noreferrer">
+            Discord
+          </a>{' '}
+          and{' '}
+          {SUPPORT_TELEGRAM_URL ? (
+            <a href={SUPPORT_TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+              Telegram
+            </a>
+          ) : (
+            'Telegram (see footer)'
+          )}
+          . We do not take payments or verify purchases outside Patreon on this page.
         </>
-      ) : (
-        'See the contact link in the site footer.'
       ),
     },
   ];
@@ -175,24 +234,11 @@ export function CheckoutPage() {
   const [userAuthed, setUserAuthed] = useState(null);
   const [patreonEmail, setPatreonEmail] = useState('');
   const [patreonBusy, setPatreonBusy] = useState(false);
-  /** `warm`: gold hint after opening Patreon (matches legacy checkout.html) */
   const [patreonMsg, setPatreonMsg] = useState({ text: '', error: false, warm: false });
-  /** Pulsing ring + eyebrow when user returns from Patreon (or lands with pending unlock). */
   const [patreonGuideActive, setPatreonGuideActive] = useState(false);
   const patreonCardRef = useRef(null);
 
   const [faqOpen, setFaqOpen] = useState(null);
-
-  const [payOpen, setPayOpen] = useState(false);
-  const [chosenPlan, setChosenPlan] = useState(null);
-  const [chosenMethod, setChosenMethod] = useState('');
-  const [chosenFile, setChosenFile] = useState(null);
-  const [payStep, setPayStep] = useState(1);
-  const [gcCode, setGcCode] = useState('');
-  const fileInputRef = useRef(null);
-  const [processError, setProcessError] = useState(null);
-
-  const [successTier, setSuccessTier] = useState(null);
 
   useEffect(() => {
     const prev = document.title;
@@ -338,31 +384,37 @@ export function CheckoutPage() {
     }
   }, []);
 
-  const redirectToLogin = useCallback((plan) => {
-    try {
-      sessionStorage.setItem('checkout_return', '/checkout?plan=' + plan);
-      sessionStorage.setItem('checkout_pending_plan', plan);
-    } catch {
-      /* ignore */
-    }
-    openAuth('login');
-  }, [openAuth]);
-
-  const openScriptCheckout = useCallback((url, qty, existingPopup) => {
-    const targetUrl = withQty(url, qty);
-    const popup =
-      existingPopup && !existingPopup.closed ? existingPopup : window.open('about:blank', '_blank');
-    if (popup && !popup.closed) {
+  const redirectToLogin = useCallback(
+    (plan) => {
       try {
-        popup.location.replace(targetUrl);
+        sessionStorage.setItem('checkout_return', '/checkout?plan=' + plan);
+        sessionStorage.setItem('checkout_pending_plan', plan);
       } catch {
-        popup.location.href = targetUrl;
+        /* ignore */
       }
-      return true;
-    }
-    window.alert('Popup was blocked. Please allow popups for this site and try again.');
-    return false;
-  }, [withQty]);
+      openAuth('login');
+    },
+    [openAuth],
+  );
+
+  const openScriptCheckout = useCallback(
+    (url, qty, existingPopup) => {
+      const targetUrl = withQty(url, qty);
+      const popup =
+        existingPopup && !existingPopup.closed ? existingPopup : window.open('about:blank', '_blank');
+      if (popup && !popup.closed) {
+        try {
+          popup.location.replace(targetUrl);
+        } catch {
+          popup.location.href = targetUrl;
+        }
+        return true;
+      }
+      window.alert('Popup was blocked. Please allow popups for this site and try again.');
+      return false;
+    },
+    [withQty],
+  );
 
   const patreonUnlockSubmit = async (ev) => {
     ev.preventDefault();
@@ -471,7 +523,7 @@ export function CheckoutPage() {
         });
       }
     },
-    [openScriptCheckout, searchParams]
+    [openScriptCheckout, searchParams],
   );
 
   const openCheckout = useCallback(
@@ -482,96 +534,10 @@ export function CheckoutPage() {
       }
       if (userAuthed === false) redirectToLogin(plan);
     },
-    [userAuthed, doOpenPatreonModal, redirectToLogin]
+    [userAuthed, doOpenPatreonModal, redirectToLogin],
   );
 
-  const closePayModal = useCallback(() => {
-    setPayOpen(false);
-    setPayStep(1);
-    setProcessError(null);
-    document.body.style.overflow = '';
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape' && payOpen) closePayModal();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [payOpen, closePayModal]);
-
-  const onMethodChange = (e) => {
-    const v = e.target.value;
-    setChosenMethod(v);
-    setChosenFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const detail = chosenMethod ? METHODS[chosenMethod] : null;
-  const showGift = detail && detail.isGiftCard;
-
-  const handleFile = (file) => {
-    if (!file || !file.type.startsWith('image/')) return;
-    setChosenFile(file);
-    const reader = new FileReader();
-    reader.onload = () => {
-      doSubmit(null, file);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const doSubmit = async (gcCodeArg, fileOverride = null) => {
-    const isGC = !!(gcCodeArg && String(gcCodeArg).trim());
-    const file = fileOverride || chosenFile;
-    if (!isGC && (!file || !chosenPlan || !chosenMethod)) return;
-    if (isGC && (!chosenPlan || !chosenMethod)) return;
-
-    setPayStep(2);
-    setProcessError(null);
-
-    const fd = new FormData();
-    if (isGC) {
-      fd.append('giftcard_code', String(gcCodeArg).trim());
-    } else {
-      fd.append('screenshot', file);
-    }
-    fd.append('plan', chosenPlan);
-    fd.append('method', chosenMethod);
-
-    const fetchPromise = fetch('/api/payment-screenshot', { method: 'POST', body: fd }).then((resp) =>
-      resp.json().then((data) => {
-        if (!resp.ok) throw new Error(data.error || 'Server error (' + resp.status + ')');
-        return data;
-      })
-    );
-    const delayPromise = new Promise((r) => setTimeout(r, 10000));
-
-    try {
-      const results = await Promise.all([fetchPromise, delayPromise]);
-      const data = results[0];
-      if (!data.ok || !data.grantedTier) throw new Error(data.error || 'Tier was not granted');
-      closePayModal();
-      setSuccessTier(data.grantedTier);
-    } catch (err) {
-      const msg = err && err.message ? err.message : 'Unknown error';
-      console.error('[payment] Error:', msg);
-      setProcessError(msg);
-      setTimeout(() => setPayStep(1), 4000);
-    }
-  };
-
-  const giftSubmit = () => {
-    const code = gcCode.trim();
-    if (!code || !chosenPlan || !chosenMethod) return;
-    doSubmit(code);
-  };
-
   const checkoutBtnsDisabled = userAuthed === null;
-
-  const tierLabel =
-    chosenPlan && PLANS[chosenPlan]
-      ? `${PLANS[chosenPlan].label} (${PLANS[chosenPlan].price})`
-      : 'Choose your plan above';
 
   return (
     <div className="checkout-page-shell site-theme-pornwrld">
@@ -607,7 +573,7 @@ export function CheckoutPage() {
           <PageHero
             className="checkout-page-hero"
             title="Unlock the full archive"
-            subtitle="One payment for lifetime tier access — or verify your Patreon email if you already support us there."
+            subtitle="Monthly membership on Patreon — four tiers. After paying, return here and enter your Patreon email to sync access."
           />
 
           <div className="checkout-kpis" aria-label="Highlights">
@@ -701,12 +667,12 @@ export function CheckoutPage() {
           <section className="checkout-pricing-wrap" aria-labelledby="checkout-pricing-heading">
             <div className="checkout-pricing-intro">
               <h2 id="checkout-pricing-heading" className="checkout-pricing-heading">
-                Unlock the full archive
+                Choose your Patreon tier
               </h2>
             </div>
 
             <div className="checkout-tier-package">
-              <div className="checkout-pricing-grid checkout-pricing-grid--headers cards">
+              <div className="checkout-pricing-grid checkout-pricing-grid--headers cards checkout-pricing-grid--five">
                 <article className="card card-free">
                   <div className="checkout-tier-card__inner">
                     <div className="checkout-tier-card__badge-slot" aria-hidden="true" />
@@ -728,66 +694,45 @@ export function CheckoutPage() {
                   </div>
                 </article>
 
-                <article className="card basic">
-                  <div className="checkout-tier-card__inner">
-                    <div className="checkout-tier-card__badge-slot" aria-hidden="true" />
-                    <div className="tier-label">Starter access</div>
-                    <div className="tier-name">Basic</div>
-                    <div className="checkout-tier-card__spacer" aria-hidden="true" />
-                    <div className="card-price-zone">
-                      <div className="card-price-promo-slot" aria-hidden="true" />
-                      <div className="price">$9.99</div>
-                      <div className="daily-price">~$0.33/day</div>
-                      <div className="price-note">One-time · lifetime Tier 1</div>
-                    </div>
-                    <button
-                      className="btn btn-basic checkout-tier-card__cta"
-                      type="button"
-                      disabled={checkoutBtnsDisabled}
-                      aria-busy={checkoutBtnsDisabled ? 'true' : undefined}
-                      data-checkout="basic"
-                      onClick={() => openCheckout('basic')}
-                    >
-                      Get Basic — $9.99
-                    </button>
-                  </div>
-                </article>
-
-                <article className="card premium">
-                  <div className="checkout-tier-card__inner">
-                    <div className="checkout-tier-card__badge-slot">
-                      <div className="crown">Highest tier</div>
-                    </div>
-                    <div className="tier-label">Best value</div>
-                    <div className="tier-name">Premium</div>
-                    <div className="checkout-tier-card__spacer" aria-hidden="true" />
-                    <div className="card-price-zone card-price-zone--premium">
-                      <div className="card-price-promo-slot">
-                        <div className="premium-deal-strip">
-                          <span className="discount-pill">25% off</span>
-                          <span className="price-was">Was $33.32</span>
+                {PLAN_ORDER.map((key) => {
+                  const p = PLANS[key];
+                  const missingUrl = !p.checkoutUrl;
+                  return (
+                    <article key={key} className={'card ' + p.cardClass}>
+                      <div className="checkout-tier-card__inner">
+                        <div className="checkout-tier-card__badge-slot" aria-hidden="true" />
+                        <div className="tier-label">Tier {p.tierNum}</div>
+                        <div className="tier-name">{p.label}</div>
+                        <div className="checkout-tier-card__spacer" aria-hidden="true" />
+                        <div className="card-price-zone">
+                          <div className="card-price-promo-slot" aria-hidden="true" />
+                          <div className="price">{p.price}</div>
+                          <div className="daily-price">{p.blurb}</div>
+                          <div className="price-note">Patreon · cancel anytime</div>
                         </div>
+                        <button
+                          className={'btn ' + p.btnClass + ' checkout-tier-card__cta'}
+                          type="button"
+                          disabled={checkoutBtnsDisabled || missingUrl}
+                          title={missingUrl ? 'Set VITE_PATREON_CHECKOUT_*_URL in .env' : undefined}
+                          aria-busy={checkoutBtnsDisabled ? 'true' : undefined}
+                          data-checkout={key}
+                          onClick={() => openCheckout(key)}
+                        >
+                          {missingUrl ? 'Configure Patreon URL' : `Join ${p.label} on Patreon`}
+                        </button>
                       </div>
-                      <div className="price">$24.99</div>
-                      <div className="daily-price">~$0.83/day</div>
-                      <div className="price-note">One-time · lifetime Tier 2</div>
-                    </div>
-                    <button
-                      className="btn btn-premium checkout-tier-card__cta"
-                      type="button"
-                      disabled={checkoutBtnsDisabled}
-                      aria-busy={checkoutBtnsDisabled ? 'true' : undefined}
-                      data-checkout="premium"
-                      onClick={() => openCheckout('premium')}
-                    >
-                      Get Premium — $24.99
-                    </button>
-                  </div>
-                </article>
+                    </article>
+                  );
+                })}
               </div>
 
               <div className="checkout-matrix-scroll" tabIndex={0}>
-                <div className="checkout-tier-matrix" role="table" aria-label="Tier features compared">
+                <div
+                  className="checkout-tier-matrix checkout-tier-matrix--six"
+                  role="table"
+                  aria-label="Tier features compared"
+                >
                   <div className="checkout-tier-matrix__row checkout-tier-matrix__row--head" role="row">
                     <div className="checkout-tier-matrix__corner" role="columnheader">
                       Feature
@@ -800,6 +745,12 @@ export function CheckoutPage() {
                     </div>
                     <div className="checkout-tier-matrix__colhead checkout-tier-matrix__colhead--premium" role="columnheader">
                       Premium
+                    </div>
+                    <div className="checkout-tier-matrix__colhead checkout-tier-matrix__colhead--ultimate" role="columnheader">
+                      Ultimate
+                    </div>
+                    <div className="checkout-tier-matrix__colhead checkout-tier-matrix__colhead--elite" role="columnheader">
+                      Elite
                     </div>
                   </div>
                   {TIER_COMPARE_ROWS.map((row) => (
@@ -825,6 +776,18 @@ export function CheckoutPage() {
                       >
                         <CheckoutCompareCell value={row.premium} />
                       </div>
+                      <div
+                        className="checkout-tier-matrix__cell checkout-tier-matrix__cell--ultimate"
+                        role="cell"
+                      >
+                        <CheckoutCompareCell value={row.ultimate} />
+                      </div>
+                      <div
+                        className="checkout-tier-matrix__cell checkout-tier-matrix__cell--elite"
+                        role="cell"
+                      >
+                        <CheckoutCompareCell value={row.elite} />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -835,19 +798,19 @@ export function CheckoutPage() {
           <div className="trust-signals">
             <div className="trust-item">
               <span className="trust-icon">&#128274;</span>
-              <strong>Secure Payment</strong>
+              <strong>Billed on Patreon</strong>
             </div>
             <div className="trust-item">
               <span className="trust-icon">&#128176;</span>
-              <strong>Cancel Anytime</strong>
+              <strong>Cancel anytime</strong>
             </div>
             <div className="trust-item">
               <span className="trust-icon">&#128101;</span>
-              <strong>Join 9,000+ Members</strong>
+              <strong>Join 9,000+ members</strong>
             </div>
             <div className="trust-item">
-              <span className="trust-icon">&#128179;</span>
-              Charges appear as <strong>&lsquo;Digital Services&rsquo;</strong> on your statement
+              <span className="trust-icon">&#128172;</span>
+              <strong>Support via Discord &amp; Telegram only</strong>
             </div>
           </div>
 
@@ -871,166 +834,19 @@ export function CheckoutPage() {
           </div>
 
           <footer className="checkout-footer-note">
-            Questions? Same support links as the rest of the site — Telegram in the footer when you&apos;re browsing.
+            Questions? Use our official{' '}
+            <a href={OFFICIAL_DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+              Discord
+            </a>{' '}
+            or{' '}
+            <a href={SUPPORT_TELEGRAM_URL || OFFICIAL_TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+              Telegram
+            </a>
+            — the only channels we use for support and payment issues. We do not accept alternate payment methods on this page.
           </footer>
         </div>
         <FooterSection />
-
-        {/* Payment modal: tier CTAs open Patreon; overlay for manual screenshot flow */}
-        <div
-          className={'pay-overlay' + (payOpen ? ' active' : '')}
-          id="pay-overlay"
-          role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closePayModal();
-          }}
-        >
-          <div className="pay-modal">
-            <button className="pay-modal-close" id="pay-close" type="button" onClick={closePayModal}>
-              <X size={20} strokeWidth={2.4} aria-hidden="true" />
-            </button>
-
-            <div className={'pay-step' + (payStep === 1 ? ' active' : '')} id="co-step-1">
-              <div className="pay-modal-title">Select Payment Method</div>
-              <div className="pay-modal-plan" id="co-plan-label">
-                {tierLabel}
-              </div>
-              <select className="pay-select" id="co-method-select" value={chosenMethod} onChange={onMethodChange}>
-                <option value="" disabled>
-                  Choose a method...
-                </option>
-                <option value="cashapp">Cash App</option>
-                <option value="venmo">Venmo</option>
-                <option value="paypal">PayPal</option>
-                <option value="zelle">Zelle</option>
-                <option value="applepay">Apple Pay</option>
-                <option value="giftcard">Gift Card</option>
-              </select>
-              <div className="pay-detail" id="co-detail" hidden={!chosenMethod}>
-                <div className="pay-detail-method" id="co-detail-method">
-                  {detail ? detail.display : ''}
-                </div>
-                <div id="co-regular-info" style={{ display: showGift ? 'none' : '' }}>
-                  <div className="pay-detail-info" id="co-detail-info">
-                    {detail && !detail.isGiftCard ? detail.user : ''}
-                  </div>
-                  <ol className="pay-steps">
-                    <li>Pay to the payment option above</li>
-                    <li>When complete, upload a screenshot</li>
-                    <li>Admins will give you access in 30 seconds</li>
-                  </ol>
-                  <div
-                    className="pay-dropzone"
-                    id="co-dropzone"
-                    onClick={() => fileInputRef.current && fileInputRef.current.click()}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.currentTarget.classList.add('dragover');
-                    }}
-                    onDragLeave={(e) => e.currentTarget.classList.remove('dragover')}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.currentTarget.classList.remove('dragover');
-                      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-                    }}
-                  >
-                    <div className="pay-dropzone-text">Click or drag screenshot here</div>
-                    {/* preview shown via state if needed */}
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    id="co-file"
-                    accept="image/*"
-                    hidden
-                    onChange={(e) => {
-                      if (e.target.files.length) handleFile(e.target.files[0]);
-                    }}
-                  />
-                </div>
-                <div id="co-giftcard-info" style={{ display: showGift ? 'block' : 'none' }}>
-                  {GIFTCARD_PRODUCT_URL ? (
-                  <a
-                    href={GIFTCARD_PRODUCT_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="pay-gc-link"
-                  >
-                    CLICK TO PURCHASE GIFTCARD
-                  </a>
-                  ) : (
-                    <p className="pay-gc-label" style={{ color: 'rgba(255,255,255,.45)' }}>
-                      Set VITE_GIFTCARD_PRODUCT_URL in <code>.env</code> for the purchase link.
-                    </p>
-                  )}
-                  <div className="pay-gc-label">Enter the code below:</div>
-                  <input
-                    type="text"
-                    className="pay-gc-input"
-                    id="co-gc-code"
-                    placeholder="Enter gift card code..."
-                    autoComplete="off"
-                    value={gcCode}
-                    onChange={(e) => setGcCode(e.target.value)}
-                  />
-                  <button type="button" className="pay-gc-submit" id="co-gc-submit" onClick={giftSubmit}>
-                    Submit
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className={'pay-step' + (payStep === 2 ? ' active' : '')} id="co-step-2">
-              <div id="co-processing" className="pay-processing">
-                {processError ? (
-                  <>
-                    <div className="pay-error-icon">&#10007;</div>
-                    <div className="pay-processing-text">Something went wrong</div>
-                    <div className="pay-processing-sub">{processError}</div>
-                  </>
-                ) : (
-                  <>
-                    <div className="pay-spinner" />
-                    <div className="pay-processing-text">Verifying payment...</div>
-                    <div className="pay-processing-sub">Please wait</div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {successTier != null && (
-          <div className="purchase-success-page">
-            <div className="success-icon-wrap">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </div>
-            <div className="success-title">Purchase Approved!</div>
-            <div className="success-subtitle">
-              Your payment has been verified and your account has been upgraded.
-            </div>
-            <div className={'success-tier-badge' + (successTier === 2 ? ' tier-2' : '')}>
-              {(successTier === 2 ? 'Premium' : 'Tier 1') + ' Unlocked'}
-            </div>
-            <div className="success-msg">
-              You now have access to {successTier === 2 ? '5,000+' : '1,000+'} exclusive videos across all
-              categories. Do NOT resubmit your payment — your access is already active.
-            </div>
-            <Link to="/" className="success-browse-btn">
-              Start Browsing
-            </Link>
-          </div>
-        )}
       </div>
     </div>
-    );
+  );
 }
