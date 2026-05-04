@@ -4028,6 +4028,28 @@ async function requireAuthedUser(req, res) {
   return { userKey, record, db };
 }
 
+/** Optional auth helper for endpoints that allow anonymous/free browsing. */
+async function getOptionalAuthedUser(req, res) {
+  await ensureSessionsLoaded();
+  const userKey = await getAuthedUserKeyWithRefresh(req);
+  if (!userKey) return { userKey: null, record: null, db: null };
+
+  const db = await ensureUsersDbFresh();
+  const record = db.users[userKey];
+  if (!record) return { userKey: null, record: null, db };
+
+  if (record.banned) {
+    const cookies = parseCookies(req);
+    const token = cookies[SESSION_COOKIE];
+    if (token) sessions.delete(token);
+    clearSessionCookie(res);
+    sendJson(res, 403, { error: 'Banned' });
+    return null;
+  }
+
+  return { userKey, record, db };
+}
+
 async function readJsonBody(req, res, maxBytes = 64 * 1024) {
   const method = (req.method || 'GET').toUpperCase();
   if (method !== 'POST') {
@@ -5110,6 +5132,7 @@ function buildObjectKeyCandidates(basePath, folderName, subfolder, name, vault, 
   };
   const ut =
     userTier === undefined || userTier === null ? null : Number(userTier) || 0;
+  const allowLegacyT1 = ut === null ? true : ut >= 1;
   const allowLegacyT2 = ut === null ? true : ut >= 2;
   const allowLegacyT3 = ut === null ? true : ut >= 3;
   if (v) {
@@ -5136,7 +5159,7 @@ function buildObjectKeyCandidates(basePath, folderName, subfolder, name, vault, 
       }
     }
     if (allowLegacyT2) push(`${basePath}/tier 2/${subfolder}/${name}`);
-    push(`${basePath}/tier 1/${subfolder}/${name}`);
+    if (allowLegacyT1) push(`${basePath}/tier 1/${subfolder}/${name}`);
   } else if (folderName !== 'Omegle') {
     if (allowLegacyT3) {
       push(`${basePath}/tier 3/${name}`);
@@ -5146,7 +5169,7 @@ function buildObjectKeyCandidates(basePath, folderName, subfolder, name, vault, 
       }
     }
     if (allowLegacyT2) push(`${basePath}/tier 2/${name}`);
-    push(`${basePath}/tier 1/${name}`);
+    if (allowLegacyT1) push(`${basePath}/tier 1/${name}`);
   }
   return keys;
 }
@@ -8255,19 +8278,18 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
 
-    // API: list files in a category folder (tier-gated)
+    // API: list files in a category folder (free for anon/tier0, paid is cumulative)
     if (requestUrl.pathname === '/api/list') {
-      const authed = await requireAuthedUser(req, res);
+      const authed = await getOptionalAuthedUser(req, res);
       if (!authed) return;
-      const { userKey, record: u, db } = authed;
+      const { record: u } = authed;
 
       const folder = requestUrl.searchParams.get('folder') || '';
       const subfolder = requestUrl.searchParams.get('subfolder') || '';
       const basePath = allowedFolders.get(folder);
       if (!basePath) return sendJson(res, 400, { error: 'Invalid folder' });
 
-      const tier = getEffectiveTierForUser(u);
-      if (tier < 1) return sendJson(res, 403, { error: 'Tier required' });
+      const tier = u ? getEffectiveTierForUser(u) : 0;
       const vaultFolders = accessibleVaultFolders(tier);
 
       // Track category hit for admin
@@ -8362,7 +8384,7 @@ const server = http.createServer(async (req, res) => {
               _cacheEntries.push({ k: rck, v: _prefix + item.name });
               let src = `/media?folder=${encodeURIComponent(folder)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(item.name)}`;
               if (v) src += `&vault=${encodeURIComponent(v)}`;
-              const thumb = isVid ? _thumbUrl(folder, subfolder, item.name, v) : undefined;
+              const thumb = isVid ? _thumbUrl(folder, subfolder, item.name, v) : src;
               allFiles.push({
                 name: item.name,
                 type: isVid ? 'video' : 'image',
@@ -8419,7 +8441,7 @@ const server = http.createServer(async (req, res) => {
             _cacheEntries.push({ k: rck, v: _prefix + item.name });
             let src = `/media?folder=${encodeURIComponent(folder)}&subfolder=${encodeURIComponent(sf)}&name=${encodeURIComponent(item.name)}`;
             if (v) src += `&vault=${encodeURIComponent(v)}`;
-            const thumb = isVid ? _thumbUrl(folder, sf, item.name, v) : undefined;
+            const thumb = isVid ? _thumbUrl(folder, sf, item.name, v) : src;
             allFiles.push({
               name: item.name,
               type: isVid ? 'video' : 'image',
@@ -8475,7 +8497,7 @@ const server = http.createServer(async (req, res) => {
           _cacheEntries.push({ k: rck, v: _prefix + item.name });
           let src = `/media?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`;
           if (v) src += `&vault=${encodeURIComponent(v)}`;
-          const thumb = isVid ? _thumbUrl(folder, '', item.name, v) : undefined;
+          const thumb = isVid ? _thumbUrl(folder, '', item.name, v) : src;
           allFiles.push({
             name: item.name,
             type: isVid ? 'video' : 'image',
@@ -9599,7 +9621,9 @@ const server = http.createServer(async (req, res) => {
           name: item.name,
           type: isVid ? 'video' : 'image',
           src: `/preview-media?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`,
-          ...(isVid ? { thumb: `/thumbnail?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}` } : {}),
+          thumb: isVid
+            ? `/thumbnail?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`
+            : `/preview-media?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`,
           size: item.size || 0,
           duration: isVid ? _getDuration(folder, 'previews', item.name) : 0,
           folder,
@@ -9796,12 +9820,12 @@ const server = http.createServer(async (req, res) => {
       return sendText(res, 404, 'Not Found');
     }
 
-    // Media serving (authenticated, tier-gated)
+    // Media serving (free for anon/tier0, paid tiers cumulative)
     // Cache resolved R2 object keys to skip expensive HEAD requests (5-minute TTL)
     if (!global._mediaKeyCache) global._mediaKeyCache = {};
     const _MEDIA_KEY_TTL = 300000; // 5 minutes
     if (requestUrl.pathname === '/media') {
-      const authed = await requireAuthedUser(req, res);
+      const authed = await getOptionalAuthedUser(req, res);
       if (!authed) return;
       const { record: u } = authed;
 
@@ -9815,8 +9839,7 @@ const server = http.createServer(async (req, res) => {
       if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) return sendText(res, 400, 'Invalid file');
       if (!isAllowedMediaFile(name)) return sendText(res, 403, 'Forbidden');
 
-      const tier = getEffectiveTierForUser(u);
-      if (tier < 1) return sendText(res, 403, 'Tier required');
+      const tier = u ? getEffectiveTierForUser(u) : 0;
       const vaultAccess = accessibleVaultFolders(tier);
       const vNorm = normalizeVaultParam(vaultQ);
       if (vNorm && !vaultAccess.includes(vNorm)) return sendText(res, 403, 'Forbidden');

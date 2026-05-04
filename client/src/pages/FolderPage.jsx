@@ -31,7 +31,7 @@ function thumbUrl(item) {
 export function FolderPage({ seoFolder: propFolder }) {
   const [params] = useSearchParams();
   const location = useLocation();
-  const { isAuthed, tier, loading: authLoading } = useAuth();
+  const { loading: authLoading } = useAuth();
 
   const folderFromQuery = params.get('folder') || '';
   const subfolderFromQuery = params.get('subfolder') || '';
@@ -55,8 +55,6 @@ export function FolderPage({ seoFolder: propFolder }) {
   const [lightbox, setLightbox] = useState(null);
   const [recoRankMap, setRecoRankMap] = useState({});
 
-  const hasTier = isAuthed && (tier || 0) >= 1;
-
   const docMeta = FOLDER_DOC_META[folder];
 
   useEffect(() => {
@@ -77,25 +75,6 @@ export function FolderPage({ seoFolder: propFolder }) {
     setLoading(true);
     setErr(null);
     try {
-      if (!hasTier) {
-        const { ok, data } = await fetchPreviewList(folder);
-        if (!ok || !data?.files?.length) {
-          setAllFiles([]);
-          setItems([]);
-          setPreviewMode(true);
-          setErr('preview');
-          setLoading(false);
-          return;
-        }
-        let pfiles = dedupeFiles(Array.isArray(data.files) ? data.files : []);
-        setAllFiles(pfiles);
-        setPreviewMode(true);
-        setSubfoldersFromApi(null);
-        setErr(null);
-        setLoading(false);
-        return;
-      }
-
       const { ok, data, status } = await fetchList(folder, subfolderFromQuery || undefined);
       if (!ok) {
         if (status === 403 || status === 401) {
@@ -128,7 +107,7 @@ export function FolderPage({ seoFolder: propFolder }) {
     } finally {
       setLoading(false);
     }
-  }, [folder, hasTier, subfolderFromQuery]);
+  }, [folder, subfolderFromQuery]);
 
   useEffect(() => {
     if (authLoading) return;
