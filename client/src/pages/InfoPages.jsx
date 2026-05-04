@@ -70,7 +70,7 @@ export function FaqsPage() {
         {
           heading: 'Where can I get support?',
           paragraphs: [
-            'Use the Help center (/help) for troubleshooting. For anything else — billing, technical issues, video reports, or DMCA/takedowns — contact us only through our official Discord (discord.gg/pornwrld) or Telegram (t.me/pornwrldxyz). Those are the only channels we use.',
+            'Use the Help center (/help) for troubleshooting. For anything else — billing, technical issues, video reports, or DMCA/takedowns — contact us only through our official Discord (discord.gg/pornwrld) or Telegram (t.me/pornwrldsupport). Those are the only channels we use.',
           ],
         },
       ]}

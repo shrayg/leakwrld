@@ -4885,6 +4885,7 @@ body.cp-fs-active {
   z-index: 5000;
   overflow: visible;
   isolation: isolate;
+  pointer-events: none;
 }
 
 /* Panel + tab move as one unit; chevron rotates via .leaderboard-tab-icon */
@@ -4975,6 +4976,7 @@ body.cp-fs-active {
     color 0.28s cubic-bezier(0.4, 0, 0.2, 1),
     border-color 0.28s ease,
     box-shadow 0.28s ease;
+  pointer-events: auto;
 }
 .leaderboard-tab:hover {
   background: rgba(255, 105, 180, 0.2);
@@ -5002,6 +5004,7 @@ body.cp-fs-active {
   order: 0;
   margin-left: 0;
   flex-shrink: 0;
+  pointer-events: auto;
 }
 .leaderboard-wrapper.lb-closed:not(.leaderboard-inline) .leaderboard-panel {
   pointer-events: none;

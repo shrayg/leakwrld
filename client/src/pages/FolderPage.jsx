@@ -5,7 +5,7 @@ import { fetchList, fetchPreviewList, fetchRecommendations } from '../api/client
 import { HomepageMediaTile } from '../components/home/HomepageMediaTile';
 import { videoCardStableKey } from '../components/media/VideoCard';
 import { useAuth } from '../hooks/useAuth';
-import { cleanPathToFolder, folderToCleanPath, folderToCleanUrl } from '../lib/cleanUrls';
+import { cleanPathToFolder, folderDisplayName, folderToCleanPath, folderToCleanUrl } from '../lib/cleanUrls';
 import { dedupeFiles, formatDuration, sortFiles } from '../lib/folderMedia';
 import { seoCleanTitle } from '../lib/seoTitle';
 import { FOLDER_DOC_META } from '../data/folderDocMeta';
@@ -16,13 +16,14 @@ const PAGE_SIZE = 15;
 function thumbUrl(item) {
   if (item.thumb) return item.thumb;
   if (item.folder && item.name) {
-    return (
+    let u =
       '/thumbnail?folder=' +
       encodeURIComponent(item.folder) +
       '&name=' +
       encodeURIComponent(item.name) +
-      (item.subfolder ? '&subfolder=' + encodeURIComponent(item.subfolder) : '')
-    );
+      (item.subfolder ? '&subfolder=' + encodeURIComponent(item.subfolder) : '');
+    if (item.vault) u += '&vault=' + encodeURIComponent(item.vault);
+    return u;
   }
   return '/assets/images/face.png';
 }
@@ -36,7 +37,9 @@ export function FolderPage({ seoFolder: propFolder }) {
   const subfolderFromQuery = params.get('subfolder') || '';
   const folder = propFolder || folderFromQuery || cleanPathToFolder(location.pathname) || '';
 
-  const displayTitle = subfolderFromQuery ? folder + ' — ' + subfolderFromQuery : folder;
+  const displayHeading = subfolderFromQuery
+    ? `${folderDisplayName(folder)} — ${subfolderFromQuery}`
+    : folderDisplayName(folder);
 
   const [items, setItems] = useState([]);
   const [allFiles, setAllFiles] = useState([]);
@@ -58,7 +61,7 @@ export function FolderPage({ seoFolder: propFolder }) {
 
   useEffect(() => {
     if (!folder) return;
-    const t = docMeta ? docMeta.title + ' — Pornwrld' : displayTitle + ' — Pornwrld';
+    const t = docMeta ? docMeta.title + ' — Pornwrld' : displayHeading + ' — Pornwrld';
     document.title = t;
     let metaDesc = document.querySelector('meta[name="description"]');
     if (metaDesc && docMeta) metaDesc.setAttribute('content', docMeta.desc);
@@ -67,7 +70,7 @@ export function FolderPage({ seoFolder: propFolder }) {
       const path = folderToCleanPath(folder) || '/folder.html?folder=' + encodeURIComponent(folder);
       canonical.setAttribute('href', 'https://pornwrld.xyz' + path);
     }
-  }, [folder, displayTitle, docMeta]);
+  }, [folder, displayHeading, docMeta]);
 
   const load = useCallback(async () => {
     if (!folder) return;
@@ -139,7 +142,7 @@ export function FolderPage({ seoFolder: propFolder }) {
       if (cancelled || !res.ok || !Array.isArray(res.data?.files)) return;
       const rankMap = {};
       res.data.files.forEach((f, idx) => {
-        rankMap[buildVideoId(f.folder, f.subfolder || '', f.name)] = idx + 1;
+        rankMap[buildVideoId(f.folder, f.subfolder || '', f.name, f.vault)] = idx + 1;
       });
       setRecoRankMap(rankMap);
       res.data.files.slice(0, 20).forEach((f, idx) => {
@@ -147,7 +150,7 @@ export function FolderPage({ seoFolder: propFolder }) {
           surface: 'category',
           slot: idx,
           rank: idx + 1,
-          videoId: f.videoId || buildVideoId(f.folder, f.subfolder || '', f.name),
+          videoId: f.videoId || buildVideoId(f.folder, f.subfolder || '', f.name, f.vault),
           folder: f.folder,
           subfolder: f.subfolder || '',
           name: f.name,
@@ -174,8 +177,14 @@ export function FolderPage({ seoFolder: propFolder }) {
     const sorted = sortFiles(list, sortKey);
     if (sortKey !== 'recent') return sorted;
     return sorted.slice().sort((a, b) => {
-      const ra = recoRankMap[buildVideoId(a.folder || folder, a.subfolder || '', a.name)] || Number.MAX_SAFE_INTEGER;
-      const rb = recoRankMap[buildVideoId(b.folder || folder, b.subfolder || '', b.name)] || Number.MAX_SAFE_INTEGER;
+      const ra =
+        recoRankMap[
+          buildVideoId(a.folder || folder, a.subfolder || '', a.name, a.vault)
+        ] || Number.MAX_SAFE_INTEGER;
+      const rb =
+        recoRankMap[
+          buildVideoId(b.folder || folder, b.subfolder || '', b.name, b.vault)
+        ] || Number.MAX_SAFE_INTEGER;
       return ra - rb;
     });
   }, [allFiles, sortKey, subfolderFilter, videoSearch, recoRankMap, folder]);
@@ -233,7 +242,7 @@ export function FolderPage({ seoFolder: propFolder }) {
   return (
     <div className="page-content folder-page">
       <div className="folder-header pornwrld-folder-head">
-        <h1 className="pornwrld-page-title">{displayTitle}</h1>
+        <h1 className="pornwrld-page-title">{displayHeading}</h1>
         {previewMode && (
           <div className="cta-banner cta-banner-inline">
             <Link to="/">CLICK HERE TO UNLOCK MORE</Link>

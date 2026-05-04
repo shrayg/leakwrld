@@ -9,7 +9,7 @@ import { UserAvatar } from '../components/ui/UserAvatar';
 import { PwNavTabRow } from '../components/ui/PwNavTabRow';
 
 const PRIMARY_TABS = ['profile', 'referrals', 'affiliate'];
-const CONTENT_TABS = ['videos', 'photos', 'gifs', 'about'];
+const CONTENT_TABS = ['videos', 'photos', 'gifs', 'upload', 'about'];
 
 const PRIMARY_TAB_LABELS = {
   profile: 'Profile',
@@ -21,6 +21,7 @@ const CONTENT_TAB_LABELS = {
   videos: 'Videos',
   photos: 'Photos',
   gifs: 'GIFs',
+  upload: 'Upload',
   about: 'About',
 };
 
@@ -325,8 +326,27 @@ export function AccountPage() {
                   {!form.twitterUrl && !form.instagramUrl && !form.websiteUrl ? <li>No links added.</li> : null}
                 </ul>
               </section>
+            ) : contentTab === 'upload' ? (
+              <section className="account-profile-upload" aria-label="Upload content">
+                <h3>Upload content</h3>
+                <p className="account-profile-upload__lede">Choose what you want to upload to your profile.</p>
+                <div className="account-profile-upload__grid">
+                  <button type="button" className="account-profile-upload__card">Upload Video</button>
+                  <button type="button" className="account-profile-upload__card">Upload Photo</button>
+                  <button type="button" className="account-profile-upload__card">Upload GIF</button>
+                </div>
+              </section>
             ) : (
               <section className="account-profile-grid">
+                <button
+                  type="button"
+                  className="account-profile-grid-card account-profile-grid-card--upload"
+                  onClick={() => setContentTabAndUrl('upload')}
+                >
+                  <div className="account-profile-grid-thumb account-profile-grid-thumb--upload" />
+                  <p>Upload</p>
+                  <span>Add {contentTab === 'gifs' ? 'GIFs' : contentTab}</span>
+                </button>
                 {mediaList.length ? mediaList.map((item, idx) => (
                   <a key={idx} href={item.url} target="_blank" rel="noopener noreferrer" className="account-profile-grid-card">
                     <div className="account-profile-grid-thumb" style={mediaThumbStyle(item)} />

@@ -16,12 +16,13 @@ function thumbUrl(item) {
   if (item.thumb) return item.thumb;
   if (item.thumbnailUrl) return item.thumbnailUrl;
   if (item.folder && item.name) {
-    const q =
+    let q =
       '/thumbnail?folder=' +
       encodeURIComponent(item.folder) +
       '&name=' +
       encodeURIComponent(item.name) +
       (item.subfolder ? '&subfolder=' + encodeURIComponent(item.subfolder) : '');
+    if (item.vault) q += '&vault=' + encodeURIComponent(item.vault);
     return q;
   }
   return DEFAULT_PREVIEW_THUMB;
@@ -32,14 +33,16 @@ function videoHref(item) {
   const f = encodeURIComponent(item.folder || '');
   const n = encodeURIComponent(item.name || '');
   const s = item.subfolder ? '&subfolder=' + encodeURIComponent(item.subfolder) : '';
-  return '/video?folder=' + f + '&name=' + n + s;
+  let u = '/video?folder=' + f + '&name=' + n + s;
+  if (item.vault) u += '&vault=' + encodeURIComponent(item.vault);
+  return u;
 }
 
 /** Stable list key for API file rows (avoids duplicate / missing `name`) */
 export function videoCardStableKey(item, index) {
   if (item.videoKey) return String(item.videoKey);
   if (item.key) return String(item.key);
-  const parts = [item.folder, item.subfolder, item.name].filter(Boolean);
+  const parts = [item.folder, item.subfolder, item.vault, item.name].filter(Boolean);
   if (parts.length) return parts.join('/');
   return `video-${index}`;
 }

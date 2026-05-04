@@ -13,10 +13,14 @@ const {
   planKeyForTier,
   displayLabelForTier,
   displayPriceForTier,
-  effectiveVaultTier,
-  hasPremiumVaultAccess,
   omeglePayTierFromPlan,
 } = require('./lib/planCatalog');
+const {
+  VAULT_FOLDERS,
+  ALL_LEGACY_DISCORD_TIER_PREFIXES,
+  accessibleVaultFolders,
+  accessibleLegacyTierPrefixes,
+} = require('./lib/r2VaultLayout');
 const _gzipAsync = promisify(zlib.gzip);
 const _brotliAsync = promisify(zlib.brotliCompress);
 
@@ -556,6 +560,7 @@ const CATEGORY_SLUG_MAP = {
   'MILF': 'milf',
   'Asian': 'asian',
   'Ebony': 'ebony',
+  'Feet': 'feet',
   'Hentai': 'hentai',
   'Yuri': 'yuri',
   'Yaoi': 'yaoi',
@@ -678,6 +683,7 @@ const allowedFolders = new Map([
   ['MILF', `${R2_VIDEOS_PREFIX}/milf`],
   ['Asian', `${R2_VIDEOS_PREFIX}/asian`],
   ['Ebony', `${R2_VIDEOS_PREFIX}/ebony`],
+  ['Feet', `${R2_VIDEOS_PREFIX}/feet`],
   ['Hentai', `${R2_VIDEOS_PREFIX}/hentai`],
   ['Yuri', `${R2_VIDEOS_PREFIX}/yuri`],
   ['Yaoi', `${R2_VIDEOS_PREFIX}/yaoi`],
@@ -1526,7 +1532,6 @@ function tierFromCount(count) {
 
 function tierLabelFromTier(tier) {
   const t = Number(tier || 0);
-  if (t >= 4) return 'TIER 4';
   if (t >= 3) return 'TIER 3';
   if (t >= 2) return 'TIER 2';
   if (t >= 1) return 'TIER 1';
@@ -1550,7 +1555,7 @@ function tierMinCount(tier) {
 
 function getEffectiveTierForUser(u) {
   const manual = normalizeManualTier(u && u.tier);
-  if (manual !== null) return manual;
+  if (manual !== null) return Math.min(manual, 3);
   const count = (u && Array.isArray(u.referredUsers)) ? u.referredUsers.length : 0;
   return tierFromCount(count);
 }
@@ -1744,13 +1749,30 @@ let recoWritePromise = Promise.resolve();
 let recoFlushTimer = null;
 let recoLastRebuildTs = 0;
 
-function canonicalVideoId(folder, subfolder, name) {
-  return [String(folder || ''), String(subfolder || ''), String(name || '')].join('|');
+function canonicalVideoId(folder, subfolder, name, vault) {
+  const v = String(vault || '').trim().toLowerCase();
+  if (!v) {
+    return [String(folder || ''), String(subfolder || ''), String(name || '')].join('|');
+  }
+  return [String(folder || ''), String(subfolder || ''), v, String(name || '')].join('|');
 }
 
 function parseCanonicalVideoId(videoId) {
   const parts = String(videoId || '').split('|');
-  return { folder: parts[0] || '', subfolder: parts[1] || '', name: parts.slice(2).join('|') || '' };
+  if (parts.length >= 4) {
+    return {
+      folder: parts[0] || '',
+      subfolder: parts[1] || '',
+      vault: parts[2] || '',
+      name: parts.slice(3).join('|') || '',
+    };
+  }
+  return {
+    folder: parts[0] || '',
+    subfolder: parts[1] || '',
+    vault: '',
+    name: parts.slice(2).join('|') || '',
+  };
 }
 
 function _safeNum(v, min = 0, max = Number.MAX_SAFE_INTEGER) {
@@ -2113,9 +2135,11 @@ function scheduleCommentsPersist() {
 }
 
 // videoStats is unified with shortStats — single source of truth in short_stats.json
-// videoKey is just the filename so it matches how shorts already stores stats.
-function videoKey(folder, subfolder, name) {
-  return name;
+// Without vault: key is filename (shorts + legacy). With vault: composite so same name can exist per tier.
+function videoKey(folder, subfolder, name, vault) {
+  const v = String(vault || '').trim().toLowerCase();
+  if (!v || !VAULT_FOLDERS.includes(v)) return String(name || '');
+  return [folder || '', subfolder || '', v, name || ''].join('|');
 }
 
 /** previewFileList is rebuilt on an interval; merge live shortStats so list APIs are not stale. */
@@ -2123,12 +2147,12 @@ function enrichPreviewFilesWithLiveStats(files) {
   if (!Array.isArray(files)) return files;
   return files.map((f) => {
     if (!f || !isVideoFile(f.name)) return f;
-    const k = videoKey(f.folder, f.subfolder || '', f.name);
+    const k = videoKey(f.folder, f.subfolder || '', f.name, f.vault);
     const stats = shortStats[k] || { views: 0, likes: 0, dislikes: 0 };
     return {
       ...f,
       videoKey: k,
-      videoId: canonicalVideoId(f.folder, f.subfolder || '', f.name),
+      videoId: canonicalVideoId(f.folder, f.subfolder || '', f.name, f.vault),
       views: stats.views || 0,
       likes: stats.likes || 0,
       dislikes: stats.dislikes || 0,
@@ -2387,10 +2411,12 @@ function _thumbCacheGet(key) {
 let _thumbGenRunning = false;
 const _thumbInFlight = {}; // dedup concurrent requests: { cacheKey: Promise }
 
-// Cache key for a video: "folder/subfolder/name" or "folder//name" or just "name" (for preview compat)
-function _thumbCacheKey(folder, subfolder, name) {
+// Cache key for a video: "folder/subfolder/name" or extended with vault for tier layout
+function _thumbCacheKey(folder, subfolder, name, vault) {
   if (!folder) return name; // backward compat for preview-only thumbs
-  return folder + '/' + (subfolder || '') + '/' + name;
+  const v = vault && String(vault).length ? String(vault) : '';
+  if (!v) return folder + '/' + (subfolder || '') + '/' + name;
+  return folder + '/' + (subfolder || '') + '/' + v + '/' + name;
 }
 
 // Disk path for a generated thumbnail
@@ -2405,14 +2431,15 @@ function _thumbDiskPathLegacy(name) {
 }
 
 // Build a thumbnail URL for API responses — presigned R2 URL if cached, else fallback to /thumbnail endpoint
-function _thumbUrl(folder, subfolder, name) {
-  const cacheKey = _thumbCacheKey(folder, subfolder, name);
+function _thumbUrl(folder, subfolder, name, vault) {
+  const cacheKey = _thumbCacheKey(folder, subfolder, name, vault);
   // If thumbnail is in memory cache, it's also in R2 — serve directly from R2 (bypasses Node)
   if (R2_ENABLED && _thumbCacheGet(cacheKey)) {
     return r2PresignedUrl(_thumbR2Key(cacheKey), 3600);
   }
   let url = '/thumbnail?folder=' + encodeURIComponent(folder) + '&name=' + encodeURIComponent(name);
   if (subfolder) url += '&subfolder=' + encodeURIComponent(subfolder);
+  if (vault) url += '&vault=' + encodeURIComponent(vault);
   return url;
 }
 
@@ -2538,10 +2565,11 @@ function _scheduleDurationSave() {
   }, 10000);
 }
 
-function _getDuration(folder, subfolder, name) {
-  const exact = videoDurations[_thumbCacheKey(folder, subfolder, name)];
+function _getDuration(folder, subfolder, name, vault) {
+  const exact = videoDurations[_thumbCacheKey(folder, subfolder, name, vault)];
   if (exact) return exact;
-  // Fallback: try matching by filename across all known keys (preview files often share names with full videos)
+  const legacy = videoDurations[_thumbCacheKey(folder, subfolder, name)];
+  if (legacy) return legacy;
   for (const k of Object.keys(videoDurations)) {
     if (k.endsWith('/' + name)) return videoDurations[k];
   }
@@ -2660,7 +2688,77 @@ async function buildFolderThumbnailCache() {
   for (const [folderName, basePath] of allowedFolders.entries()) {
     const subfolders = folderName === 'Omegle' ? OMEGLE_SUBFOLDERS : [''];
     for (const sf of subfolders) {
-      for (const tf of ['tier 1', 'tier 2']) {
+      for (const v of VAULT_FOLDERS) {
+        const prefix = basePath + '/' + v + '/' + (sf ? sf + '/' : '');
+        let items;
+        try { items = await r2ListMediaFilesFromPrefix(prefix); } catch { continue; }
+        for (const item of items) {
+          if (!isVideoFile(item.name)) continue;
+          const cacheKey = _thumbCacheKey(folderName, sf, item.name, v);
+            const needsThumb = !_thumbCacheGet(cacheKey);
+            const needsDur = !videoDurations[cacheKey];
+            if (!needsThumb && !needsDur) { skipped++; continue; }
+            const objectKey = prefix + item.name;
+            const videoUrl = r2PresignedUrl(objectKey, 180);
+            if (needsDur) {
+              try {
+                const dur = await extractDuration(videoUrl);
+                if (dur > 0) { videoDurations[cacheKey] = dur; durExtracted++; _scheduleDurationSave(); }
+              } catch {}
+            }
+            if (needsThumb) {
+              try {
+                const buf = await generateThumbnail(videoUrl, item.name);
+                if (buf) {
+                  _thumbCacheSet(cacheKey, buf);
+                  const diskPath = _thumbDiskPath(folderName, sf, item.name);
+                  fs.writeFile(diskPath, buf, () => {});
+                  generated++;
+                } else { failed++; }
+              } catch { failed++; }
+              await new Promise(r => setTimeout(r, 10000));
+            } else {
+            await new Promise(r => setTimeout(r, 3000));
+          }
+        }
+      }
+      for (const legacyCt of ['video', 'photo', 'gif']) {
+        for (const v of VAULT_FOLDERS) {
+          const prefix = basePath + '/' + legacyCt + '/' + v + '/' + (sf ? sf + '/' : '');
+          let items;
+          try { items = await r2ListMediaFilesFromPrefix(prefix); } catch { continue; }
+          for (const item of items) {
+            if (!isVideoFile(item.name)) continue;
+            const cacheKey = _thumbCacheKey(folderName, sf, item.name, v);
+            const needsThumb = !_thumbCacheGet(cacheKey);
+            const needsDur = !videoDurations[cacheKey];
+            if (!needsThumb && !needsDur) { skipped++; continue; }
+            const objectKey = prefix + item.name;
+            const videoUrl = r2PresignedUrl(objectKey, 180);
+            if (needsDur) {
+              try {
+                const dur = await extractDuration(videoUrl);
+                if (dur > 0) { videoDurations[cacheKey] = dur; durExtracted++; _scheduleDurationSave(); }
+              } catch {}
+            }
+            if (needsThumb) {
+              try {
+                const buf = await generateThumbnail(videoUrl, item.name);
+                if (buf) {
+                  _thumbCacheSet(cacheKey, buf);
+                  const diskPath = _thumbDiskPath(folderName, sf, item.name);
+                  fs.writeFile(diskPath, buf, () => {});
+                  generated++;
+                } else { failed++; }
+              } catch { failed++; }
+              await new Promise(r => setTimeout(r, 10000));
+            } else {
+              await new Promise(r => setTimeout(r, 3000));
+            }
+          }
+        }
+      }
+      for (const tf of ALL_LEGACY_DISCORD_TIER_PREFIXES) {
         const prefix = basePath + '/' + tf + '/' + (sf ? sf + '/' : '');
         let items;
         try { items = await r2ListMediaFilesFromPrefix(prefix); } catch { continue; }
@@ -2672,27 +2770,25 @@ async function buildFolderThumbnailCache() {
           if (!needsThumb && !needsDur) { skipped++; continue; }
           const objectKey = prefix + item.name;
           const videoUrl = r2PresignedUrl(objectKey, 180);
-          // Extract duration if missing
           if (needsDur) {
             try {
               const dur = await extractDuration(videoUrl);
               if (dur > 0) { videoDurations[cacheKey] = dur; durExtracted++; _scheduleDurationSave(); }
             } catch {}
           }
-          // Generate thumbnail if missing
           if (needsThumb) {
             try {
               const buf = await generateThumbnail(videoUrl, item.name);
               if (buf) {
                 _thumbCacheSet(cacheKey, buf);
                 const diskPath = _thumbDiskPath(folderName, sf, item.name);
-                fs.writeFile(diskPath, buf, () => {}); // async write, don't block event loop
+                fs.writeFile(diskPath, buf, () => {});
                 generated++;
               } else { failed++; }
             } catch { failed++; }
-            await new Promise(r => setTimeout(r, 10000)); // heavy throttle after ffmpeg to keep server responsive
+            await new Promise(r => setTimeout(r, 10000));
           } else {
-            await new Promise(r => setTimeout(r, 3000)); // moderate throttle for duration-only
+            await new Promise(r => setTimeout(r, 3000));
           }
         }
       }
@@ -2735,14 +2831,21 @@ async function buildFolderCounts() {
     for (const [folderName, basePath] of allowedFolders.entries()) {
       const seenSizes = new Set();
       let total = 0;
-      const tierFolders = ['tier 1', 'tier 2'];
       const prefixes = [];
       if (folderName === 'Omegle') {
         for (const sf of OMEGLE_SUBFOLDERS) {
-          for (const tf of tierFolders) prefixes.push(basePath + '/' + tf + '/' + sf + '/');
+          for (const v of VAULT_FOLDERS) prefixes.push(basePath + '/' + v + '/' + sf + '/');
+          for (const legacyCt of ['video', 'photo', 'gif']) {
+            for (const v of VAULT_FOLDERS) prefixes.push(basePath + '/' + legacyCt + '/' + v + '/' + sf + '/');
+          }
+          for (const tf of ALL_LEGACY_DISCORD_TIER_PREFIXES) prefixes.push(basePath + '/' + tf + '/' + sf + '/');
         }
       } else {
-        for (const tf of tierFolders) prefixes.push(basePath + '/' + tf + '/');
+        for (const v of VAULT_FOLDERS) prefixes.push(basePath + '/' + v + '/');
+        for (const legacyCt of ['video', 'photo', 'gif']) {
+          for (const v of VAULT_FOLDERS) prefixes.push(basePath + '/' + legacyCt + '/' + v + '/');
+        }
+        for (const tf of ALL_LEGACY_DISCORD_TIER_PREFIXES) prefixes.push(basePath + '/' + tf + '/');
       }
       const results = await Promise.all(prefixes.map(p => r2ListMediaFilesFromPrefix(p).catch(() => [])));
       for (const items of results) {
@@ -2821,14 +2924,20 @@ async function prewarmR2ListCache() {
   console.log('[prewarm] Warming R2 list cache for all folders...');
   const prefixes = [];
   for (const [folderName, basePath] of allowedFolders) {
-    for (const tf of ['tier 1', 'tier 2']) {
-      if (folderName === 'Omegle') {
-        for (const sf of OMEGLE_SUBFOLDERS) {
-          prefixes.push(basePath + '/' + tf + '/' + sf + '/');
+    if (folderName === 'Omegle') {
+      for (const sf of OMEGLE_SUBFOLDERS) {
+        for (const v of VAULT_FOLDERS) prefixes.push(basePath + '/' + v + '/' + sf + '/');
+        for (const legacyCt of ['video', 'photo', 'gif']) {
+          for (const v of VAULT_FOLDERS) prefixes.push(basePath + '/' + legacyCt + '/' + v + '/' + sf + '/');
         }
-      } else {
-        prefixes.push(basePath + '/' + tf + '/');
+        for (const tf of ALL_LEGACY_DISCORD_TIER_PREFIXES) prefixes.push(basePath + '/' + tf + '/' + sf + '/');
       }
+    } else {
+      for (const v of VAULT_FOLDERS) prefixes.push(basePath + '/' + v + '/');
+      for (const legacyCt of ['video', 'photo', 'gif']) {
+        for (const v of VAULT_FOLDERS) prefixes.push(basePath + '/' + legacyCt + '/' + v + '/');
+      }
+      for (const tf of ALL_LEGACY_DISCORD_TIER_PREFIXES) prefixes.push(basePath + '/' + tf + '/');
     }
   }
   await Promise.all(prefixes.map(p => r2ListMediaFilesFromPrefix(p).catch(() => [])));
@@ -3248,15 +3357,20 @@ const patreonNotifyDedup = new Map();
 const PATREON_PATRONS_R2_KEY = 'data/patreon-patrons.json';
 const PATREON_WEBHOOK_SECRET = String(process.env.PATREON_WEBHOOK_SECRET || '').trim();
 const PATREON_PRICE_TIER1_CENTS = parseInt(
-  process.env.PATREON_PRICE_TIER1_CENTS || process.env.PATREON_PRICE_BASIC_CENTS || '499',
+  process.env.PATREON_PRICE_TIER1_CENTS || process.env.PATREON_PRICE_BASIC_CENTS || '999',
   10,
 );
 const PATREON_PRICE_TIER2_CENTS = parseInt(
-  process.env.PATREON_PRICE_TIER2_CENTS || process.env.PATREON_PRICE_PREMIUM_CENTS || '999',
+  process.env.PATREON_PRICE_TIER2_CENTS || process.env.PATREON_PRICE_PREMIUM_CENTS || '2499',
   10,
 );
-const PATREON_PRICE_TIER3_CENTS = parseInt(process.env.PATREON_PRICE_TIER3_CENTS || '1999', 10);
-const PATREON_PRICE_TIER4_CENTS = parseInt(process.env.PATREON_PRICE_TIER4_CENTS || '4999', 10);
+const PATREON_PRICE_TIER3_CENTS = parseInt(
+  process.env.PATREON_PRICE_TIER3_CENTS ||
+    process.env.PATREON_PRICE_ULTIMATE_CENTS ||
+    process.env.PATREON_PRICE_TIER4_CENTS ||
+    '3999',
+  10,
+);
 
 function patreonNormalizeEmail(raw) {
   return String(raw || '').trim().toLowerCase();
@@ -3265,7 +3379,6 @@ function patreonNormalizeEmail(raw) {
 function patreonTierFromCents(cents) {
   const c = Number(cents) || 0;
   if (c <= 0) return 0;
-  if (c >= PATREON_PRICE_TIER4_CENTS) return 4;
   if (c >= PATREON_PRICE_TIER3_CENTS) return 3;
   if (c >= PATREON_PRICE_TIER2_CENTS) return 2;
   if (c >= PATREON_PRICE_TIER1_CENTS) return 1;
@@ -4193,7 +4306,7 @@ async function upsertDiscordAccountLinkSupabase(userKey, u, reason = 'sync') {
 
 async function upsertAccessEntitlementSupabase(userKey, u, source = 'system') {
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return { ok: false, skipped: true, reason: 'supabase_not_configured' };
-  const tier = Math.max(0, Math.min(4, Number(getEffectiveTierForUser(u) || 0)));
+  const tier = Math.max(0, Math.min(3, Number(getEffectiveTierForUser(u) || 0)));
   const nowIso = new Date().toISOString();
   const payload = {
     user_key: userKey,
@@ -4211,7 +4324,7 @@ async function upsertAccessEntitlementSupabase(userKey, u, source = 'system') {
 }
 
 async function enqueueDiscordRoleSyncJobSupabase(userKey, u, reason = 'sync') {
-  const tier = Math.max(0, Math.min(4, Number(getEffectiveTierForUser(u) || 0)));
+  const tier = Math.max(0, Math.min(3, Number(getEffectiveTierForUser(u) || 0)));
   return {
     ok: true,
     skipped: true,
@@ -4459,7 +4572,11 @@ function dbUserToSupabaseUserRow(userKey, u) {
     username: String(safeUser.username || userKey || ''),
     email: String(safeUser.email || '').trim().toLowerCase() || null,
     provider: String(safeUser.provider || 'local'),
-    tier: [1, 2, 3, 4].includes(Number(safeUser.tier)) ? Number(safeUser.tier) : 0,
+    tier: (() => {
+      const raw = Number(safeUser.tier);
+      if (![1, 2, 3, 4].includes(raw)) return 0;
+      return Math.min(raw, 3);
+    })(),
     password_hash: safeUser.hash || null,
     password_salt: safeUser.salt || null,
     discord_user_id: safeUser.discordId ? String(safeUser.discordId) : null,
@@ -4957,6 +5074,81 @@ function isAllowedMediaFile(fileName) {
 
 function isVideoFile(fileName) {
   return videoExts.has(path.extname(fileName).toLowerCase());
+}
+
+function isImageFile(fileName) {
+  return imageExts.has(path.extname(fileName).toLowerCase());
+}
+
+const _VAULT_SET = new Set(VAULT_FOLDERS);
+
+function normalizeVaultParam(v) {
+  const s = String(v || '').trim().toLowerCase();
+  return _VAULT_SET.has(s) ? s : '';
+}
+
+function mediaLookupKey(folder, subfolder, vault, name) {
+  return `${folder}|${subfolder || ''}|${normalizeVaultParam(vault)}|${name}`;
+}
+
+/** Tier-scoped key for `_mediaKeyCache` so a higher tier cannot poison resolution for lower tiers. */
+function mediaR2ResolveCacheKey(lk, tier) {
+  const t = Math.min(3, Math.max(0, Number(tier) || 0));
+  return `${lk}\x00t${t}`;
+}
+
+/** Canonical tier-under-category first; then legacy video|photo|gif/<tier>; then tier 1/2/3 (deepest first). */
+function buildObjectKeyCandidates(basePath, folderName, subfolder, name, vault, userTier) {
+  const v = normalizeVaultParam(vault);
+  const keys = [];
+  const seen = new Set();
+  const push = (k) => {
+    if (!seen.has(k)) {
+      seen.add(k);
+      keys.push(k);
+    }
+  };
+  const ut =
+    userTier === undefined || userTier === null ? null : Number(userTier) || 0;
+  const allowLegacyT2 = ut === null ? true : ut >= 2;
+  const allowLegacyT3 = ut === null ? true : ut >= 3;
+  if (v) {
+    if (folderName === 'Omegle' && subfolder) {
+      push(`${basePath}/${v}/${subfolder}/${name}`);
+    } else if (folderName !== 'Omegle') {
+      push(`${basePath}/${v}/${name}`);
+    }
+    for (const legacyCt of ['video', 'photo', 'gif']) {
+      if (folderName === 'Omegle' && subfolder) {
+        push(`${basePath}/${legacyCt}/${v}/${subfolder}/${name}`);
+      } else if (folderName !== 'Omegle') {
+        push(`${basePath}/${legacyCt}/${v}/${name}`);
+      }
+    }
+  }
+  if (folderName === 'Omegle' && subfolder) {
+    if (allowLegacyT3) {
+      push(`${basePath}/tier 3/${subfolder}/${name}`);
+      // Same entitlement as tier 3 Discord folder: older uploads used vault `ultimate/`.
+      push(`${basePath}/ultimate/${subfolder}/${name}`);
+      for (const legacyCt of ['video', 'photo', 'gif']) {
+        push(`${basePath}/${legacyCt}/ultimate/${subfolder}/${name}`);
+      }
+    }
+    if (allowLegacyT2) push(`${basePath}/tier 2/${subfolder}/${name}`);
+    push(`${basePath}/tier 1/${subfolder}/${name}`);
+  } else if (folderName !== 'Omegle') {
+    if (allowLegacyT3) {
+      push(`${basePath}/tier 3/${name}`);
+      push(`${basePath}/ultimate/${name}`);
+      for (const legacyCt of ['video', 'photo', 'gif']) {
+        push(`${basePath}/${legacyCt}/ultimate/${name}`);
+      }
+    }
+    if (allowLegacyT2) push(`${basePath}/tier 2/${name}`);
+    push(`${basePath}/tier 1/${name}`);
+  }
+  return keys;
 }
 
 async function listMediaFilesForFolder(folder) {
@@ -5681,7 +5873,7 @@ const server = http.createServer(async (req, res) => {
         const key = String(body.key || '');
         const newTier = parseInt(body.tier, 10);
         if (!key) return sendJson(res, 400, { error: 'Missing key' });
-        if (![0, 1, 2, 3, 4].includes(newTier)) return sendJson(res, 400, { error: 'Tier must be 0–4' });
+        if (![0, 1, 2, 3].includes(newTier)) return sendJson(res, 400, { error: 'Tier must be 0–3' });
         const db = await ensureUsersDbFresh();
         const u = db.users[key];
         if (!u) return sendJson(res, 404, { error: 'User not found' });
@@ -5697,7 +5889,7 @@ const server = http.createServer(async (req, res) => {
         // Write immediately so tier change persists
         await _doUsersDbWrite();
         const displayName = (u.username || u.discordUsername || key).replace(/^discord:/, '');
-        const tierLabels = { 0: 'Free', 1: 'Tier 1', 2: 'Tier 2', 3: 'Tier 3', 4: 'Tier 4' };
+        const tierLabels = { 0: 'Free', 1: 'Basic', 2: 'Premium', 3: 'Ultimate' };
         adminEmitEvent('tier', displayName + ' set to ' + (tierLabels[newTier] || newTier));
         return sendJson(res, 200, { ok: true, tier: u.tier });
       }
@@ -5710,7 +5902,7 @@ const server = http.createServer(async (req, res) => {
         const username = String(body.username || '').trim();
         const newTier = parseInt(body.tier, 10);
         if (!username) return sendJson(res, 400, { error: 'Missing username' });
-        if (![0, 1, 2, 3, 4].includes(newTier)) return sendJson(res, 400, { error: 'Tier must be 0–4' });
+        if (![0, 1, 2, 3].includes(newTier)) return sendJson(res, 400, { error: 'Tier must be 0–3' });
         const db = await ensureUsersDbFresh();
         const key = findUserKeyByUsername(db, username);
         if (!key) return sendJson(res, 404, { error: 'User not found' });
@@ -5728,7 +5920,7 @@ const server = http.createServer(async (req, res) => {
         // Write immediately so tier change persists
         await _doUsersDbWrite();
         const displayName = (u.username || u.discordUsername || key).replace(/^discord:/, '');
-        const tierLabels = { 0: 'Free', 1: 'Tier 1', 2: 'Tier 2', 3: 'Tier 3', 4: 'Tier 4' };
+        const tierLabels = { 0: 'Free', 1: 'Basic', 2: 'Premium', 3: 'Ultimate' };
         adminEmitEvent('tier', displayName + ' set to ' + (tierLabels[newTier] || newTier));
         return sendJson(res, 200, { ok: true, tier: u.tier, key });
       }
@@ -5912,16 +6104,26 @@ const server = http.createServer(async (req, res) => {
           const basePath = allowedFolders.get(uploadReq.category);
           if (!basePath) return sendJson(res, 400, { error: 'Invalid category on request' });
 
-          const tierFolder = tier >= 2 ? 'tier 2' : 'tier 1';
+          const vaultFolder = tier >= 2 ? 'premium' : 'basic';
           const sanitized = finalName.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').slice(0, 40);
           const ext = path.extname(uploadReq.originalFilename || '.mp4').toLowerCase();
           const timestamp = Date.now();
 
           let finalKey;
           if (uploadReq.category === 'Omegle' && uploadReq.subfolder) {
-            finalKey = basePath + '/' + tierFolder + '/' + uploadReq.subfolder + '/' + timestamp + '_' + sanitized + ext;
+            finalKey =
+              basePath +
+              '/' +
+              vaultFolder +
+              '/' +
+              uploadReq.subfolder +
+              '/' +
+              timestamp +
+              '_' +
+              sanitized +
+              ext;
           } else {
-            finalKey = basePath + '/' + tierFolder + '/' + timestamp + '_' + sanitized + ext;
+            finalKey = basePath + '/' + vaultFolder + '/' + timestamp + '_' + sanitized + ext;
           }
 
           // Copy from temp to final location in R2 (with retry)
@@ -5994,17 +6196,20 @@ const server = http.createServer(async (req, res) => {
         if (!q) return sendJson(res, 400, { error: 'Missing q param' });
         try {
           // Search across all known folders
-          const prefixes = [
-            `${R2_VIDEOS_PREFIX}/omegle/previews/`,
-            `${R2_VIDEOS_PREFIX}/omegle/tier 1/Dick Reactions/`,
-            `${R2_VIDEOS_PREFIX}/omegle/tier 1/Monkey App Streamers/`,
-            `${R2_VIDEOS_PREFIX}/omegle/tier 1/Points Game/`,
-            `${R2_VIDEOS_PREFIX}/omegle/tier 1/Regular Wins/`,
-            `${R2_VIDEOS_PREFIX}/omegle/tier 2/Dick Reactions/`,
-            `${R2_VIDEOS_PREFIX}/omegle/tier 2/Monkey App Streamers/`,
-            `${R2_VIDEOS_PREFIX}/omegle/tier 2/Points Game/`,
-            `${R2_VIDEOS_PREFIX}/omegle/tier 2/Regular Wins/`,
-          ];
+          const prefixes = [`${R2_VIDEOS_PREFIX}/omegle/previews/`];
+          for (const sf of OMEGLE_SUBFOLDERS) {
+            for (const v of VAULT_FOLDERS) {
+              prefixes.push(`${R2_VIDEOS_PREFIX}/omegle/${v}/${sf}/`);
+            }
+            for (const legacyCt of ['video', 'photo', 'gif']) {
+              for (const v of VAULT_FOLDERS) {
+                prefixes.push(`${R2_VIDEOS_PREFIX}/omegle/${legacyCt}/${v}/${sf}/`);
+              }
+            }
+            for (const tf of ALL_LEGACY_DISCORD_TIER_PREFIXES) {
+              prefixes.push(`${R2_VIDEOS_PREFIX}/omegle/${tf}/${sf}/`);
+            }
+          }
           const allResults = [];
           for (const prefix of prefixes) {
             const items = await r2ListObjects(prefix, 500);
@@ -6561,15 +6766,33 @@ const server = http.createServer(async (req, res) => {
       if (!refUserKey) {
         // If Vite-built assets are missing, allow loading from the repo's external `images/` and `thumbnails/`
         // roots under the new `/assets/...` URL paths.
-        if (pathname.startsWith('/assets/images/') || pathname.startsWith('/assets/thumbnails/')) {
+        if (
+          pathname.startsWith('/assets/images/') ||
+          pathname.startsWith('/assets/thumbnails/') ||
+          pathname.startsWith('/assets/branding/')
+        ) {
           const imagesRoot =
             resolveEnvPath(process.env.TBW_IMAGES_ROOT, path.resolve(__dirname, 'images')) || path.resolve(__dirname, 'images');
           const thumbsRoot =
             resolveEnvPath(process.env.TBW_THUMBNAILS_ROOT, path.resolve(__dirname, 'thumbnails')) || path.resolve(__dirname, 'thumbnails');
+          const brandingRoot =
+            resolveEnvPath(
+              process.env.TBW_BRANDING_ROOT,
+              path.resolve(__dirname, 'client', 'public', 'assets', 'branding'),
+            ) || path.resolve(__dirname, 'client', 'public', 'assets', 'branding');
           const ASSET_PREFIX_IMAGES = '/assets/images/';
           const ASSET_PREFIX_THUMBS = '/assets/thumbnails/';
-          const externalRoot = pathname.startsWith(ASSET_PREFIX_IMAGES) ? imagesRoot : thumbsRoot;
-          const prefixLen = pathname.startsWith(ASSET_PREFIX_IMAGES) ? ASSET_PREFIX_IMAGES.length : ASSET_PREFIX_THUMBS.length;
+          const ASSET_PREFIX_BRANDING = '/assets/branding/';
+          const externalRoot = pathname.startsWith(ASSET_PREFIX_IMAGES)
+            ? imagesRoot
+            : pathname.startsWith(ASSET_PREFIX_THUMBS)
+              ? thumbsRoot
+              : brandingRoot;
+          const prefixLen = pathname.startsWith(ASSET_PREFIX_IMAGES)
+            ? ASSET_PREFIX_IMAGES.length
+            : pathname.startsWith(ASSET_PREFIX_THUMBS)
+              ? ASSET_PREFIX_THUMBS.length
+              : ASSET_PREFIX_BRANDING.length;
 
           try {
             const rel = decodeURIComponent(pathname.slice(prefixLen));
@@ -7197,7 +7420,7 @@ const server = http.createServer(async (req, res) => {
       for (const userRow of (Array.isArray(usersResp.data) ? usersResp.data : [])) {
         const userKey = String(userRow.user_key || '');
         if (!userKey || !userRow.discord_user_id) continue;
-        const tier = Math.max(0, Math.min(4, Number(userRow && userRow.tier ? userRow.tier : 0)));
+        const tier = Math.max(0, Math.min(3, Number(userRow && userRow.tier ? userRow.tier : 0)));
         rows.push({
           userKey,
           discordUserId: String(userRow.discord_user_id),
@@ -8045,7 +8268,7 @@ const server = http.createServer(async (req, res) => {
 
       const tier = getEffectiveTierForUser(u);
       if (tier < 1) return sendJson(res, 403, { error: 'Tier required' });
-      const vaultTier = effectiveVaultTier(tier);
+      const vaultFolders = accessibleVaultFolders(tier);
 
       // Track category hit for admin
       adminCategoryHits[folder] = (adminCategoryHits[folder] || 0) + 1;
@@ -8054,7 +8277,7 @@ const server = http.createServer(async (req, res) => {
 
       // ── Cache: reuse R2 listing for 2 minutes per tier+folder+subfolder ──
       if (!global._listCache) global._listCache = {};
-      const _listCacheKey = `${vaultTier}:${folder}:${subfolder}`;
+      const _listCacheKey = `${tier}:${folder}:${subfolder}`;
       const _listCached = global._listCache[_listCacheKey];
       if (_listCached && (Date.now() - _listCached.ts < 600000)) { // 10 min cache
         // Refresh stats in cached results (views/likes change frequently)
@@ -8100,9 +8323,6 @@ const server = http.createServer(async (req, res) => {
       // Collect _mediaKeyCache entries for caching
       const _cacheEntries = [];
 
-      // Tier folders to scan: vault tier 2+ get both tier 2 + tier 1 (user tiers 3–4 map to vault 2)
-      const tierFolders = vaultTier >= 2 ? ['tier 2', 'tier 1'] : ['tier 1'];
-
       // Omegle: if subfolder specified, serve that subfolder; otherwise serve ALL subfolders flat
       if (folder === 'Omegle') {
         if (subfolder) {
@@ -8112,29 +8332,46 @@ const server = http.createServer(async (req, res) => {
           const allFiles = [];
           const seenSizes = new Set();
           const seenTitles = new Set();
-          // Fetch all tier folders in parallel
-          const _prefixes = tierFolders.map(tf => basePath + '/' + tf + '/' + subfolder + '/');
-          const _listResults = await Promise.all(_prefixes.map(p => R2_ENABLED ? r2ListMediaFilesFromPrefix(p).catch(() => []) : Promise.resolve([])));
+          const scanJobs = [];
+          for (const v of vaultFolders) {
+            scanJobs.push({ v, prefix: basePath + '/' + v + '/' + subfolder + '/' });
+          }
+          for (const legacyCt of ['video', 'photo', 'gif']) {
+            for (const v of vaultFolders) {
+              scanJobs.push({ v, prefix: basePath + '/' + legacyCt + '/' + v + '/' + subfolder + '/' });
+            }
+          }
+          for (const tf of accessibleLegacyTierPrefixes(tier)) {
+            scanJobs.push({ prefix: basePath + '/' + tf + '/' + subfolder + '/' });
+          }
+          const _listResults = await Promise.all(scanJobs.map(j => R2_ENABLED ? r2ListMediaFilesFromPrefix(j.prefix).catch(() => []) : Promise.resolve([])));
           if (!global._mediaKeyCache) global._mediaKeyCache = {};
           for (let _pi = 0; _pi < _listResults.length; _pi++) {
             const items = _listResults[_pi];
-            const _prefix = _prefixes[_pi];
+            const job = scanJobs[_pi];
+            const _prefix = job.prefix;
+            const v = job.v;
             for (const item of items) {
               if (_isDupe(seenSizes, seenTitles, item)) continue;
               const isVid = isVideoFile(item.name);
-              const key = isVid ? videoKey(folder, subfolder, item.name) : null;
+              const key = isVid ? videoKey(folder, subfolder, item.name, v) : null;
               const stats = key ? (shortStats[key] || { views: 0, likes: 0, dislikes: 0 }) : {};
-              const _ck = `${tier}:${folder}:${subfolder}:${item.name}`;
-              global._mediaKeyCache[_ck] = { key: _prefix + item.name, ts: Date.now() };
-              _cacheEntries.push({ k: _ck, v: _prefix + item.name });
+              const lk = mediaLookupKey(folder, subfolder, v || '', item.name);
+              const rck = mediaR2ResolveCacheKey(lk, tier);
+              global._mediaKeyCache[rck] = { key: _prefix + item.name, ts: Date.now() };
+              _cacheEntries.push({ k: rck, v: _prefix + item.name });
+              let src = `/media?folder=${encodeURIComponent(folder)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(item.name)}`;
+              if (v) src += `&vault=${encodeURIComponent(v)}`;
+              const thumb = isVid ? _thumbUrl(folder, subfolder, item.name, v) : undefined;
               allFiles.push({
                 name: item.name,
                 type: isVid ? 'video' : 'image',
-                src: `/media?folder=${encodeURIComponent(folder)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(item.name)}`,
-                ...(isVid ? { thumb: _thumbUrl(folder, subfolder, item.name) } : {}),
+                src,
+                ...(thumb ? { thumb } : {}),
+                ...(v ? { vault: v } : {}),
                 size: item.size || 0,
                 lastModified: item.lastModified || 0,
-                duration: isVid ? _getDuration(folder, subfolder, item.name) : 0,
+                duration: isVid ? _getDuration(folder, subfolder, item.name, v) : 0,
                 folder,
                 subfolder,
                 category: folder,
@@ -8150,10 +8387,17 @@ const server = http.createServer(async (req, res) => {
         const allFiles = [];
         const seenSizes = new Set();
         const seenTitles = new Set();
-        // Fetch all subfolder+tier combos in parallel
         const _omPrefixes = [];
         for (const sf of OMEGLE_SUBFOLDERS) {
-          for (const tf of tierFolders) {
+          for (const v of vaultFolders) {
+            _omPrefixes.push({ sf, v, prefix: basePath + '/' + v + '/' + sf + '/' });
+          }
+          for (const legacyCt of ['video', 'photo', 'gif']) {
+            for (const v of vaultFolders) {
+              _omPrefixes.push({ sf, v, prefix: basePath + '/' + legacyCt + '/' + v + '/' + sf + '/' });
+            }
+          }
+          for (const tf of accessibleLegacyTierPrefixes(tier)) {
             _omPrefixes.push({ sf, prefix: basePath + '/' + tf + '/' + sf + '/' });
           }
         }
@@ -8161,24 +8405,30 @@ const server = http.createServer(async (req, res) => {
         if (!global._mediaKeyCache) global._mediaKeyCache = {};
         for (let i = 0; i < _omPrefixes.length; i++) {
           const sf = _omPrefixes[i].sf;
+          const v = _omPrefixes[i].v;
           const _prefix = _omPrefixes[i].prefix;
           const items = _omResults[i];
           for (const item of items) {
             if (_isDupe(seenSizes, seenTitles, item)) continue;
             const isVid = isVideoFile(item.name);
-            const key = isVid ? videoKey(folder, sf, item.name) : null;
+            const key = isVid ? videoKey(folder, sf, item.name, v) : null;
             const stats = key ? (shortStats[key] || { views: 0, likes: 0, dislikes: 0 }) : {};
-            const _ck = `${tier}:${folder}:${sf}:${item.name}`;
-            global._mediaKeyCache[_ck] = { key: _prefix + item.name, ts: Date.now() };
-            _cacheEntries.push({ k: _ck, v: _prefix + item.name });
+            const lk = mediaLookupKey(folder, sf, v || '', item.name);
+            const rck = mediaR2ResolveCacheKey(lk, tier);
+            global._mediaKeyCache[rck] = { key: _prefix + item.name, ts: Date.now() };
+            _cacheEntries.push({ k: rck, v: _prefix + item.name });
+            let src = `/media?folder=${encodeURIComponent(folder)}&subfolder=${encodeURIComponent(sf)}&name=${encodeURIComponent(item.name)}`;
+            if (v) src += `&vault=${encodeURIComponent(v)}`;
+            const thumb = isVid ? _thumbUrl(folder, sf, item.name, v) : undefined;
             allFiles.push({
               name: item.name,
               type: isVid ? 'video' : 'image',
-              src: `/media?folder=${encodeURIComponent(folder)}&subfolder=${encodeURIComponent(sf)}&name=${encodeURIComponent(item.name)}`,
-              ...(isVid ? { thumb: _thumbUrl(folder, sf, item.name) } : {}),
+              src,
+              ...(thumb ? { thumb } : {}),
+              ...(v ? { vault: v } : {}),
               size: item.size || 0,
               lastModified: item.lastModified || 0,
-              duration: isVid ? _getDuration(folder, sf, item.name) : 0,
+              duration: isVid ? _getDuration(folder, sf, item.name, v) : 0,
               folder,
               subfolder: sf,
               category: folder,
@@ -8191,33 +8441,50 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { type: 'files', files: allFiles, subfolders: OMEGLE_SUBFOLDERS });
       }
 
-      // Non-omegle: tier 2 gets both tiers, tier 1 gets tier 1 only, deduped
+      // Non-omegle: tier-under-category + legacy video|photo|gif/<tier> + legacy tier 1/2/3
       const allFiles = [];
       const seenSizes = new Set();
       const seenTitles = new Set();
-      // Fetch all tier folders in parallel
-      const _tfPrefixes = tierFolders.map(tf => basePath + '/' + tf + '/');
-      const _tfResults = await Promise.all(_tfPrefixes.map(p => R2_ENABLED ? r2ListMediaFilesFromPrefix(p).catch(() => []) : Promise.resolve([])));
+      const scanJobs = [];
+      for (const v of vaultFolders) {
+        scanJobs.push({ v, prefix: basePath + '/' + v + '/' });
+      }
+      for (const legacyCt of ['video', 'photo', 'gif']) {
+        for (const v of vaultFolders) {
+          scanJobs.push({ v, prefix: basePath + '/' + legacyCt + '/' + v + '/' });
+        }
+      }
+      for (const tf of accessibleLegacyTierPrefixes(tier)) {
+        scanJobs.push({ prefix: basePath + '/' + tf + '/' });
+      }
+      const _tfResults = await Promise.all(scanJobs.map(j => R2_ENABLED ? r2ListMediaFilesFromPrefix(j.prefix).catch(() => []) : Promise.resolve([])));
       if (!global._mediaKeyCache) global._mediaKeyCache = {};
       for (let _ti = 0; _ti < _tfResults.length; _ti++) {
         const items = _tfResults[_ti];
-        const _prefix = _tfPrefixes[_ti];
+        const job = scanJobs[_ti];
+        const _prefix = job.prefix;
+        const v = job.v;
         for (const item of items) {
           if (_isDupe(seenSizes, seenTitles, item)) continue;
           const isVid = isVideoFile(item.name);
-          const key = isVid ? videoKey(folder, '', item.name) : null;
+          const key = isVid ? videoKey(folder, '', item.name, v) : null;
           const stats = key ? (shortStats[key] || { views: 0, likes: 0, dislikes: 0 }) : {};
-          const _ck = `${tier}:${folder}::${item.name}`;
-          global._mediaKeyCache[_ck] = { key: _prefix + item.name, ts: Date.now() };
-          _cacheEntries.push({ k: _ck, v: _prefix + item.name });
+          const lk = mediaLookupKey(folder, '', v || '', item.name);
+          const rck = mediaR2ResolveCacheKey(lk, tier);
+          global._mediaKeyCache[rck] = { key: _prefix + item.name, ts: Date.now() };
+          _cacheEntries.push({ k: rck, v: _prefix + item.name });
+          let src = `/media?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`;
+          if (v) src += `&vault=${encodeURIComponent(v)}`;
+          const thumb = isVid ? _thumbUrl(folder, '', item.name, v) : undefined;
           allFiles.push({
             name: item.name,
             type: isVid ? 'video' : 'image',
-            src: `/media?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`,
-            ...(isVid ? { thumb: _thumbUrl(folder, '', item.name) } : {}),
+            src,
+            ...(thumb ? { thumb } : {}),
+            ...(v ? { vault: v } : {}),
             size: item.size || 0,
             lastModified: item.lastModified || 0,
-            duration: isVid ? _getDuration(folder, '', item.name) : 0,
+            duration: isVid ? _getDuration(folder, '', item.name, v) : 0,
             folder,
             category: folder,
             uploader: uploaderMap.get(item.name) || null,
@@ -8231,27 +8498,35 @@ const server = http.createServer(async (req, res) => {
       // Background: pre-generate thumbnails for any uncached videos in this listing
       if (R2_ENABLED && files.length > 0) {
         setImmediate(() => {
-          const uncached = files.filter(f => f.type === 'video' && !_thumbCacheGet(_thumbCacheKey(f.folder, f.subfolder || '', f.name)));
+          const uncached = files.filter(
+            f =>
+              f.type === 'video' &&
+              !_thumbCacheGet(_thumbCacheKey(f.folder, f.subfolder || '', f.name, f.vault)),
+          );
           if (uncached.length === 0) return;
-          // Generate all uncached thumbnails in background
           for (const item of uncached) {
-            const ck = _thumbCacheKey(item.folder, item.subfolder || '', item.name);
-            if (_thumbInFlight[ck]) continue; // already in progress
-            const tierCandidates = hasPremiumVaultAccess(getEffectiveTierForUser(u)) ? ['tier 2', 'tier 1'] : ['tier 1'];
+            const ck = _thumbCacheKey(item.folder, item.subfolder || '', item.name, item.vault);
+            if (_thumbInFlight[ck]) continue;
             const bp = allowedFolders.get(item.folder);
             if (!bp) continue;
             (async () => {
               try {
                 let vUrl = null;
-                for (const tf of tierCandidates) {
-                  let ok;
-                  if (item.folder === 'Omegle' && item.subfolder) {
-                    ok = bp + '/' + tf + '/' + item.subfolder + '/' + item.name;
-                  } else {
-                    ok = bp + '/' + tf + '/' + item.name;
-                  }
-                  const exists = await r2HeadObject(ok);
-                  if (exists) { vUrl = r2PresignedUrl(ok, 120); break; }
+                const candidates = buildObjectKeyCandidates(
+                  bp,
+                  item.folder,
+                  item.subfolder || '',
+                  item.name,
+                  item.vault || undefined,
+                  tier,
+                );
+                for (const ok of candidates) {
+                  try {
+                    if (await r2HeadObject(ok)) {
+                      vUrl = r2PresignedUrl(ok, 120);
+                      break;
+                    }
+                  } catch { /* next */ }
                 }
                 if (!vUrl) return;
                 const buf = await generateThumbnail(vUrl, item.name);
@@ -8390,7 +8665,7 @@ const server = http.createServer(async (req, res) => {
       const { record: u } = authed;
       const tier = getEffectiveTierForUser(u);
       if (tier < 1) return sendJson(res, 403, { error: 'Tier required' });
-      const vaultTier = effectiveVaultTier(tier);
+      const vaultFolders = accessibleVaultFolders(tier);
 
       const limit = Math.min(50, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '50', 10) || 50));
       const offset = Math.max(0, parseInt(requestUrl.searchParams.get('offset') || '0', 10) || 0);
@@ -8402,8 +8677,8 @@ const server = http.createServer(async (req, res) => {
 
       if (!R2_ENABLED) return sendJson(res, 200, { files: [], total: 0 });
 
-      const tierFolders = vaultTier >= 2 ? ['tier 2', 'tier 1'] : ['tier 1'];
-      const cacheKey = tierFolders.join('+') + (categories.length ? ':' + categories.sort().join(',') : '');
+      const legacyTierFolders = accessibleLegacyTierPrefixes(tier);
+      const cacheKey = `${tier}|` + legacyTierFolders.join('+') + (categories.length ? ':' + categories.sort().join(',') : '');
       const cached = global._videoListCache[cacheKey];
       let allItems;
       if (cached && (Date.now() - cached.ts < 600000)) { // 10 min cache
@@ -8413,36 +8688,193 @@ const server = http.createServer(async (req, res) => {
         const seenSizes = new Set();
         const seenTitles = new Set();
 
-      for (const [folderName, basePath] of allowedFolders.entries()) {
-        if (categories.length > 0 && !categories.includes(folderName)) continue;
-        if (folderName === 'Omegle') {
-          for (const subfolder of OMEGLE_SUBFOLDERS) {
-            for (const tf of tierFolders) {
-              const prefix = basePath + '/' + tf + '/' + subfolder + '/';
+        for (const [folderName, basePath] of allowedFolders.entries()) {
+          if (categories.length > 0 && !categories.includes(folderName)) continue;
+          if (folderName === 'Omegle') {
+            for (const subfolder of OMEGLE_SUBFOLDERS) {
+              for (const v of vaultFolders) {
+                const prefix = basePath + '/' + v + '/' + subfolder + '/';
+                try {
+                  const items = await r2ListMediaFilesFromPrefix(prefix);
+                  for (const item of items) {
+                    if (!isVideoFile(item.name)) continue;
+                    const sz = item.size || 0;
+                    let isDupe = false;
+                    if (sz > 10000) {
+                      for (const s of seenSizes) { if (Math.abs(sz - s) / Math.max(sz, s) < 0.001) { isDupe = true; break; } }
+                      if (!isDupe) seenSizes.add(sz);
+                    }
+                    if (isDupe) continue;
+                    const key = videoKey(folderName, subfolder, item.name, v);
+                    const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
+                    allItems.push({
+                      name: item.name,
+                      folder: folderName,
+                      subfolder,
+                      vault: v,
+                      type: 'video',
+                      size: item.size || 0,
+                      lastModified: item.lastModified || 0,
+                      videoKey: key,
+                      src: `/media?folder=${encodeURIComponent(folderName)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(item.name)}&vault=${encodeURIComponent(v)}`,
+                      duration: _getDuration(folderName, subfolder, item.name, v),
+                      views: stats.views || 0,
+                      likes: stats.likes || 0,
+                      dislikes: stats.dislikes || 0,
+                    });
+                  }
+                } catch { /* skip */ }
+              }
+              for (const legacyCt of ['video', 'photo', 'gif']) {
+                for (const v of vaultFolders) {
+                  const prefix = basePath + '/' + legacyCt + '/' + v + '/' + subfolder + '/';
+                  try {
+                    const items = await r2ListMediaFilesFromPrefix(prefix);
+                    for (const item of items) {
+                      if (!isVideoFile(item.name)) continue;
+                      const sz = item.size || 0;
+                      let isDupe = false;
+                      if (sz > 10000) {
+                        for (const s of seenSizes) { if (Math.abs(sz - s) / Math.max(sz, s) < 0.001) { isDupe = true; break; } }
+                        if (!isDupe) seenSizes.add(sz);
+                      }
+                      if (isDupe) continue;
+                      const key = videoKey(folderName, subfolder, item.name, v);
+                      const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
+                      allItems.push({
+                        name: item.name,
+                        folder: folderName,
+                        subfolder,
+                        vault: v,
+                        type: 'video',
+                        size: item.size || 0,
+                        lastModified: item.lastModified || 0,
+                        videoKey: key,
+                        src: `/media?folder=${encodeURIComponent(folderName)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(item.name)}&vault=${encodeURIComponent(v)}`,
+                        duration: _getDuration(folderName, subfolder, item.name, v),
+                        views: stats.views || 0,
+                        likes: stats.likes || 0,
+                        dislikes: stats.dislikes || 0,
+                      });
+                    }
+                  } catch { /* skip */ }
+                }
+              }
+              for (const tf of legacyTierFolders) {
+                const prefix = basePath + '/' + tf + '/' + subfolder + '/';
+                try {
+                  const items = await r2ListMediaFilesFromPrefix(prefix);
+                  for (const item of items) {
+                    if (!isVideoFile(item.name)) continue;
+                    const sz = item.size || 0;
+                    let isDupe = false;
+                    if (sz > 10000) {
+                      for (const s of seenSizes) { if (Math.abs(sz - s) / Math.max(sz, s) < 0.001) { isDupe = true; break; } }
+                      if (!isDupe) seenSizes.add(sz);
+                    }
+                    if (isDupe) continue;
+                    const key = videoKey(folderName, subfolder, item.name);
+                    const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
+                    allItems.push({
+                      name: item.name,
+                      folder: folderName,
+                      subfolder,
+                      type: 'video',
+                      size: item.size || 0,
+                      lastModified: item.lastModified || 0,
+                      videoKey: key,
+                      src: `/media?folder=${encodeURIComponent(folderName)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(item.name)}`,
+                      duration: _getDuration(folderName, subfolder, item.name),
+                      views: stats.views || 0,
+                      likes: stats.likes || 0,
+                      dislikes: stats.dislikes || 0,
+                    });
+                  }
+                } catch { /* skip */ }
+              }
+            }
+          } else {
+            for (const v of vaultFolders) {
+              const prefix = basePath + '/' + v + '/';
               try {
                 const items = await r2ListMediaFilesFromPrefix(prefix);
                 for (const item of items) {
                   if (!isVideoFile(item.name)) continue;
-                  // Server-side dedupe by near-exact file size (0.1% tolerance)
-                  const sz = item.size || 0;
-                  let isDupe = false;
-                  if (sz > 10000) {
-                    for (const s of seenSizes) { if (Math.abs(sz - s) / Math.max(sz, s) < 0.001) { isDupe = true; break; } }
-                    if (!isDupe) seenSizes.add(sz);
-                  }
-                  if (isDupe) continue;
-                  const key = videoKey(folderName, subfolder, item.name);
+                  const normTitle = item.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').replace(/\s*\(\d+\)\s*/g, '').replace(/\s*\[\d+\]\s*/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (normTitle && seenTitles.has(normTitle)) continue;
+                  if (normTitle) seenTitles.add(normTitle);
+                  const key = videoKey(folderName, '', item.name, v);
                   const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
                   allItems.push({
                     name: item.name,
                     folder: folderName,
-                    subfolder,
+                    subfolder: '',
+                    vault: v,
                     type: 'video',
                     size: item.size || 0,
                     lastModified: item.lastModified || 0,
                     videoKey: key,
-                    src: `/media?folder=${encodeURIComponent(folderName)}&subfolder=${encodeURIComponent(subfolder)}&name=${encodeURIComponent(item.name)}`,
-                    duration: _getDuration(folderName, subfolder, item.name),
+                    src: `/media?folder=${encodeURIComponent(folderName)}&name=${encodeURIComponent(item.name)}&vault=${encodeURIComponent(v)}`,
+                    duration: _getDuration(folderName, '', item.name, v),
+                    views: stats.views || 0,
+                    likes: stats.likes || 0,
+                    dislikes: stats.dislikes || 0,
+                  });
+                }
+              } catch { /* skip */ }
+            }
+            for (const legacyCt of ['video', 'photo', 'gif']) {
+              for (const v of vaultFolders) {
+                const prefix = basePath + '/' + legacyCt + '/' + v + '/';
+                try {
+                  const items = await r2ListMediaFilesFromPrefix(prefix);
+                  for (const item of items) {
+                    if (!isVideoFile(item.name)) continue;
+                    const normTitle = item.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').replace(/\s*\(\d+\)\s*/g, '').replace(/\s*\[\d+\]\s*/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                    if (normTitle && seenTitles.has(normTitle)) continue;
+                    if (normTitle) seenTitles.add(normTitle);
+                    const key = videoKey(folderName, '', item.name, v);
+                    const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
+                    allItems.push({
+                      name: item.name,
+                      folder: folderName,
+                      subfolder: '',
+                      vault: v,
+                      type: 'video',
+                      size: item.size || 0,
+                      lastModified: item.lastModified || 0,
+                      videoKey: key,
+                      src: `/media?folder=${encodeURIComponent(folderName)}&name=${encodeURIComponent(item.name)}&vault=${encodeURIComponent(v)}`,
+                      duration: _getDuration(folderName, '', item.name, v),
+                      views: stats.views || 0,
+                      likes: stats.likes || 0,
+                      dislikes: stats.dislikes || 0,
+                    });
+                  }
+                } catch { /* skip */ }
+              }
+            }
+            for (const tf of legacyTierFolders) {
+              const prefix = basePath + '/' + tf + '/';
+              try {
+                const items = await r2ListMediaFilesFromPrefix(prefix);
+                for (const item of items) {
+                  if (!isVideoFile(item.name)) continue;
+                  const normTitle = item.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').replace(/\s*\(\d+\)\s*/g, '').replace(/\s*\[\d+\]\s*/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (normTitle && seenTitles.has(normTitle)) continue;
+                  if (normTitle) seenTitles.add(normTitle);
+                  const key = videoKey(folderName, '', item.name);
+                  const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
+                  allItems.push({
+                    name: item.name,
+                    folder: folderName,
+                    subfolder: '',
+                    type: 'video',
+                    size: item.size || 0,
+                    lastModified: item.lastModified || 0,
+                    videoKey: key,
+                    src: `/media?folder=${encodeURIComponent(folderName)}&name=${encodeURIComponent(item.name)}`,
+                    duration: _getDuration(folderName, '', item.name),
                     views: stats.views || 0,
                     likes: stats.likes || 0,
                     dislikes: stats.dislikes || 0,
@@ -8451,37 +8883,7 @@ const server = http.createServer(async (req, res) => {
               } catch { /* skip */ }
             }
           }
-        } else {
-          for (const tf of tierFolders) {
-            const prefix = basePath + '/' + tf + '/';
-            try {
-              const items = await r2ListMediaFilesFromPrefix(prefix);
-              for (const item of items) {
-                if (!isVideoFile(item.name)) continue;
-                const normTitle = item.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').replace(/\s*\(\d+\)\s*/g, '').replace(/\s*\[\d+\]\s*/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-                if (normTitle && seenTitles.has(normTitle)) continue;
-                if (normTitle) seenTitles.add(normTitle);
-                const key = videoKey(folderName, '', item.name);
-                const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
-                allItems.push({
-                  name: item.name,
-                  folder: folderName,
-                  subfolder: '',
-                  type: 'video',
-                  size: item.size || 0,
-                  lastModified: item.lastModified || 0,
-                  videoKey: key,
-                  src: `/media?folder=${encodeURIComponent(folderName)}&name=${encodeURIComponent(item.name)}`,
-                  duration: _getDuration(folderName, '', item.name),
-                  views: stats.views || 0,
-                  likes: stats.likes || 0,
-                  dislikes: stats.dislikes || 0,
-                });
-              }
-            } catch { /* skip */ }
-          }
         }
-      }
         global._videoListCache[cacheKey] = { items: allItems, ts: Date.now() };
       } // end cache miss
 
@@ -8514,10 +8916,16 @@ const server = http.createServer(async (req, res) => {
       }
 
       const total = filtered.length;
-      const page = filtered.slice(offset, offset + limit).map(f => ({
-        ...f,
-        thumb: '/thumbnail?folder=' + encodeURIComponent(f.folder || '') + '&name=' + encodeURIComponent(f.name) + (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : ''),
-      }));
+      const page = filtered.slice(offset, offset + limit).map(f => {
+        let thumb =
+          '/thumbnail?folder=' +
+          encodeURIComponent(f.folder || '') +
+          '&name=' +
+          encodeURIComponent(f.name) +
+          (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '');
+        if (f.vault) thumb += '&vault=' + encodeURIComponent(f.vault);
+        return { ...f, thumb };
+      });
       return sendJson(res, 200, { files: page, total });
     }
 
@@ -8779,7 +9187,7 @@ const server = http.createServer(async (req, res) => {
       const globalTop = new Map((recoGlobalStats.topVideos || []).map((v, idx) => [v.videoId, Math.max(0, 240 - idx)]));
       const contextParsed = parseCanonicalVideoId(contextVideoId);
       const scored = allFiles.map((f, idx) => {
-        const videoId = f.videoId || canonicalVideoId(f.folder, f.subfolder || '', f.name);
+        const videoId = f.videoId || canonicalVideoId(f.folder, f.subfolder || '', f.name, f.vault);
         const category = String(f.folder || '');
         const views = Number(f.views || 0);
         const likes = Number(f.likes || 0);
@@ -8842,7 +9250,13 @@ const server = http.createServer(async (req, res) => {
       const slice = ranked.slice(0, limit).map(f => {
         const out = Object.assign({}, f);
         if (isVideoFile(f.name)) {
-          out.thumb = '/thumbnail?folder=' + encodeURIComponent(f.folder || '') + '&name=' + encodeURIComponent(f.name) + (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '');
+          out.thumb =
+            '/thumbnail?folder=' +
+            encodeURIComponent(f.folder || '') +
+            '&name=' +
+            encodeURIComponent(f.name) +
+            (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '') +
+            (f.vault ? '&vault=' + encodeURIComponent(f.vault) : '');
         }
         out.recoScore = Number(f._score || 0);
         return out;
@@ -8857,7 +9271,7 @@ const server = http.createServer(async (req, res) => {
       if (!videoId) return sendJson(res, 400, { error: 'Missing videoId' });
       const limit = Math.min(30, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '8', 10) || 8));
       const allFiles = enrichPreviewFilesWithLiveStats(previewFileList.slice()).filter((f) => {
-        const id = f.videoId || canonicalVideoId(f.folder, f.subfolder || '', f.name);
+        const id = f.videoId || canonicalVideoId(f.folder, f.subfolder || '', f.name, f.vault);
         return id !== videoId;
       });
       maybeRebuildRecoGlobalStats();
@@ -8865,7 +9279,13 @@ const server = http.createServer(async (req, res) => {
       const slice = ranked.slice(0, limit).map((f) => {
         const out = Object.assign({}, f);
         if (isVideoFile(f.name)) {
-          out.thumb = '/thumbnail?folder=' + encodeURIComponent(f.folder || '') + '&name=' + encodeURIComponent(f.name) + (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '');
+          out.thumb =
+            '/thumbnail?folder=' +
+            encodeURIComponent(f.folder || '') +
+            '&name=' +
+            encodeURIComponent(f.name) +
+            (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '') +
+            (f.vault ? '&vault=' + encodeURIComponent(f.vault) : '');
         }
         return out;
       });
@@ -8892,7 +9312,13 @@ const server = http.createServer(async (req, res) => {
         const out = Object.assign({}, f);
         out.isTrending = true;
         if (isVideoFile(f.name)) {
-          out.thumb = '/thumbnail?folder=' + encodeURIComponent(f.folder || '') + '&name=' + encodeURIComponent(f.name) + (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '');
+          out.thumb =
+            '/thumbnail?folder=' +
+            encodeURIComponent(f.folder || '') +
+            '&name=' +
+            encodeURIComponent(f.name) +
+            (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '') +
+            (f.vault ? '&vault=' + encodeURIComponent(f.vault) : '');
         }
         return out;
       });
@@ -8910,7 +9336,13 @@ const server = http.createServer(async (req, res) => {
         const out = Object.assign({}, f);
         out.isNew = true;
         if (isVideoFile(f.name)) {
-          out.thumb = '/thumbnail?folder=' + encodeURIComponent(f.folder || '') + '&name=' + encodeURIComponent(f.name) + (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '');
+          out.thumb =
+            '/thumbnail?folder=' +
+            encodeURIComponent(f.folder || '') +
+            '&name=' +
+            encodeURIComponent(f.name) +
+            (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '') +
+            (f.vault ? '&vault=' + encodeURIComponent(f.vault) : '');
         }
         return out;
       });
@@ -9218,10 +9650,13 @@ const server = http.createServer(async (req, res) => {
       const name = requestUrl.searchParams.get('name') || '';
       const folder = requestUrl.searchParams.get('folder') || '';
       const subfolder = requestUrl.searchParams.get('subfolder') || '';
+      const vaultQ = requestUrl.searchParams.get('vault') || '';
       if (!name) return sendText(res, 400, 'Missing name');
 
       // Build cache key — with folder context or legacy (preview-only)
-      const cacheKey = folder ? _thumbCacheKey(folder, subfolder, name) : name;
+      const cacheKey = folder
+        ? _thumbCacheKey(folder, subfolder, name, vaultQ || undefined)
+        : name;
       const buf = _thumbCacheGet(cacheKey);
       if (buf) {
         const etag = '"t-' + buf.length + '"';
@@ -9260,44 +9695,46 @@ const server = http.createServer(async (req, res) => {
       let videoUrl = null;
 
       if (folder && R2_ENABLED) {
-        // Fast path: check pre-warmed media key cache (populated by /api/list)
-        if (global._mediaKeyCache) {
-          for (const tier of [2, 1]) {
-            const mk = `${tier}:${folder}:${subfolder}:${name}`;
-            const cached = global._mediaKeyCache[mk];
-            if (cached && (Date.now() - cached.ts < 300000)) {
-              videoUrl = r2PresignedUrl(cached.key, 120);
-              break;
+        const basePath = allowedFolders.get(folder);
+        if (global._mediaKeyCache && basePath) {
+          const tryKeys = [];
+          if (vaultQ) tryKeys.push(mediaLookupKey(folder, subfolder, vaultQ, name));
+          tryKeys.push(mediaLookupKey(folder, subfolder, '', name));
+          for (const lk of tryKeys) {
+            for (let tryTier = 3; tryTier >= 1; tryTier--) {
+              const cached = global._mediaKeyCache[mediaR2ResolveCacheKey(lk, tryTier)];
+              if (cached && (Date.now() - cached.ts < 300000)) {
+                videoUrl = r2PresignedUrl(cached.key, 120);
+                break;
+              }
             }
+            if (videoUrl) break;
           }
         }
-        // Slow fallback: HEAD requests to find the right tier folder (cached)
-        if (!videoUrl) {
+        if (!videoUrl && basePath) {
           if (!global._tierLookupCache) global._tierLookupCache = {};
-          const tlKey = `${folder}:${subfolder}:${name}`;
+          const tlKey = `${folder}:${subfolder}:${vaultQ}:${name}`;
           const tlCached = global._tierLookupCache[tlKey];
           if (tlCached && (Date.now() - tlCached.ts < 600000)) {
             videoUrl = r2PresignedUrl(tlCached.objectKey, 120);
           } else {
-            const basePath = allowedFolders.get(folder);
-            if (basePath) {
-              const tierCandidates = ['tier 2', 'tier 1'];
-              for (const tf of tierCandidates) {
-                let objectKey;
-                if (folder === 'Omegle' && subfolder) {
-                  objectKey = basePath + '/' + tf + '/' + subfolder + '/' + name;
-                } else {
-                  objectKey = basePath + '/' + tf + '/' + name;
+            const candidates = buildObjectKeyCandidates(
+              basePath,
+              folder,
+              subfolder,
+              name,
+              vaultQ || undefined,
+              undefined,
+            );
+            for (const objectKey of candidates) {
+              try {
+                const exists = await r2HeadObject(objectKey);
+                if (exists) {
+                  global._tierLookupCache[tlKey] = { objectKey, ts: Date.now() };
+                  videoUrl = r2PresignedUrl(objectKey, 120);
+                  break;
                 }
-                try {
-                  const exists = await r2HeadObject(objectKey);
-                  if (exists) {
-                    global._tierLookupCache[tlKey] = { objectKey, ts: Date.now() };
-                    videoUrl = r2PresignedUrl(objectKey, 120);
-                    break;
-                  }
-                } catch { /* try next tier */ }
-              }
+              } catch { /* next */ }
             }
           }
         }
@@ -9371,6 +9808,7 @@ const server = http.createServer(async (req, res) => {
       const folder = requestUrl.searchParams.get('folder') || '';
       const subfolder = requestUrl.searchParams.get('subfolder') || '';
       const name = requestUrl.searchParams.get('name') || '';
+      const vaultQ = requestUrl.searchParams.get('vault') || '';
 
       const basePath = allowedFolders.get(folder);
       if (!basePath) return sendText(res, 400, 'Invalid folder');
@@ -9379,48 +9817,45 @@ const server = http.createServer(async (req, res) => {
 
       const tier = getEffectiveTierForUser(u);
       if (tier < 1) return sendText(res, 403, 'Tier required');
-      const vaultTier = effectiveVaultTier(tier);
+      const vaultAccess = accessibleVaultFolders(tier);
+      const vNorm = normalizeVaultParam(vaultQ);
+      if (vNorm && !vaultAccess.includes(vNorm)) return sendText(res, 403, 'Forbidden');
 
       if (folder === 'Omegle' && subfolder && !OMEGLE_SUBFOLDERS.includes(subfolder)) {
         return sendText(res, 400, 'Invalid subfolder');
       }
 
-      // Check cache for resolved object key (avoids HEAD requests)
-      const mediaCacheKey = `${vaultTier}:${folder}:${subfolder}:${name}`;
-      const cachedKey = global._mediaKeyCache[mediaCacheKey];
+      const mediaCacheKey = mediaLookupKey(folder, subfolder, vNorm, name);
+      const cachedKey = global._mediaKeyCache[mediaR2ResolveCacheKey(mediaCacheKey, tier)];
       let objectKey;
 
       if (cachedKey && (Date.now() - cachedKey.ts < _MEDIA_KEY_TTL)) {
         objectKey = cachedKey.key;
       } else {
-        // Vault tier 2+ can access both R2 prefixes; tiers 3–4 use vault tier 2 paths
-        const tierCandidates = vaultTier >= 2 ? ['tier 2', 'tier 1'] : ['tier 1'];
-        if (folder === 'Omegle' && subfolder) {
-          for (const tf of tierCandidates) {
-            objectKey = basePath + '/' + tf + '/' + subfolder + '/' + name;
-            if (R2_ENABLED) {
-              try {
-                const exists = await r2HeadObject(objectKey);
-                if (exists) break;
-              } catch { /* try next */ }
+        const candidates = buildObjectKeyCandidates(
+          basePath,
+          folder,
+          subfolder,
+          name,
+          vNorm || undefined,
+          tier,
+        );
+        objectKey = null;
+        for (const k of candidates) {
+          if (!R2_ENABLED) break;
+          try {
+            if (await r2HeadObject(k)) {
+              objectKey = k;
+              break;
             }
-          }
-        } else {
-          for (const tf of tierCandidates) {
-            objectKey = basePath + '/' + tf + '/' + name;
-            if (R2_ENABLED) {
-              try {
-                const exists = await r2HeadObject(objectKey);
-                if (exists) break;
-              } catch { /* try next */ }
-            }
-          }
+          } catch { /* next */ }
         }
-        // Cache the resolved key
-        global._mediaKeyCache[mediaCacheKey] = { key: objectKey, ts: Date.now() };
+        if (objectKey) {
+          global._mediaKeyCache[mediaR2ResolveCacheKey(mediaCacheKey, tier)] = { key: objectKey, ts: Date.now() };
+        }
       }
 
-      if (R2_ENABLED) {
+      if (R2_ENABLED && objectKey) {
         const url = r2PresignedUrl(objectKey);
         res.writeHead(302, { Location: url, 'Cache-Control': 'private, max-age=300' });
         return res.end();
@@ -9893,6 +10328,11 @@ const server = http.createServer(async (req, res) => {
         resolveEnvPath(process.env.TBW_IMAGES_ROOT, path.resolve(__dirname, 'images')) || path.resolve(__dirname, 'images');
       const thumbsRoot =
         resolveEnvPath(process.env.TBW_THUMBNAILS_ROOT, path.resolve(__dirname, 'thumbnails')) || path.resolve(__dirname, 'thumbnails');
+      const brandingRoot =
+        resolveEnvPath(
+          process.env.TBW_BRANDING_ROOT,
+          path.resolve(__dirname, 'client', 'public', 'assets', 'branding'),
+        ) || path.resolve(__dirname, 'client', 'public', 'assets', 'branding');
 
       const ASSET_PREFIX_IMAGES = '/assets/images/';
       const ASSET_PREFIX_THUMBS = '/assets/thumbnails/';
@@ -9904,7 +10344,7 @@ const server = http.createServer(async (req, res) => {
       if (pathname.startsWith(ASSET_PREFIX_IMAGES)) { externalRoot = imagesRoot; prefixLen = ASSET_PREFIX_IMAGES.length; }
       else if (pathname.startsWith(ASSET_PREFIX_THUMBS)) { externalRoot = thumbsRoot; prefixLen = ASSET_PREFIX_THUMBS.length; }
       else if (pathname.startsWith(ASSET_PREFIX_ONLYFANS)) { externalRoot = thumbsRoot; prefixLen = ASSET_PREFIX_ONLYFANS.length; }
-      else if (pathname.startsWith(ASSET_PREFIX_BRANDING)) { externalRoot = imagesRoot; prefixLen = ASSET_PREFIX_BRANDING.length; }
+      else if (pathname.startsWith(ASSET_PREFIX_BRANDING)) { externalRoot = brandingRoot; prefixLen = ASSET_PREFIX_BRANDING.length; }
 
       // 1) Serve from local disk first (dev/local).
       try {
@@ -10077,7 +10517,7 @@ const server = http.createServer(async (req, res) => {
           html = html.replace('</head>', '<meta name="keywords" content="' + escHtml(seoData.kw) + '">\n</head>');
         }
         // Set canonical URL using clean SEO paths
-        const CANONICAL_CLEAN = { 'Omegle': '/omegle-wins', 'IRL Dick Flashing': '/irl-dick-flashing', 'TikTok': '/tiktok-porn', 'Snapchat': '/snapchat-leaks', 'Live Slips': '/live-slips', 'Feet': '/foot-fetish' };
+        const CANONICAL_CLEAN = { 'Omegle': '/omegle-wins', 'IRL Dick Flashing': '/irl-dick-flashing', 'TikTok': '/tiktok-porn', 'Snapchat': '/snapchat-leaks', 'Live Slips': '/live-slips', 'Feet': '/feet' };
         const cleanBase = CANONICAL_CLEAN[seoFolder] || '/folder.html?folder=' + encodeURIComponent(seoFolder);
         const canonicalUrl = origin + cleanBase + (seoSub ? '?subfolder=' + encodeURIComponent(seoSub) : '');
         html = html.replace(/<link rel="canonical" href="[^"]*">/, '<link rel="canonical" href="' + canonicalUrl + '">');

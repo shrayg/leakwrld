@@ -38,8 +38,7 @@ export function HomePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    document.title =
-      'Pornwrld — Free Omegle Wins, OmeTV, MiniChat, TikTok Leaks & IRL Dick Flashing Videos';
+    document.title = 'Pornwrld';
     return () => {
       document.title = 'Pornwrld';
     };
@@ -88,7 +87,7 @@ export function HomePage() {
               surface: 'home_popular',
               slot: idx,
               rank: idx + 1,
-              videoId: f.videoId || buildVideoId(f.folder, f.subfolder || '', f.name),
+              videoId: f.videoId || buildVideoId(f.folder, f.subfolder || '', f.name, f.vault),
               folder: f.folder,
               subfolder: f.subfolder || '',
               name: f.name,

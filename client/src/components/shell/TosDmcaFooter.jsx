@@ -33,7 +33,7 @@ export function TosDmcaFooter() {
                 </a>{' '}
                 ·{' '}
                 <a href={OFFICIAL_TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
-                  t.me/pornwrldxyz
+                  t.me/pornwrldsupport
                 </a>
                 .
               </p>

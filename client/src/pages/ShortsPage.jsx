@@ -238,7 +238,7 @@ export function ShortsPage() {
           surface: 'shorts',
           slot: idx,
           rank: idx + 1,
-          videoId: v.videoId || buildVideoId(v.folder, v.subfolder || '', v.name),
+          videoId: v.videoId || buildVideoId(v.folder, v.subfolder || '', v.name, v.vault),
           folder: v.folder,
           subfolder: v.subfolder || '',
           name: v.name,
@@ -335,7 +335,7 @@ export function ShortsPage() {
     });
     sendTelemetry('shorts_progress', {
       surface: 'shorts',
-      videoId: video.videoId || buildVideoId(video.folder, video.subfolder || '', k),
+      videoId: video.videoId || buildVideoId(video.folder, video.subfolder || '', video.name, video.vault),
       folder: video.folder,
       subfolder: video.subfolder || '',
       name: k,
@@ -449,7 +449,7 @@ export function ShortsPage() {
         el._lastTelemetryTs = now;
         sendTelemetry('shorts_progress', {
           surface: 'shorts',
-          videoId: video.videoId || buildVideoId(video.folder, video.subfolder || '', videoKey(video)),
+          videoId: video.videoId || buildVideoId(video.folder, video.subfolder || '', video.name, video.vault),
           folder: video.folder,
           subfolder: video.subfolder || '',
           name: videoKey(video),

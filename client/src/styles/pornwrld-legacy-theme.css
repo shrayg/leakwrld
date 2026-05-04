@@ -130,6 +130,35 @@
     color 0.16s ease;
 }
 
+.site-theme-pornwrld .profile-auth-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.site-theme-pornwrld .profile-social-external {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 36%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: rgba(255, 255, 255, 0.9);
+  text-decoration: none;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.site-theme-pornwrld .profile-social-external:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 58%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: #fff;
+}
+
 .site-theme-pornwrld .home-login-btn:hover {
   border-color: color-mix(in srgb, var(--color-primary) 60%, transparent);
   background: linear-gradient(
@@ -293,9 +322,30 @@
   color: #fff;
 }
 
+.site-theme-pornwrld .profile-settings,
+.site-theme-pornwrld .profile-contact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  margin-top: 6px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
 .site-theme-pornwrld .profile-settings:hover,
 .site-theme-pornwrld .profile-contact:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(243, 198, 105, 0.35);
+  color: #fff;
 }
 
 .site-theme-pornwrld .profile-logout {
@@ -751,7 +801,7 @@
 .site-theme-pornwrld .home-referral-teaser {
   padding-left: var(--container-px);
   padding-right: var(--container-px);
-  padding-bottom: clamp(8px, 1.2vw, 12px);
+  padding-bottom: var(--container-px);
   max-width: 1680px;
   margin-left: auto;
   margin-right: auto;
@@ -1197,7 +1247,7 @@
 }
 
 .site-theme-pornwrld .hero-referral-goal__gold {
-  color: var(--color-primary);
+  color: #ffd24a;
   font-weight: 700;
 }
 
@@ -1216,33 +1266,16 @@
   display: inline-block;
   font-weight: 700;
   letter-spacing: 0.02em;
-  /* Symmetric edges + tile width → 0%/100% frames match; linear easing → no speed jump at loop splice */
-  background-image: linear-gradient(
-    100deg,
-    color-mix(in srgb, var(--color-primary-dark) 78%, #321020) 0%,
-    color-mix(in srgb, var(--color-primary) 90%, #541a3a) 18%,
-    var(--color-primary) 34%,
-    #ffdff2 50%,
-    var(--color-primary) 66%,
-    color-mix(in srgb, var(--color-primary) 90%, #541a3a) 82%,
-    color-mix(in srgb, var(--color-primary-dark) 78%, #321020) 100%
-  );
-  background-size: 200% 100%;
-  background-position: 0% 50%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: gold-premium-shine 4s linear infinite;
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 55%, transparent))
-    drop-shadow(0 0 14px color-mix(in srgb, var(--color-primary) 30%, transparent));
-  will-change: background-position;
+  color: #ffd24a;
+  -webkit-text-fill-color: #ffd24a;
+  filter: drop-shadow(0 0 6px rgba(255, 210, 74, 0.55))
+    drop-shadow(0 0 12px rgba(255, 214, 95, 0.34));
+  will-change: auto;
 }
 
 .site-theme-pornwrld .gold-premium-fx:hover .gold-premium-fx__text {
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--color-primary) 75%, transparent))
-    drop-shadow(0 0 22px color-mix(in srgb, var(--color-primary) 45%, transparent))
-    drop-shadow(0 0 2px rgba(255, 227, 245, 0.55));
+  filter: drop-shadow(0 0 8px rgba(255, 210, 74, 0.72))
+    drop-shadow(0 0 16px rgba(255, 214, 95, 0.5));
 }
 
 .site-theme-pornwrld .gold-premium-fx__spark {
@@ -1254,22 +1287,11 @@
   border-radius: 50%;
   pointer-events: none;
   will-change: transform, opacity;
-  background: radial-gradient(circle at 35% 35%, #fff 0%, #ffe9f6 20%, var(--color-primary) 55%, transparent 78%);
-  box-shadow: 0 0 5px color-mix(in srgb, var(--color-primary) 95%, transparent),
-    0 0 10px color-mix(in srgb, var(--color-primary) 48%, transparent);
+  background: radial-gradient(circle at 35% 35%, #fffdf0 0%, #fff5bf 20%, #ffd24a 55%, transparent 78%);
+  box-shadow: 0 0 5px rgba(255, 210, 74, 0.9),
+    0 0 10px rgba(255, 214, 95, 0.52);
   animation: gold-premium-spark var(--spark-life, 0.62s) cubic-bezier(0.22, 1, 0.36, 1) forwards;
   animation-delay: var(--spark-delay, 0s);
-}
-
-@keyframes gold-premium-shine {
-  /* Move one full tile (100% shift); linear-gradient start/end color match → seamless. Linear timing → no abrupt ease reset. */
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
 }
 
 @keyframes gold-premium-spark {
@@ -1290,8 +1312,8 @@
   .site-theme-pornwrld .gold-premium-fx__text {
     animation: none;
     background: none;
-    color: var(--color-primary);
-    -webkit-text-fill-color: var(--color-primary);
+    color: #ffd24a;
+    -webkit-text-fill-color: #ffd24a;
     filter: none;
   }
 
@@ -2497,6 +2519,45 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--pornwrld-radius-card);
   box-shadow: none;
+  padding: clamp(22px, 3.2vw, 34px);
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.site-theme-pornwrld .custom-requests-page .custom-requests-hero {
+  margin-bottom: clamp(16px, 2.5vw, 26px);
+}
+
+.site-theme-pornwrld .custom-requests-page .custom-requests-hero p {
+  max-width: 44ch;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+}
+
+.site-theme-pornwrld .custom-requests-page .cr-card-head {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin-bottom: 20px;
+}
+
+.site-theme-pornwrld .custom-requests-page .cr-card-icon {
+  font-size: clamp(32px, 4.2vw, 44px);
+  margin-bottom: 0;
+}
+
+.site-theme-pornwrld .custom-requests-page .cr-card-heading {
+  margin: 0;
+  font-size: clamp(26px, 4.2vw, 34px);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-align: center;
+}
+
+.site-theme-pornwrld .custom-requests-page .cr-steps {
+  gap: 18px;
+  margin-bottom: 22px;
 }
 
 .site-theme-pornwrld .custom-requests-page .cr-step-number {
@@ -2504,6 +2565,32 @@
   color: var(--pornwrld-gold);
   border: 1px solid rgba(243, 198, 105, 0.35);
   font-weight: 700;
+}
+
+.site-theme-pornwrld .custom-requests-page .cr-step-content h3 {
+  font-size: 18px;
+  margin-bottom: 6px;
+  color: #fff5fb;
+}
+
+.site-theme-pornwrld .custom-requests-page .cr-step-content p {
+  font-size: 15px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.site-theme-pornwrld .custom-requests-page .cr-turnaround {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border: 1px solid rgba(243, 198, 105, 0.26);
+  background: color-mix(in srgb, var(--pornwrld-gold) 8%, rgba(255, 255, 255, 0.02));
+  color: rgba(255, 245, 251, 0.9);
+  font-size: 14px;
+}
+
+.site-theme-pornwrld .custom-requests-page .cr-access-note {
+  text-align: center;
+  margin-bottom: 12px;
 }
 
 .site-theme-pornwrld .pornwrld-cr-btn {

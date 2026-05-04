@@ -19,3 +19,26 @@ npm test             # node --test tests/*.test.js
 ```
 
 Do not commit **`.env`**, cookie dumps, or **`data/`** (runtime DB).
+
+## Deploy (Fly.io)
+
+The [Dockerfile](Dockerfile) runs `npm run build` then serves **`client/dist`** via `server.js`. [fly.toml](fly.toml) sets `PORT=8080` and `/api/health` for checks.
+
+```bash
+fly deploy
+```
+
+**Secrets:** Mirror your local `.env` into Fly (values are never committed). See [.env.example](.env.example) for key names. Example:
+
+```bash
+fly secrets set TBW_PUBLIC_ORIGIN=https://your-domain.example \
+  CLOUDFLARE_R2_ACCESS_KEY_ID=... \
+  CLOUDFLARE_R2_SECRET_ACCESS_KEY=... \
+  CLOUDFLARE_R2_ENDPOINT=... \
+  CLOUDFLARE_R2_BUCKET_RAW=... \
+  TBW_PEPPER=...
+```
+
+Then redeploy so the app resolves R2 and serves media. Optional: `fly secrets list` (names only).
+
+**R2 + CSP:** Production CSP already allows `https://*.r2.cloudflarestorage.com` for media/images (see `server.js`).

@@ -17,11 +17,14 @@ import { formatTimeAgo } from '../lib/time';
 import { PageHero } from '../components/layout/PageHero';
 import { buildVideoId, sendTelemetry } from '../lib/telemetry';
 
-function videoQuery(folder, name, subfolder) {
+const VAULT_FOLDERS = ['free', 'basic', 'premium', 'ultimate', 'elite'];
+
+function videoQuery(folder, name, subfolder, vault) {
   const q = new URLSearchParams();
   q.set('folder', folder);
   q.set('name', name);
   if (subfolder) q.set('subfolder', subfolder);
+  if (vault) q.set('vault', vault);
   return '/video?' + q.toString();
 }
 
@@ -34,6 +37,7 @@ export function VideoPage() {
   const folder = params.get('folder') || '';
   const name = params.get('name') || '';
   const subfolder = params.get('subfolder') || '';
+  const vault = params.get('vault') || '';
 
   const [stats, setStats] = useState(null);
   const [comments, setComments] = useState([]);
@@ -41,14 +45,22 @@ export function VideoPage() {
   const [related, setRelated] = useState([]);
 
   const cleanTitle = useMemo(() => (name ? seoCleanTitle(name, folder) : ''), [name, folder]);
-  const videoKey = name;
+  const videoKey = useMemo(() => {
+    if (!name) return '';
+    const v = (vault || '').trim().toLowerCase();
+    if (v && VAULT_FOLDERS.includes(v)) {
+      return [folder, subfolder || '', v, name].join('|');
+    }
+    return name;
+  }, [folder, subfolder, name, vault]);
 
   const mediaSrc = useMemo(() => {
     if (!folder || !name) return '';
     let s = '/media?folder=' + encodeURIComponent(folder) + '&name=' + encodeURIComponent(name);
     if (subfolder) s += '&subfolder=' + encodeURIComponent(subfolder);
+    if (vault) s += '&vault=' + encodeURIComponent(vault);
     return s;
-  }, [folder, name, subfolder]);
+  }, [folder, name, subfolder, vault]);
 
   const previewSrc = useMemo(() => {
     if (!folder || !name) return '';
@@ -72,7 +84,7 @@ export function VideoPage() {
     fetchVideoStats(videoKey).then(({ ok, data }) => {
       if (ok && data) setStats(data);
     });
-  }, [folder, subfolder, name]);
+  }, [videoKey]);
 
   useEffect(() => {
     if (!videoKey) return;
@@ -85,7 +97,7 @@ export function VideoPage() {
   useEffect(() => {
     if (!folder || !name) return;
     let cancelled = false;
-    const currentVideoId = buildVideoId(folder, subfolder || '', name);
+    const currentVideoId = buildVideoId(folder, subfolder || '', name, vault);
     fetchRelatedRecommendations(currentVideoId, 8).then(({ ok, data }) => {
       if (cancelled || !ok || !Array.isArray(data?.files)) return;
       setRelated(data.files);
@@ -94,7 +106,9 @@ export function VideoPage() {
           surface: 'video_related',
           slot: idx,
           rank: idx + 1,
-          videoId: f.videoId || buildVideoId(f.folder || folder, f.subfolder || '', f.name),
+          videoId:
+            f.videoId ||
+            buildVideoId(f.folder || folder, f.subfolder || '', f.name, f.vault),
           folder: f.folder || folder,
           subfolder: f.subfolder || '',
           name: f.name,
@@ -104,7 +118,7 @@ export function VideoPage() {
     return () => {
       cancelled = true;
     };
-  }, [folder, name, subfolder]);
+  }, [folder, name, subfolder, vault]);
 
   const onFirstPlay = useCallback(() => {
     postVideoStats({ videoKey, action: 'view' }).then(({ ok, data }) => {
@@ -114,7 +128,7 @@ export function VideoPage() {
     });
     sendTelemetry('video_progress', {
       surface: 'video',
-      videoId: buildVideoId(folder, subfolder || '', name),
+      videoId: buildVideoId(folder, subfolder || '', name, vault),
       folder,
       subfolder,
       name,
@@ -126,7 +140,7 @@ export function VideoPage() {
   const onProgress = useCallback((progress) => {
     sendTelemetry('video_progress', {
       surface: 'video',
-      videoId: buildVideoId(folder, subfolder || '', name),
+      videoId: buildVideoId(folder, subfolder || '', name, vault),
       folder,
       subfolder,
       name,
@@ -320,16 +334,18 @@ export function VideoPage() {
         <div className="video-page-related-grid" id="video-page-related-grid">
           {related.map((f) => {
             const rTitle = seoCleanTitle(f.name, folder);
-            const href = videoQuery(folder, f.name, f.subfolder || subfolder || '');
+            const href = videoQuery(folder, f.name, f.subfolder || subfolder || '', f.vault);
             return (
               <Link
-                key={f.name + (f.subfolder || '')}
+                key={(f.videoKey || '') + f.name + (f.subfolder || '') + (f.vault || '')}
                 to={href}
                 className="video-page-related-card"
                 onClick={(e) => {
                   sendTelemetry('click', {
                     surface: 'video_related',
-                    videoId: buildVideoId(f.folder || folder, f.subfolder || '', f.name),
+                    videoId:
+                      f.videoId ||
+                      buildVideoId(f.folder || folder, f.subfolder || '', f.name, f.vault),
                     folder: f.folder || folder,
                     subfolder: f.subfolder || '',
                     name: f.name,

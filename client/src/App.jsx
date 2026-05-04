@@ -7,11 +7,10 @@ import { ShortsPage } from './pages/ShortsPage';
 import { FolderPage } from './pages/FolderPage';
 import { VideoPage } from './pages/VideoPage';
 import { SearchPage } from './pages/SearchPage';
-import { NewReleasesPage } from './pages/NewReleasesPage';
 import { OnlyFansPage } from './pages/OnlyFansPage';
+import { VideoSectionPage } from './pages/VideoSectionPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { AccountPage } from './pages/AccountPage';
-import { LiveCamsPage } from './pages/LiveCamsPage';
 import { CustomRequestsPage } from './pages/CustomRequestsPage';
 import { BlogPage } from './pages/BlogPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -39,20 +38,28 @@ export default function App() {
         <Route path="/checkout.html" element={<Navigate to="/checkout" replace />} />
         <Route element={<AppLayout />}>
           <Route path="/" element={<HomePage />} />
+          <Route path="/recommended" element={<VideoSectionPage variant="recommended" />} />
+          <Route path="/recommended.html" element={<Navigate to="/recommended" replace />} />
+          <Route path="/popular" element={<VideoSectionPage variant="popular" />} />
+          <Route path="/popular.html" element={<Navigate to="/popular" replace />} />
+          <Route path="/newly-added" element={<VideoSectionPage variant="newlyAdded" />} />
+          <Route path="/newly-added.html" element={<Navigate to="/newly-added" replace />} />
+          <Route path="/random-video" element={<VideoSectionPage variant="random" />} />
+          <Route path="/random-video.html" element={<Navigate to="/random-video" replace />} />
           <Route path="/index.html" element={<Navigate to="/" replace />} />
           <Route path="/shorts" element={<ShortsPage />} />
           <Route path="/shorts.html" element={<Navigate to="/shorts" replace />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/search.html" element={<Navigate to="/search" replace />} />
-          <Route path="/new-releases" element={<NewReleasesPage />} />
-          <Route path="/new-releases.html" element={<Navigate to="/new-releases" replace />} />
+          <Route path="/new-releases" element={<Navigate to="/newly-added" replace />} />
+          <Route path="/new-releases.html" element={<Navigate to="/newly-added" replace />} />
           <Route path="/categories" element={<CategoriesPage />} />
           <Route path="/categories.html" element={<Navigate to="/categories" replace />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/upload" element={<Navigate to="/account" replace />} />
           <Route path="/upload.html" element={<Navigate to="/account" replace />} />
-          <Route path="/live-cams" element={<LiveCamsPage />} />
-          <Route path="/live-cams.html" element={<Navigate to="/live-cams" replace />} />
+          <Route path="/live-cams" element={<Navigate to="/search" replace />} />
+          <Route path="/live-cams.html" element={<Navigate to="/search" replace />} />
           <Route path="/custom-requests" element={<CustomRequestsPage />} />
           <Route path="/custom-requests.html" element={<Navigate to="/custom-requests" replace />} />
           <Route path="/blog" element={<BlogPage />} />
@@ -82,6 +89,7 @@ export default function App() {
           <Route path="/milf" element={<FolderPage seoFolder="MILF" />} />
           <Route path="/asian" element={<FolderPage seoFolder="Asian" />} />
           <Route path="/ebony" element={<FolderPage seoFolder="Ebony" />} />
+          <Route path="/feet" element={<FolderPage seoFolder="Feet" />} />
           <Route path="/hentai" element={<FolderPage seoFolder="Hentai" />} />
           <Route path="/yuri" element={<FolderPage seoFolder="Yuri" />} />
           <Route path="/yaoi" element={<FolderPage seoFolder="Yaoi" />} />

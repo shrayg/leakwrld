@@ -1,3 +1,5 @@
+import { GoldPremiumFx } from '../home/GoldPremiumFx';
+
 function toNum(v) {
   return Number(v || 0).toLocaleString();
 }
@@ -48,9 +50,20 @@ export function AccountAffiliateProgram({ affiliate }) {
       <div className="account-affiliate__hero">
         <h3 id="account-affiliate-heading">Affiliate program</h3>
         <p className="account-affiliate__lede">
-          Two paths to partnership — crush the milestones below and message us on Discord or Telegram to unlock higher earnings. Your progress updates automatically from referrals,
-          upgrades, and content linked on your profile.
+          <strong>Yes, you can make real money here.</strong> Two partnership paths unlock higher payouts as you grow traffic, drive upgrades, and build watch time.
+          Hit milestones, then message us to activate your rates.
         </p>
+        <div className="account-affiliate__money-points">
+          <p>
+            <GoldPremiumFx>High payout potential:</GoldPremiumFx> serious partners can stack recurring commissions and creator payouts every month.
+          </p>
+          <p>
+            <GoldPremiumFx>Performance based:</GoldPremiumFx> the more buying traffic and watch time you generate, the more you can earn.
+          </p>
+          <p>
+            <GoldPremiumFx>Monetize your audience:</GoldPremiumFx> earn on video monetization, a percentage of total platform earnings, and paid-only content drops.
+          </p>
+        </div>
       </div>
 
       <div className="account-affiliate__grid">
@@ -59,7 +72,7 @@ export function AccountAffiliateProgram({ affiliate }) {
             <span className="account-affiliate-card__badge">Path 1</span>
             <h4>Referral partnership</h4>
             <p className="account-affiliate-card__sub">
-              Scale your audience and prove buyers follow your links. Hit both targets, then DM us on Discord or Telegram with your <strong>Pornwrld username</strong>.
+              Scale your audience and convert clicks into paid members. Hit both targets, then DM us with your <strong>Pornwrld username</strong> to unlock partner payouts.
             </p>
           </header>
           <div className="account-affiliate-card__body">
@@ -76,17 +89,23 @@ export function AccountAffiliateProgram({ affiliate }) {
               detail="Users you referred who upgraded (Basic/Premium) or show paid activity on their account."
             />
             <div className="account-affiliate-card__reward">
-              <strong>Unlock:</strong> Partner status and referral rates up to <strong>25%+</strong> (terms confirmed when you message us).
+              <strong>Unlock:</strong> Partner status + referral payouts up to <GoldPremiumFx className="account-affiliate__money-fx">25%+</GoldPremiumFx> per paid member.
             </div>
             {refReady ? (
               <p className="account-affiliate-card__ready">
-                You&apos;ve cleared both referral milestones — reach out on Telegram to finalize partnership.
+                You&apos;ve cleared both referral milestones — message us now to activate your payout rate.
               </p>
             ) : (
               <p className="account-affiliate-card__nudge">
-                {refCombinedPct.toFixed(0)}% combined progress on this track — keep sharing; paid conversions accelerate your unlock.
+                {refCombinedPct.toFixed(0)}% combined progress — keep sharing your link; every paid conversion moves you closer to payout unlock.
               </p>
             )}
+            <section className="account-affiliate-card__info" aria-label="Referral monetization details">
+              <h5>How you earn with referral partnership</h5>
+              <ul>
+                <li><strong>Referral earnings:</strong> you earn money only from paid users you refer and the qualified paid activity they generate.</li>
+              </ul>
+            </section>
           </div>
         </article>
 
@@ -95,7 +114,7 @@ export function AccountAffiliateProgram({ affiliate }) {
             <span className="account-affiliate-card__badge account-affiliate-card__badge--creator">Path 2</span>
             <h4>Creator partnership</h4>
             <p className="account-affiliate-card__sub">
-              Publish consistently and earn watch time across your linked uploads. Meet both bars, then Telegram us to flip on creator payouts at stronger rates.
+              Publish consistently and build watch time across linked uploads. Meet both bars, then message us to activate stronger creator payouts.
             </p>
           </header>
           <div className="account-affiliate-card__body">
@@ -113,17 +132,25 @@ export function AccountAffiliateProgram({ affiliate }) {
               detail="Count of linked items across Videos, Photos, and GIFs on your profile tab."
             />
             <div className="account-affiliate-card__reward">
-              <strong>Unlock:</strong> Creator partner status and improved monetization on your catalog once verified.
+              <strong>Unlock:</strong> Creator partner status with <GoldPremiumFx className="account-affiliate__money-fx">earn monetization on videos</GoldPremiumFx> plus a percentage of total platform earnings.
             </div>
             {creatorReady ? (
               <p className="account-affiliate-card__ready">
-                You&apos;ve cleared creator milestones — DM us on Discord or Telegram with your username and profile link.
+                You&apos;ve cleared creator milestones — send your username + profile link so we can turn on creator payouts.
               </p>
             ) : (
               <p className="account-affiliate-card__nudge">
-                Add uploads with accurate links and keep promoting — hours stack as viewers engage.
+                Keep uploading and promoting — watch hours compound over time and push you toward payout activation.
               </p>
             )}
+            <section className="account-affiliate-card__info" aria-label="Creator monetization details">
+              <h5>How you earn with creator partnership</h5>
+              <ul>
+                <li><strong>Video monetization:</strong> earn money when paid users watch your uploaded content.</li>
+                <li><strong>Platform percentage:</strong> receive a percentage of total platform earnings tied to your creator performance tier.</li>
+                <li><strong>Paid-only content payouts:</strong> earn directly from posting exclusive paid-only videos, photos, and GIF packs.</li>
+              </ul>
+            </section>
           </div>
         </article>
       </div>

@@ -28,13 +28,19 @@ export function CustomRequestsPage() {
 
   return (
     <main className="page-content custom-requests-page">
-      <PageHero title="Custom requests" subtitle="Premium members can request specific content tailored to their preferences." />
+      <PageHero
+        title="Custom Requests"
+        subtitle="Premium members can request specific content with standard or priority turnaround."
+        className="custom-requests-hero"
+      />
 
       <div className="cr-card pornwrld-cr-card">
-        <div className="cr-card-icon" aria-hidden="true">
-          🎬
+        <div className="cr-card-head">
+          <div className="cr-card-icon" aria-hidden="true">
+            🎬
+          </div>
+          <h2 className="cr-card-heading">How it works</h2>
         </div>
-        <h2 className="cr-card-heading">How it works</h2>
 
         <div className="cr-steps">
           <div className="cr-step">
@@ -49,21 +55,25 @@ export function CustomRequestsPage() {
             <div className="cr-step-number">2</div>
             <div className="cr-step-content">
               <h3>Submit your request</h3>
-              <p>Fill out the form, choose Standard (free) or Priority ($20), and we&apos;ll get back to you.</p>
+              <p>Tell us exactly what you want, then choose Standard (free) or Priority ($20).</p>
             </div>
           </div>
 
           <div className="cr-step">
             <div className="cr-step-number">3</div>
             <div className="cr-step-content">
-              <h3>Get your content</h3>
-              <p>Standard: up to 5 hours. Priority: up to 1 hour.</p>
+              <h3>Receive delivery</h3>
+              <p>We review your request and send updates through official channels.</p>
             </div>
           </div>
         </div>
 
+        <div className="cr-turnaround">
+          <strong>Turnaround:</strong> Standard up to 5 hours, Priority up to 1 hour.
+        </div>
+
         {tierOk === null && (
-          <p className="page-loading" style={{ textAlign: 'center' }}>
+          <p className="page-loading cr-access-note">
             Checking access…
           </p>
         )}

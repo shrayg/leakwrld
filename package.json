@@ -11,6 +11,9 @@
     "build:client": "vite build --config client/vite.config.js",
     "serve": "npm run build && node server.js",
     "test": "node --test tests/*.test.js",
+    "r2:bucket-root-sizes": "node scripts/r2-bucket-root-sizes.mjs",
+    "r2:folder-sizes": "node scripts/r2-folder-sizes.mjs",
+    "r2:upload-category": "node scripts/r2-upload-local-category.mjs",
     "qa:smoke": "node scripts/scripts/qa-smoke.mjs",
     "worker:transcode": "node scripts/transcode-worker.mjs"
   },

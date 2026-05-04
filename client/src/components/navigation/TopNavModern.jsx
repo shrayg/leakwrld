@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { fetchRandomVideos } from '../../api/client';
 import { ProfileMenu } from '../auth/ProfileMenu';
-import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../../constants/officialContact';
 
 const CATEGORY_ITEMS = [
   { label: 'NSFW Straight', to: '/nsfw-straight' },
@@ -12,22 +11,22 @@ const CATEGORY_ITEMS = [
   { label: 'MILF', to: '/milf' },
   { label: 'Asian', to: '/asian' },
   { label: 'Ebony', to: '/ebony' },
+  { label: 'Feet', to: '/feet' },
   { label: 'Hentai', to: '/hentai' },
-  { label: 'Yuri', to: '/yuri' },
+  { label: 'Lesbian', to: '/yuri' },
   { label: 'Yaoi', to: '/yaoi' },
   { label: 'Nip Slips', to: '/nip-slips' },
   { label: 'Omegle', to: '/omegle' },
-  { label: 'OF Leaks', to: '/of-leaks' },
-  { label: 'Premium Leaks', to: '/premium-leaks' },
+  { label: 'OF Leaks', to: '/of-leaks', premium: true },
+  { label: 'Premium Leaks', to: '/premium-leaks', premium: true },
 ];
 
 const VIDEO_DROPDOWN = [
-  { label: 'Recommended', to: '/' },
-  { label: 'Popular', to: '/search' },
-  { label: 'Newly Added', to: '/new-releases' },
+  { label: 'Recommended', to: '/recommended' },
+  { label: 'Popular', to: '/popular' },
+  { label: 'Newly Added', to: '/newly-added' },
   { label: 'Random Video', action: 'random-video' },
-  { label: 'Live Cams', to: '/live-cams' },
-  { label: 'OnlyFans', to: '/onlyfans' },
+  { label: 'OnlyFans', to: '/onlyfans', premium: true },
 ];
 
 const NAV_ITEMS = [
@@ -37,14 +36,20 @@ const NAV_ITEMS = [
   { key: 'shorts', label: 'Shorts', to: '/shorts' },
   { key: 'custom', label: 'Custom Requests', to: '/custom-requests' },
   { key: 'premium', label: 'Premium', to: '/checkout', premium: true },
-  { key: 'discord', label: 'Discord', href: OFFICIAL_DISCORD_INVITE_URL },
-  { key: 'telegram', label: 'Telegram', href: OFFICIAL_TELEGRAM_URL },
 ];
 
 function isItemActive(pathname, item) {
   if (item.to === '/') return pathname === '/' || pathname === '/index.html';
   if (item.to) return pathname === item.to || pathname.startsWith(item.to + '/');
-  if (item.dropdown === 'videos') return pathname === '/new-releases' || pathname === '/onlyfans' || pathname === '/live-cams';
+  if (item.dropdown === 'videos') {
+    return (
+      pathname === '/recommended' ||
+      pathname === '/popular' ||
+      pathname === '/newly-added' ||
+      pathname === '/new-releases' ||
+      pathname === '/onlyfans'
+    );
+  }
   if (item.dropdown === 'categories') return pathname === '/categories' || CATEGORY_ITEMS.some((c) => pathname === c.to);
   return false;
 }
@@ -218,7 +223,7 @@ export function TopNavModern({ menuOpen = false, onToggleMenu }) {
                                 <button
                                   key={entry.label}
                                   type="button"
-                                  className="pw-nav-dd-item"
+                                  className={`pw-nav-dd-item${entry.premium ? ' premium' : ''}`}
                                   onClick={() => {
                                     navigate(entry.to);
                                     setOpenDropdown(null);
@@ -247,7 +252,7 @@ export function TopNavModern({ menuOpen = false, onToggleMenu }) {
                           <button
                             key={entry.label}
                             type="button"
-                            className="pw-nav-dd-item"
+                            className={`pw-nav-dd-item${entry.premium ? ' premium' : ''}`}
                             onClick={() => {
                               navigate(entry.to);
                               setOpenDropdown(null);

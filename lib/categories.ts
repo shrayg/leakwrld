@@ -7,7 +7,7 @@ export const platformCategories = [
   { slug: "asian", label: "Asian" },
   { slug: "ebony", label: "Ebony" },
   { slug: "hentai", label: "Hentai" },
-  { slug: "yuri", label: "Yuri" },
+  { slug: "yuri", label: "Lesbian" },
   { slug: "yaoi", label: "Yaoi" },
   { slug: "nip-slips", label: "Nip Slips" },
   { slug: "omegle", label: "Omegle" },

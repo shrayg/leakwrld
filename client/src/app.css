@@ -18,13 +18,15 @@
  * leaves `body { padding-top }` too short, so the fixed header overlaps the left side of the page
  * (account “Profile” sat under the logo bar and looked unclickable).
  */
+:root:has(.site-theme-pornwrld),
 html:has(.site-theme-pornwrld) {
-  --nav-height: 132px;
+  --nav-height: 144px !important;
 }
 
 @media (max-width: 860px) {
+  :root:has(.site-theme-pornwrld),
   html:has(.site-theme-pornwrld) {
-    --nav-height: 124px;
+    --nav-height: 132px !important;
   }
 }
 
@@ -366,6 +368,9 @@ html:has(.site-theme-pornwrld) {
   margin: 0 0 10px;
   padding: 6px 0 12px;
   z-index: auto;
+  position: relative;
+  isolation: isolate;
+  touch-action: manipulation;
 }
 
 .account-profile-shell > .account-pw-tabs.pw-nav-tabs:first-of-type {
@@ -404,6 +409,43 @@ html:has(.site-theme-pornwrld) {
   padding: 14px 0;
 }
 
+.account-profile-upload {
+  padding: 14px 0;
+}
+
+.account-profile-upload h3 {
+  margin: 0 0 6px;
+  color: #fff5fb;
+}
+
+.account-profile-upload__lede {
+  margin: 0 0 12px;
+  color: rgba(255, 245, 251, 0.7);
+}
+
+.account-profile-upload__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.account-profile-upload__card {
+  min-height: 54px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--pornwrld-radius-card);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff5fb;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.account-profile-upload__card:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 48%, rgba(255, 255, 255, 0.14));
+  background: color-mix(in srgb, var(--color-primary) 10%, rgba(255, 255, 255, 0.04));
+}
+
 .account-profile-grid-card {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--pornwrld-radius-card);
@@ -411,6 +453,51 @@ html:has(.site-theme-pornwrld) {
   padding: 10px;
   text-decoration: none;
   color: #fff5fb;
+}
+
+.account-profile-grid-card--upload {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-profile-grid-thumb--upload {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 214, 102, 0.45);
+  background:
+    radial-gradient(120% 90% at 20% 10%, rgba(255, 214, 102, 0.22), rgba(255, 214, 102, 0.02) 55%, transparent 75%),
+    linear-gradient(160deg, rgba(18, 18, 20, 0.95), rgba(10, 10, 12, 0.98));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 214, 102, 0.12),
+    0 0 16px rgba(255, 214, 102, 0.16);
+}
+
+.account-profile-grid-thumb--upload::before {
+  content: '↑';
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff9d6;
+  text-shadow:
+    0 0 8px rgba(255, 214, 102, 0.55),
+    0 0 18px rgba(255, 214, 102, 0.35);
+}
+
+.account-profile-grid-thumb--upload::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  transform: translateX(-50%);
+  width: 34px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 214, 102, 0.7), rgba(255, 255, 255, 0.9), rgba(255, 214, 102, 0.7));
 }
 
 .account-profile-grid-thumb {
@@ -866,17 +953,36 @@ html:has(.site-theme-pornwrld) {
 
 .account-affiliate__hero h3 {
   margin: 0 0 10px;
-  font-size: clamp(18px, 2vw, 22px);
-  font-weight: 700;
+  font-size: clamp(22px, 2.4vw, 28px);
+  font-weight: 800;
   color: #fff5fb;
 }
 
 .account-affiliate__lede {
   margin: 0;
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 17px;
+  line-height: 1.6;
+  font-weight: 500;
   color: rgba(255, 245, 251, 0.82);
   max-width: 85ch;
+}
+
+.account-affiliate__money-points {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.account-affiliate__money-points p {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.6;
+  font-weight: 550;
+  color: rgba(255, 245, 251, 0.86);
+}
+
+.account-affiliate__money-fx .gold-premium-fx__text {
+  font-size: 0.98em;
 }
 
 .account-affiliate__grid {
@@ -906,15 +1012,16 @@ html:has(.site-theme-pornwrld) {
 
 .account-affiliate-card__head h4 {
   margin: 8px 0 8px;
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 800;
   color: #fff5fb;
 }
 
 .account-affiliate-card__sub {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 16px;
+  line-height: 1.6;
+  font-weight: 500;
   color: rgba(255, 245, 251, 0.76);
 }
 
@@ -952,16 +1059,16 @@ html:has(.site-theme-pornwrld) {
 }
 
 .account-affiliate-goal__label {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.62);
 }
 
 .account-affiliate-goal__count {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 19px;
+  font-weight: 800;
   color: #fff5fb;
   white-space: nowrap;
 }
@@ -985,16 +1092,17 @@ html:has(.site-theme-pornwrld) {
 
 .account-affiliate-goal__detail {
   margin: 6px 0 0;
-  font-size: 11px;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .account-affiliate-card__reward {
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.55;
   color: rgba(255, 245, 251, 0.88);
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: var(--pornwrld-radius-card);
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.22);
@@ -1006,16 +1114,51 @@ html:has(.site-theme-pornwrld) {
 
 .account-affiliate-card__ready {
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: color-mix(in srgb, var(--color-primary-light) 85%, #fff);
 }
 
 .account-affiliate-card__nudge {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 550;
   color: rgba(255, 245, 251, 0.68);
+}
+
+.account-affiliate-card__info {
+  margin-top: 2px;
+  padding: 12px 14px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(11, 11, 14, 0.92), rgba(7, 7, 10, 0.95));
+}
+
+.account-affiliate-card__info h5 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff5fb;
+}
+
+.account-affiliate-card__info ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 7px;
+}
+
+.account-affiliate-card__info li {
+  font-size: 14px;
+  line-height: 1.6;
+  font-weight: 500;
+  color: rgba(255, 245, 251, 0.84);
+}
+
+.account-affiliate-card__info strong {
+  color: #fff5fb;
+  font-weight: 800;
 }
 
 .account-affiliate__footer {
@@ -1059,6 +1202,10 @@ html:has(.site-theme-pornwrld) {
 
 @media (max-width: 900px) {
   .account-affiliate__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-profile-upload__grid {
     grid-template-columns: 1fr;
   }
 }
@@ -3298,6 +3445,17 @@ html:has(.site-theme-pornwrld) {
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 
+.pw-nav-dd-item.premium {
+  color: var(--color-premium-text);
+  border-color: color-mix(in srgb, var(--color-premium-border) 46%, transparent);
+  background: color-mix(in srgb, var(--color-premium-border) 12%, transparent);
+}
+
+.pw-nav-dd-item.premium:hover {
+  border-color: color-mix(in srgb, var(--color-premium-border) 62%, transparent);
+  background: color-mix(in srgb, var(--color-premium-border) 18%, transparent);
+}
+
 .pw-nav-dd-item-random {
   border-top: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
   margin-top: 4px;
@@ -3327,9 +3485,13 @@ html:has(.site-theme-pornwrld) {
     width: min(420px, 100%);
   }
 
-  .pw-nav-tabs {
+  .top-nav.pw-nav .pw-nav-tabs {
     overflow-x: auto;
     overflow-y: visible;
+  }
+
+  .account-pw-tabs.pw-nav-tabs {
+    overflow: visible;
   }
 
   .pw-nav-dd-cols {

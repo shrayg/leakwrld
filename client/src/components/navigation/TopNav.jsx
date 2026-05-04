@@ -6,7 +6,6 @@ import { ProfileMenu } from '../auth/ProfileMenu';
 import { useNavOverflowSplit } from '../../hooks/useNavOverflowSplit';
 import { useAuth } from '../../hooks/useAuth';
 import { cn } from '../../lib/utils';
-import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../../constants/officialContact';
 
 /** Must match `.site-theme-pornwrld .top-nav-links { gap }` for overflow measurement */
 const NAV_LINK_GAP_PX = 6;
@@ -16,8 +15,6 @@ const NAV_ENTRIES = [
   { key: 'home', kind: 'link', to: '/', label: 'Home', end: true },
   { key: 'shorts', kind: 'link', to: '/shorts', label: 'Shorts' },
   { key: 'custom', kind: 'custom', to: '/custom-requests', label: 'Custom Requests' },
-  { key: 'discord', kind: 'external', href: OFFICIAL_DISCORD_INVITE_URL, label: 'Discord' },
-  { key: 'support', kind: 'external', href: OFFICIAL_TELEGRAM_URL, label: 'Telegram' },
   { key: 'premium', kind: 'link', to: '/checkout', label: 'Premium', premium: true },
   { key: 'search', kind: 'search', label: 'Search' },
 ];

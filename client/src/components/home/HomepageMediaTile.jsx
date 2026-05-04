@@ -19,13 +19,14 @@ export function resolveThumbUrlForFile(file) {
   if (file.thumb) return file.thumb;
   if (file.thumbnailUrl) return file.thumbnailUrl;
   if (file.folder && file.name) {
-    return (
+    let u =
       '/thumbnail?folder=' +
       encodeURIComponent(file.folder) +
       '&name=' +
       encodeURIComponent(file.name) +
-      (file.subfolder ? '&subfolder=' + encodeURIComponent(file.subfolder) : '')
-    );
+      (file.subfolder ? '&subfolder=' + encodeURIComponent(file.subfolder) : '');
+    if (file.vault) u += '&vault=' + encodeURIComponent(file.vault);
+    return u;
   }
   return DEFAULT_PREVIEW_THUMB;
 }
@@ -35,6 +36,7 @@ export function videoHrefFromFile(f) {
   q.set('folder', f.folder || '');
   q.set('name', f.name || '');
   if (f.subfolder) q.set('subfolder', f.subfolder);
+  if (f.vault) q.set('vault', f.vault);
   return '/video?' + q.toString();
 }
 
@@ -69,7 +71,9 @@ export function HomepageMediaTile({ file, badgeType }) {
       onClick={() => {
         sendTelemetry('click', {
           surface: 'rail_tile',
-          videoId: file.videoId || buildVideoId(file.folder, file.subfolder || '', file.name),
+          videoId:
+            file.videoId ||
+            buildVideoId(file.folder, file.subfolder || '', file.name, file.vault),
           folder: file.folder,
           subfolder: file.subfolder || '',
           name: file.name,

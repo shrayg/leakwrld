@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PageHero } from '../components/layout/PageHero';
 import { useAuth } from '../hooks/useAuth';
 import { useShell } from '../context/ShellContext';
 
@@ -15,6 +14,7 @@ export function OnlyFansPage() {
   const [creators, setCreators] = useState([]);
   const [loadErr, setLoadErr] = useState(null);
   const [creatorsLoaded, setCreatorsLoaded] = useState(false);
+  const [creatorSearch, setCreatorSearch] = useState('');
 
   useEffect(() => {
     document.title = 'OnlyFans Leaks — Pornwrld';
@@ -66,12 +66,37 @@ export function OnlyFansPage() {
     [isAuthed, tier, navigate, openAuth],
   );
 
+  const filteredCreators = useMemo(() => {
+    const q = creatorSearch.trim().toLowerCase();
+    if (!q) return creators;
+    return creators.filter((c) => String(c.name || '').toLowerCase().includes(q));
+  }, [creators, creatorSearch]);
+
   return (
-    <main className="onlyfans-page px-4 pb-20 pt-6 max-[640px]:px-3">
-      <PageHero
-        title="OnlyFans Leaks"
-        subtitle="Browse by creator — tap a name to open the full leak archive (Premium Tier 2)."
-      />
+    <main className="page-content folder-page onlyfans-page px-4 pb-20 pt-6 max-[640px]:px-3">
+      <div className="folder-header pornwrld-folder-head">
+        <h1 className="pornwrld-page-title">OnlyFans Leaks</h1>
+      </div>
+
+      <div className="folder-toolbar">
+        <div className="folder-sort-bar">
+          <label>Section:</label>
+          <button type="button" className="sort-btn active">
+            Creators
+          </button>
+        </div>
+        <div className="folder-video-search">
+          <label htmlFor="onlyfans-creator-search">Search creators:</label>
+          <input
+            id="onlyfans-creator-search"
+            type="text"
+            className="folder-video-search-input"
+            placeholder="Search by creator name..."
+            value={creatorSearch}
+            onChange={(e) => setCreatorSearch(e.target.value)}
+          />
+        </div>
+      </div>
 
       {loadErr ? (
         <p className="onlyfans-page__err" role="alert">
@@ -101,14 +126,14 @@ export function OnlyFansPage() {
         </div>
       )}
 
-      <div className="of-creator-grid" aria-busy={creators.length === 0 && !loadErr}>
-        {creators.length === 0 && !loadErr ? (
+      <div className="of-creator-grid" aria-busy={filteredCreators.length === 0 && !loadErr}>
+        {filteredCreators.length === 0 && !loadErr ? (
           <div className="of-loading">
             <div className="of-spinner" />
-            <p>Loading creators…</p>
+            <p>{creators.length ? 'No creators match that search.' : 'Loading creators…'}</p>
           </div>
         ) : null}
-        {creators.map((c) => (
+        {filteredCreators.map((c) => (
           <button
             key={c.slug || c.name}
             type="button"
@@ -169,6 +194,11 @@ export function OnlyFansPage() {
           </div>
         ) : null}
       </div>
+      <section className="folder-seo" aria-label="OnlyFans description">
+        <p className="seo-intro" style={{ color: '#999', lineHeight: 1.7 }}>
+          Browse OnlyFans leaks by creator on Pornwrld — open full archives with Premium Tier 2 access.
+        </p>
+      </section>
     </main>
   );
 }

@@ -6,8 +6,13 @@ function safeString(value, max = 128) {
   return String(value || '').slice(0, max);
 }
 
-export function buildVideoId(folder, subfolder, name) {
-  return [safeString(folder, 80), safeString(subfolder, 80), safeString(name, 180)].join('|');
+/** Matches server `canonicalVideoId` — vault tier folder only (no video/photo/gif segment). */
+export function buildVideoId(folder, subfolder, name, vault) {
+  const v = safeString(vault || '', 32).trim().toLowerCase();
+  if (!v) {
+    return [safeString(folder, 80), safeString(subfolder, 80), safeString(name, 180)].join('|');
+  }
+  return [safeString(folder, 80), safeString(subfolder, 80), v, safeString(name, 180)].join('|');
 }
 
 export function sendTelemetry(eventType, payload = {}) {

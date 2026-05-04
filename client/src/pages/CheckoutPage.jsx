@@ -20,15 +20,14 @@ const DEFAULT_PATREON_CHECKOUT_URLS = {
   basic: 'https://www.patreon.com/checkout/PornWrld?rid=28462115',
   premium: 'https://www.patreon.com/checkout/PornWrld?rid=28462116',
   ultimate: 'https://www.patreon.com/checkout/PornWrld?rid=28462118',
-  elite: 'https://www.patreon.com/checkout/PornWrld?rid=28462122',
 };
 
-const PLAN_ORDER = ['basic', 'premium', 'ultimate', 'elite'];
+const PLAN_ORDER = ['basic', 'premium', 'ultimate'];
 
 const PLANS = {
   basic: {
     label: 'Basic',
-    price: '$4.99',
+    price: '$9.99',
     blurb: '/mo',
     tierNum: 1,
     checkoutUrl: String(
@@ -39,7 +38,7 @@ const PLANS = {
   },
   premium: {
     label: 'Premium',
-    price: '$9.99',
+    price: '$24.99',
     blurb: '/mo',
     tierNum: 2,
     checkoutUrl: String(
@@ -50,7 +49,7 @@ const PLANS = {
   },
   ultimate: {
     label: 'Ultimate',
-    price: '$19.99',
+    price: '$39.99',
     blurb: '/mo',
     tierNum: 3,
     checkoutUrl: String(
@@ -59,22 +58,9 @@ const PLANS = {
     cardClass: 'ultimate',
     btnClass: 'btn-ultimate',
   },
-  elite: {
-    label: 'Elite',
-    price: '$49.99',
-    blurb: '/mo',
-    tierNum: 4,
-    checkoutUrl: String(
-      import.meta.env.VITE_PATREON_CHECKOUT_ELITE_URL ||
-        import.meta.env.VITE_PATREON_CHECKOUT_SOVEREIGN_URL ||
-        DEFAULT_PATREON_CHECKOUT_URLS.elite,
-    ).trim(),
-    cardClass: 'elite',
-    btnClass: 'btn-elite',
-  },
 };
 
-/** Free + four paid columns — cells align per row. */
+/** Free + three paid columns — cells align per row. */
 const TIER_COMPARE_ROWS = [
   {
     label: 'Full-length library',
@@ -82,7 +68,6 @@ const TIER_COMPARE_ROWS = [
     basic: '1,000+ videos',
     premium: '5,000+ videos',
     ultimate: '5,000+ videos',
-    elite: '5,000+ videos',
   },
   {
     label: 'OnlyFans leaks vault',
@@ -90,7 +75,6 @@ const TIER_COMPARE_ROWS = [
     basic: false,
     premium: true,
     ultimate: true,
-    elite: true,
   },
   {
     label: 'HD playback (full videos)',
@@ -98,7 +82,6 @@ const TIER_COMPARE_ROWS = [
     basic: true,
     premium: true,
     ultimate: true,
-    elite: true,
   },
   {
     label: 'Ad-free experience',
@@ -106,7 +89,6 @@ const TIER_COMPARE_ROWS = [
     basic: true,
     premium: true,
     ultimate: true,
-    elite: true,
   },
   {
     label: 'Daily new uploads',
@@ -114,7 +96,6 @@ const TIER_COMPARE_ROWS = [
     basic: '+10 GB / day',
     premium: '+10 GB + mega vault sync',
     ultimate: '+10 GB + mega vault sync',
-    elite: '+10 GB + mega vault sync',
   },
   {
     label: 'Banana Girl & niche vaults',
@@ -122,7 +103,6 @@ const TIER_COMPARE_ROWS = [
     basic: false,
     premium: true,
     ultimate: true,
-    elite: true,
   },
   {
     label: 'Custom model videos',
@@ -130,7 +110,6 @@ const TIER_COMPARE_ROWS = [
     basic: false,
     premium: true,
     ultimate: true,
-    elite: true,
   },
   {
     label: 'Exclusive drops & early access',
@@ -138,15 +117,13 @@ const TIER_COMPARE_ROWS = [
     basic: false,
     premium: true,
     ultimate: true,
-    elite: true,
   },
   {
     label: 'Support priority',
     free: '—',
     basic: 'Standard',
     premium: 'Priority',
-    ultimate: 'High priority',
-    elite: 'Top priority',
+    ultimate: 'Top priority',
   },
   {
     label: 'Billing',
@@ -154,7 +131,6 @@ const TIER_COMPARE_ROWS = [
     basic: 'Patreon monthly',
     premium: 'Patreon monthly',
     ultimate: 'Patreon monthly',
-    elite: 'Patreon monthly',
   },
 ];
 
@@ -573,7 +549,7 @@ export function CheckoutPage() {
           <PageHero
             className="checkout-page-hero"
             title="Unlock the full archive"
-            subtitle="Monthly membership on Patreon — four tiers. After paying, return here and enter your Patreon email to sync access."
+            subtitle="Monthly membership on Patreon — three tiers. After paying, return here and enter your Patreon email to sync access."
           />
 
           <div className="checkout-kpis" aria-label="Highlights">
@@ -729,7 +705,7 @@ export function CheckoutPage() {
 
               <div className="checkout-matrix-scroll" tabIndex={0}>
                 <div
-                  className="checkout-tier-matrix checkout-tier-matrix--six"
+                  className="checkout-tier-matrix checkout-tier-matrix--five"
                   role="table"
                   aria-label="Tier features compared"
                 >
@@ -748,9 +724,6 @@ export function CheckoutPage() {
                     </div>
                     <div className="checkout-tier-matrix__colhead checkout-tier-matrix__colhead--ultimate" role="columnheader">
                       Ultimate
-                    </div>
-                    <div className="checkout-tier-matrix__colhead checkout-tier-matrix__colhead--elite" role="columnheader">
-                      Elite
                     </div>
                   </div>
                   {TIER_COMPARE_ROWS.map((row) => (
@@ -781,12 +754,6 @@ export function CheckoutPage() {
                         role="cell"
                       >
                         <CheckoutCompareCell value={row.ultimate} />
-                      </div>
-                      <div
-                        className="checkout-tier-matrix__cell checkout-tier-matrix__cell--elite"
-                        role="cell"
-                      >
-                        <CheckoutCompareCell value={row.elite} />
                       </div>
                     </div>
                   ))}

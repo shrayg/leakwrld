@@ -1,5 +1,7 @@
 /** Ported from script.js — deterministic SEO titles for gibberish filenames. */
 
+import { folderDisplayName } from './cleanUrls';
+
 const _seoTitleCache = {};
 
 export function seoCleanTitle(rawName, folder) {
@@ -30,7 +32,7 @@ export function seoCleanTitle(rawName, folder) {
   const _pick = (arr) => arr[_h % arr.length];
   const _pick2 = (arr) => arr[(_h >>> 4) % arr.length];
 
-  const cat = (folder || '').replace(/[-_]/g, ' ');
+  const cat = folderDisplayName(folder || '').replace(/[-_]/g, ' ');
   const adjectives = [
     'hot',
     'sexy',

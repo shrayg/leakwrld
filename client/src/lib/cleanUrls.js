@@ -8,6 +8,7 @@ export const FOLDER_TO_CLEAN = {
   MILF: '/milf',
   Asian: '/asian',
   Ebony: '/ebony',
+  Feet: '/feet',
   Hentai: '/hentai',
   Yuri: '/yuri',
   Yaoi: '/yaoi',
@@ -17,6 +18,16 @@ export const FOLDER_TO_CLEAN = {
   'Premium Leaks': '/premium-leaks',
 };
 
+/** Public label for category pages (API `folder` stays canonical, e.g. Yuri). */
+const FOLDER_DISPLAY_NAME = {
+  Yuri: 'Lesbian',
+};
+
+export function folderDisplayName(folder) {
+  const f = String(folder || '');
+  return FOLDER_DISPLAY_NAME[f] || f;
+}
+
 export const CLEAN_TO_FOLDER = {
   '/nsfw-straight': 'NSFW Straight',
   '/alt-and-goth': 'Alt and Goth',
@@ -25,6 +36,7 @@ export const CLEAN_TO_FOLDER = {
   '/milf': 'MILF',
   '/asian': 'Asian',
   '/ebony': 'Ebony',
+  '/feet': 'Feet',
   '/hentai': 'Hentai',
   '/yuri': 'Yuri',
   '/yaoi': 'Yaoi',

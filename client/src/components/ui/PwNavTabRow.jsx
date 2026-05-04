@@ -48,7 +48,13 @@ export function PwNavTabRow({
   const glideCls = ['pw-nav-glide', glideClassName].filter(Boolean).join(' ');
 
   return (
-    <nav ref={navRef} className={navCls} role="tablist" aria-label={ariaLabel}>
+    <nav
+      ref={navRef}
+      className={navCls}
+      role="tablist"
+      aria-label={ariaLabel}
+      style={{ position: 'relative', isolation: 'isolate' }}
+    >
       <span
         className={glideCls}
         style={{
@@ -56,6 +62,8 @@ export function PwNavTabRow({
           transform: `translate(${glide.x}px, ${glide.y}px)`,
           width: glide.w,
           height: glide.h,
+          pointerEvents: 'none',
+          zIndex: 0,
         }}
         aria-hidden="true"
       />
@@ -71,6 +79,7 @@ export function PwNavTabRow({
             else delete itemRefs.current[key];
           }}
           onClick={() => onChange(key)}
+          style={{ position: 'relative', zIndex: 1, pointerEvents: 'auto' }}
         >
           {label}
         </button>

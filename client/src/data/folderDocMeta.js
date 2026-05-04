@@ -24,6 +24,11 @@ export const FOLDER_DOC_META = {
     title: 'Feet Videos — Foot Fetish, Soles, Toes & Feet Worship Content',
     desc: 'Browse foot fetish videos — soles, toes, feet worship and amateur feet content. Curated HD feet videos on Pornwrld.',
   },
+  Yuri: {
+    title: 'Lesbian Videos — Girl on Girl, WLW & Lesbian Adult Content',
+    desc:
+      'Browse lesbian videos and girl-on-girl content — curated WLW clips and HD lesbian scenes. Updated regularly on Pornwrld.',
+  },
   'Live Slips': {
     title: 'Nip Slips — Wardrobe Malfunctions, Accidental Flashing & Slips',
     desc:
