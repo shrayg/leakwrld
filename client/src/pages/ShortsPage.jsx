@@ -20,19 +20,19 @@ import { buildVideoId, sendTelemetry } from '../lib/telemetry';
 const SHORTS_CATEGORIES = Object.keys(FOLDER_TO_CLEAN);
 const SHORTS_TAB_THUMBS = {
   'NSFW Straight': '/assets/thumbnails/omegle.jpg',
-  'Alt and Goth': '/assets/thumbnails/tiktok.jpg',
+  'Alt and Goth': '/assets/thumbnails/tiktok.png',
   Petitie: '/assets/thumbnails/snapchat.jpg',
   'Teen (18+ only)': '/assets/thumbnails/liveslips.png',
-  MILF: '/assets/thumbnails/feet.jpg',
+  MILF: '/assets/thumbnails/feet.png',
   Asian: '/assets/thumbnails/snapchat.jpg',
-  Ebony: '/assets/thumbnails/tiktok.jpg',
-  Feet: '/assets/thumbnails/feet.jpg',
+  Ebony: '/assets/thumbnails/tiktok.png',
+  Feet: '/assets/thumbnails/feet.png',
   Hentai: '/assets/thumbnails/liveslips.png',
   Yuri: '/assets/thumbnails/liveslips.png',
-  Yaoi: '/assets/thumbnails/feet.jpg',
+  Yaoi: '/assets/thumbnails/feet.png',
   'Nip Slips': '/assets/thumbnails/liveslips.png',
   Omegle: '/assets/thumbnails/omegle.jpg',
-  'OF Leaks': '/assets/thumbnails/onlyfans.jpg',
+  'OF Leaks': '/assets/thumbnails/onlyfans.png',
 };
 
 /** Thumbnails match homepage / categories cards (same “folder” icons as before) */

@@ -97,7 +97,7 @@ export default function App() {
           <Route path="/yaoi" element={<FolderPage seoFolder="Yaoi" />} />
           <Route path="/nip-slips" element={<FolderPage seoFolder="Nip Slips" />} />
           <Route path="/omegle" element={<FolderPage seoFolder="Omegle" />} />
-          <Route path="/of-leaks" element={<FolderPage seoFolder="OF Leaks" />} />
+          <Route path="/of-leaks" element={<Navigate to="/onlyfans" replace />} />
           <Route path="/premium-leaks" element={<Navigate to="/" replace />} />
           <Route path="/onlyfans" element={<OnlyFansPage />} />
           <Route path="/:categorySlug/:videoSlug" element={<VideoBySlugPage />} />

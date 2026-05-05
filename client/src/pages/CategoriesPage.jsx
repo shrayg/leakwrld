@@ -8,20 +8,20 @@ import { displayFolderCountLabel } from '../lib/folderCountsDisplay';
 /** Same folder keys / thumbs as `HomeFolderGrid`, plus Shorts (no folder count API). */
 const ROWS = [
   { kind: 'folder', countKey: 'NSFW Straight', to: '/nsfw-straight', thumb: '/assets/thumbnails/omegle.jpg', title: 'NSFW Straight' },
-  { kind: 'folder', countKey: 'Alt and Goth', to: '/alt-and-goth', thumb: '/assets/thumbnails/tiktok.jpg', title: 'Alt and Goth' },
+  { kind: 'folder', countKey: 'Alt and Goth', to: '/alt-and-goth', thumb: '/assets/thumbnails/tiktok.png', title: 'Alt and Goth' },
   { kind: 'folder', countKey: 'Petitie', to: '/petitie', thumb: '/assets/thumbnails/snapchat.jpg', title: 'Petitie' },
   { kind: 'folder', countKey: 'Teen (18+ only)', to: '/teen-18-plus', thumb: '/assets/thumbnails/liveslips.png', title: 'Teen (18+ only)' },
-  { kind: 'folder', countKey: 'MILF', to: '/milf', thumb: '/assets/thumbnails/feet.jpg', title: 'MILF' },
+  { kind: 'folder', countKey: 'MILF', to: '/milf', thumb: '/assets/thumbnails/feet.png', title: 'MILF' },
   { kind: 'folder', countKey: 'Asian', to: '/asian', thumb: '/assets/thumbnails/omegle.jpg', title: 'Asian' },
-  { kind: 'folder', countKey: 'Ebony', to: '/ebony', thumb: '/assets/thumbnails/tiktok.jpg', title: 'Ebony' },
-  { kind: 'folder', countKey: 'Feet', to: '/feet', thumb: '/assets/thumbnails/feet.jpg', title: 'Feet' },
+  { kind: 'folder', countKey: 'Ebony', to: '/ebony', thumb: '/assets/thumbnails/tiktok.png', title: 'Ebony' },
+  { kind: 'folder', countKey: 'Feet', to: '/feet', thumb: '/assets/thumbnails/feet.png', title: 'Feet' },
   { kind: 'folder', countKey: 'Hentai', to: '/hentai', thumb: '/assets/thumbnails/snapchat.jpg', title: 'Hentai' },
   { kind: 'folder', countKey: 'Yuri', to: '/yuri', thumb: '/assets/thumbnails/liveslips.png', title: 'Lesbian' },
-  { kind: 'folder', countKey: 'Yaoi', to: '/yaoi', thumb: '/assets/thumbnails/feet.jpg', title: 'Yaoi' },
+  { kind: 'folder', countKey: 'Yaoi', to: '/yaoi', thumb: '/assets/thumbnails/feet.png', title: 'Yaoi' },
   { kind: 'folder', countKey: 'Nip Slips', to: '/nip-slips', thumb: '/assets/thumbnails/liveslips.png', title: 'Nip Slips' },
   { kind: 'folder', countKey: 'Omegle', to: '/omegle', thumb: '/assets/thumbnails/omegle.jpg', title: 'Omegle' },
-  { kind: 'folder', countKey: 'OF Leaks', to: '/of-leaks', thumb: '/assets/thumbnails/onlyfans.jpg', title: 'OF Leaks' },
-  { kind: 'onlyfans', to: '/onlyfans', thumb: '/assets/thumbnails/onlyfans.jpg', title: 'OnlyFans Leaks', chip: 'By creator' },
+  { kind: 'folder', countKey: 'OF Leaks', to: '/of-leaks', thumb: '/assets/thumbnails/onlyfans.png', title: 'OnlyFans Leaks' },
+  { kind: 'onlyfans', to: '/onlyfans', thumb: '/assets/thumbnails/onlyfans.png', title: 'OnlyFans Leaks', chip: 'By creator' },
   { kind: 'shorts', to: '/shorts', thumb: '/assets/thumbnails/shorts.png', title: 'Shorts', chip: 'Vertical clips' },
 ];
 

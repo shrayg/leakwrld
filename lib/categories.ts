@@ -11,5 +11,5 @@ export const platformCategories = [
   { slug: "yaoi", label: "Yaoi" },
   { slug: "nip-slips", label: "Nip Slips" },
   { slug: "omegle", label: "Omegle" },
-  { slug: "of-leaks", label: "OF Leaks" },
+  { slug: "of-leaks", label: "OnlyFans Leaks" },
 ] as const;

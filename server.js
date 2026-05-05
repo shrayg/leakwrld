@@ -1883,6 +1883,63 @@ let shortStatsLoaded = false; // guard: don't write until R2 load completes
 let _shortStatsLastFetchTs = 0;
 const _SHORT_STATS_CACHE_TTL = 15000; // refresh from R2 every 15s for multi-machine sync
 
+// ── OnlyFans creator stats (views/clicks) ───────────────────────────────────
+let onlyfansCreatorStats = {}; // { "slug": { views: N } }
+let onlyfansCreatorStatsLoaded = false;
+let onlyfansCreatorStatsWritePromise = Promise.resolve();
+let onlyfansCreatorStatsFlushTimer = null;
+const ONLYFANS_CREATOR_STATS_STATE_KEY = 'onlyfans_creator_stats';
+
+async function loadOnlyfansCreatorStats() {
+  try {
+    let state = null;
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateResp = await loadAppStateSnapshot(ONLYFANS_CREATOR_STATS_STATE_KEY);
+      if (stateResp && stateResp.ok && stateResp.data && typeof stateResp.data === 'object') {
+        state = stateResp.data;
+      }
+    }
+    const next = {};
+    for (const [slug, val] of Object.entries(state || {})) {
+      if (!slug || typeof val !== 'object' || !val) continue;
+      next[String(slug).toLowerCase()] = { views: Math.max(0, Number(val.views || 0) || 0) };
+    }
+    onlyfansCreatorStats = next;
+  } catch (e) {
+    console.error('[onlyfans-stats] load error:', e && e.message ? e.message : e);
+  } finally {
+    onlyfansCreatorStatsLoaded = true;
+  }
+}
+
+async function queueOnlyfansCreatorStatsWrite() {
+  if (!onlyfansCreatorStatsLoaded) return;
+  const snapshot = {};
+  for (const [slug, val] of Object.entries(onlyfansCreatorStats || {})) {
+    snapshot[slug] = { views: Math.max(0, Number(val?.views || 0) || 0) };
+  }
+  onlyfansCreatorStatsWritePromise = onlyfansCreatorStatsWritePromise.then(async () => {
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateResp = await saveAppStateSnapshot(ONLYFANS_CREATOR_STATS_STATE_KEY, snapshot);
+      if (!stateResp.ok) {
+        console.error('[onlyfans-stats] Supabase state write failed:', stateResp.status || stateResp.reason || 'unknown');
+      }
+    }
+  }).catch((e) => {
+    console.error('[onlyfans-stats] write error:', e && e.message ? e.message : e);
+  });
+  return onlyfansCreatorStatsWritePromise;
+}
+
+function scheduleOnlyfansCreatorStatsPersist() {
+  if (!onlyfansCreatorStatsLoaded) return;
+  if (onlyfansCreatorStatsFlushTimer) return;
+  onlyfansCreatorStatsFlushTimer = setTimeout(() => {
+    onlyfansCreatorStatsFlushTimer = null;
+    void queueOnlyfansCreatorStatsWrite();
+  }, 3000);
+}
+
 // Extract filename from old URL-style keys ("/media?folder=X&name=file.mp4" → "file.mp4")
 function _migrateStatsKey(key) {
   if (!key || typeof key !== 'string') return key;
@@ -10213,6 +10270,7 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname === '/api/onlyfans-creators') {
       const method = (req.method || 'GET').toUpperCase();
       if (method !== 'GET' && method !== 'HEAD') return sendJson(res, 405, { error: 'Method Not Allowed' });
+      if (!onlyfansCreatorStatsLoaded) await loadOnlyfansCreatorStats();
       const CREATORS = [
         { slug: 'piper-rockelle', name: 'Piper Rockelle', ext: '.jpg' },
         { slug: 'sophie-rain', name: 'Sophie Rain', ext: '.png' },
@@ -10312,10 +10370,27 @@ const server = http.createServer(async (req, res) => {
           // Back-compat: keep old single-field behavior.
           thumbUrlR2: thumbUrlR2Candidates[0] || null,
           thumbUrlR2Candidates,
+          views: Math.max(0, Number(onlyfansCreatorStats[c.slug.toLowerCase()]?.views || 0) || 0),
         };
       });
       res.setHeader('Cache-Control', 'public, max-age=300');
       return sendJson(res, 200, { creators: result });
+    }
+
+    // POST /api/onlyfans-creators/view — increment creator card view/click stats
+    if (requestUrl.pathname === '/api/onlyfans-creators/view') {
+      const method = (req.method || 'GET').toUpperCase();
+      if (method !== 'POST') return sendJson(res, 405, { error: 'Method Not Allowed' });
+      if (!onlyfansCreatorStatsLoaded) await loadOnlyfansCreatorStats();
+      const body = await readJsonBody(req, res);
+      if (!body) return;
+      const slug = String(body.slug || '').trim().toLowerCase();
+      if (!slug) return sendJson(res, 400, { error: 'Missing slug' });
+      const cur = onlyfansCreatorStats[slug] || { views: 0 };
+      cur.views = Math.max(0, Number(cur.views || 0) || 0) + 1;
+      onlyfansCreatorStats[slug] = cur;
+      scheduleOnlyfansCreatorStatsPersist();
+      return sendJson(res, 200, { ok: true, slug, views: cur.views });
     }
 
     // GET /api/onlyfans-mega — tier 2 only

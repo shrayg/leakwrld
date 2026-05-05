@@ -17,7 +17,7 @@ const CATEGORY_ITEMS = [
   { label: 'Yaoi', to: '/yaoi' },
   { label: 'Nip Slips', to: '/nip-slips' },
   { label: 'Omegle', to: '/omegle' },
-  { label: 'OF Leaks', to: '/of-leaks', premium: true },
+  { label: 'OnlyFans Leaks', to: '/of-leaks', premium: true },
 ];
 
 const VIDEO_DROPDOWN = [

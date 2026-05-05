@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Lock } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useShell } from '../context/ShellContext';
 
@@ -44,7 +45,17 @@ export function OnlyFansPage() {
   }, []);
 
   const onCreatorClick = useCallback(
-    async (_creator) => {
+    async (creator) => {
+      try {
+        await fetch('/api/onlyfans-creators/view', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: creator.slug || '' }),
+        });
+      } catch {
+        // non-critical stats endpoint
+      }
       if (!isAuthed) {
         openAuth('signup');
         return;
@@ -105,21 +116,21 @@ export function OnlyFansPage() {
       ) : null}
 
       {!loading && isAuthed && (tier || 0) < 2 && (
-        <div className="mx-auto mb-6 flex max-w-[640px] flex-wrap items-start gap-3 rounded-xl border border-[rgba(231,76,60,0.55)] bg-[linear-gradient(180deg,rgba(231,76,60,0.12),rgba(231,76,60,0.03))] px-4 py-3.5 text-[0.95rem] leading-[1.45]">
-          <span className="text-xl leading-none" aria-hidden>
+        <div className="of-upgrade-banner">
+          <span className="of-upgrade-banner-lock" aria-hidden>
             🔒
           </span>
-          <div>
+          <div className="of-upgrade-banner-copy">
             <strong>Premium required</strong> to open Mega folders.{' '}
             <button
               type="button"
-              className="border-none bg-transparent p-0 font-inherit text-[var(--pornwrld-gold)] underline"
+              className="of-upgrade-banner-link"
               onClick={() => navigate('/checkout?plan=premium')}
             >
               Upgrade
             </button>
             {' · '}
-            <button type="button" className="border-none bg-transparent p-0 font-inherit text-[var(--pornwrld-gold)] underline" onClick={() => openReferral()}>
+            <button type="button" className="of-upgrade-banner-link" onClick={() => openReferral()}>
               Referrals
             </button>
           </div>
@@ -137,43 +148,53 @@ export function OnlyFansPage() {
           <button
             key={c.slug || c.name}
             type="button"
-            className="of-creator-card"
+            className="media-item video-item of-creator-card folder-card--locked"
             aria-label={c.name}
             onClick={() => onCreatorClick(c)}
           >
-            {c.thumbUrl ? (
-              <img
-                className="of-creator-thumb"
-                src={c.thumbUrl}
-                alt=""
-                loading="lazy"
-                onError={(e) => {
-                  const el = e.currentTarget;
-                  const candidates = c.thumbUrlR2Candidates || (c.thumbUrlR2 ? [c.thumbUrlR2] : []);
-                  const placeholder = '/assets/images/face.png';
-                  const idx = parseInt(el.dataset.ofThumbR2Index || '0', 10);
+            <div className="media-thumb-wrapper">
+              {c.thumbUrl ? (
+                <img
+                  className="media-thumb of-creator-thumb"
+                  src={c.thumbUrl}
+                  alt=""
+                  loading="lazy"
+                  onError={(e) => {
+                    const el = e.currentTarget;
+                    const candidates = c.thumbUrlR2Candidates || (c.thumbUrlR2 ? [c.thumbUrlR2] : []);
+                    const placeholder = '/assets/images/face.png';
+                    const idx = parseInt(el.dataset.ofThumbR2Index || '0', 10);
 
-                  // If we have no candidates (R2 disabled or not configured), just show placeholder.
-                  if (!candidates.length) {
-                    el.src = placeholder;
-                    return;
-                  }
-
-                  // After exhausting candidates, show placeholder instead of leaving a broken image.
-                  if (Number.isNaN(idx) || idx >= candidates.length) {
-                    el.src = placeholder;
-                    return;
-                  }
-
-                  // Try the next presigned candidate on each load error.
-                  el.dataset.ofThumbR2Index = String(idx + 1);
-                  el.src = candidates[idx];
-                }}
-              />
-            ) : (
-              <div className="of-creator-thumb of-creator-thumb--placeholder" aria-hidden />
-            )}
-            <div className="of-creator-name">{c.name}</div>
+                    if (!candidates.length) {
+                      el.src = placeholder;
+                      return;
+                    }
+                    if (Number.isNaN(idx) || idx >= candidates.length) {
+                      el.src = placeholder;
+                      return;
+                    }
+                    el.dataset.ofThumbR2Index = String(idx + 1);
+                    el.src = candidates[idx];
+                  }}
+                />
+              ) : (
+                <div className="of-creator-thumb of-creator-thumb--placeholder" aria-hidden />
+              )}
+              <div className="play-icon" />
+              <div className="folder-card-lock-overlay" aria-hidden="true">
+                <Lock className="folder-card-lock-icon-svg" size={32} strokeWidth={2.4} />
+                <span className="folder-card-lock-text">Premium only</span>
+              </div>
+            </div>
+            <div className="media-info">
+              <h3 className="media-title">{c.name}</h3>
+              <div className="media-stats-row">
+                <span className="media-stat-tag media-stat-category">Creator</span>
+                <span className="media-stat-tag media-stat-views">
+                  {Number(c.views || 0).toLocaleString()} views
+                </span>
+              </div>
+            </div>
           </button>
         ))}
         {creatorsLoaded && !loadErr ? (
