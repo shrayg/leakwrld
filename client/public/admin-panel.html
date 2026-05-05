@@ -273,6 +273,9 @@ tr:hover td{background:rgba(124,58,237,.03)}
       <button class="nav-btn" data-page="uploads">
         <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span> Uploads
       </button>
+      <button class="nav-btn" data-page="rename-requests">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span> Rename requests
+      </button>
       <button class="nav-btn" data-page="payments">
         <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span> Payments
       </button>
@@ -302,6 +305,7 @@ tr:hover td{background:rgba(124,58,237,.03)}
       <button class="nav-btn" data-page="geolocation"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/></svg> Geo</button>
       <button class="nav-btn" data-page="users"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg> Users</button>
       <button class="nav-btn" data-page="uploads"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Uploads</button>
+      <button class="nav-btn" data-page="rename-requests"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Renames</button>
       <button class="nav-btn" data-page="payments"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg> Payments</button>
       <button class="nav-btn" data-page="watchtime"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Watchtime</button>
       <button class="nav-btn" data-page="custom-links"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Links</button>
@@ -430,6 +434,27 @@ tr:hover td{background:rgba(124,58,237,.03)}
       </table></div>
     </div>
 
+    <!-- Video rename requests -->
+    <div class="page" id="page-rename-requests">
+      <div class="section-title section-title-row" style="margin-bottom:14px">
+        <div class="st-left">Rename requests <span class="count-badge" id="rename-pending-count">0</span></div>
+        <div class="st-right" style="display:flex;align-items:center;gap:10px">
+          <span id="rename-sign-hint" style="font-size:.72rem;color:var(--text3);max-width:280px;text-align:right"></span>
+          <button type="button" class="btn btn-ghost" id="rename-reload-btn">Reload</button>
+        </div>
+      </div>
+      <div class="section-title" style="font-size:.85rem;color:var(--text2);margin-bottom:10px">Pending</div>
+      <div class="table-card"><table>
+        <thead><tr><th>Requested</th><th>Folder</th><th>Current → requested</th><th>Requested by</th><th>Actions</th></tr></thead>
+        <tbody id="rename-pending-body"><tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px">Loading…</td></tr></tbody>
+      </table></div>
+      <div class="section-title" style="margin-top:22px;font-size:.85rem;color:var(--text2);margin-bottom:10px">Recent</div>
+      <div class="table-card"><table>
+        <thead><tr><th>Updated</th><th>Folder</th><th>Change</th><th>Status</th><th>Reviewer</th></tr></thead>
+        <tbody id="rename-recent-body"><tr><td colspan="5" style="text-align:center;color:var(--text2);padding:16px">—</td></tr></tbody>
+      </table></div>
+    </div>
+
     <!-- Payments Page -->
     <div class="page" id="page-payments">
       <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
@@ -546,7 +571,7 @@ async function doLogin(){const pw=$('#admin-pw').value;const r=await fetch('/adm
 $('#logout-btn').addEventListener('click',async()=>{await fetch('/admin/api/logout',{method:'POST'});showLogin()});
 
 // ── Navigation ───────────────────────────────────────────────────────────────
-const PAGE_TITLES={overview:'Overview',signups:'Signups',categories:'Categories',geolocation:'Geolocation',users:'Users',uploads:'Upload Requests',payments:'Payments','custom-links':'Custom Links'};
+const PAGE_TITLES={overview:'Overview',signups:'Signups',categories:'Categories',geolocation:'Geolocation',users:'Users',uploads:'Upload Requests','rename-requests':'Rename Requests',payments:'Payments',watchtime:'Watchtime','custom-links':'Custom Links'};
 function activatePage(pg){
   if(!pg) return;
   $$('.nav-btn').forEach(b=>b.classList.remove('active'));
@@ -556,7 +581,7 @@ function activatePage(pg){
   if(pageEl) pageEl.classList.add('active');
   $('#page-title').textContent=PAGE_TITLES[pg]||pg;
   // Lazy-load tab data on first visit
-  var _lazyMap={signups:'signups',users:'users',geolocation:'geo',uploads:'uploads','custom-links':'customLinks',payments:'payments',watchtime:'watchtime'};
+  var _lazyMap={signups:'signups',users:'users',geolocation:'geo',uploads:'uploads','rename-requests':'renameRequests','custom-links':'customLinks',payments:'payments',watchtime:'watchtime'};
   var lazyKey=_lazyMap[pg];
   if(lazyKey&&!_tabsLoaded[lazyKey]){
     _tabsLoaded[lazyKey]=true;
@@ -567,6 +592,7 @@ function activatePage(pg){
     else if(lazyKey==='customLinks')loadCustomLinks();
     else if(lazyKey==='payments')loadPayments();
     else if(lazyKey==='watchtime')loadWatchtime();
+    else if(lazyKey==='renameRequests')loadRenameRequests();
   }
 }
 $$('.nav-btn[data-page]').forEach(btn=>{
@@ -634,6 +660,100 @@ async function deleteCustomLink(slug){
 $('#clink-add-btn').addEventListener('click',addCustomLink);
 $('#clink-slug').addEventListener('keydown',(e)=>{if(e.key==='Enter')addCustomLink()});
 window.deleteCustomLink=deleteCustomLink;
+
+function renameStatusBadge(status){
+  const s=String(status||'').toLowerCase();
+  if(s==='approved')return'<span class="badge b-green">Approved</span>';
+  if(s==='rejected')return'<span class="badge b-red">Rejected</span>';
+  if(s==='error')return'<span class="badge b-orange">Error</span>';
+  return'<span class="badge b-gray">'+(escHtml(status)||'\u2014')+'</span>';
+}
+
+async function loadRenameRequests(){
+  try{
+    const r=await fetch('/admin/api/video-rename-requests',{credentials:'include'});
+    if(r.status===401)return;
+    const d=await r.json();
+    const hint=$('#rename-sign-hint');
+    if(hint){
+      if(d.canSignLinks)hint.textContent='Signed Discord moderation links enabled';
+      else hint.textContent='Set TBW_PUBLIC_ORIGIN and VIDEO_RENAME_MODERATE_SECRET (or TBW_PEPPER) for approve links in Discord';
+    }
+    const pend=d.pending||[];
+    const cnt=$('#rename-pending-count');if(cnt)cnt.textContent=pend.length;
+    const tb=$('#rename-pending-body');
+    if(tb){
+      if(!pend.length){
+        tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:24px">No pending rename requests</td></tr>';
+      }else{
+        tb.innerHTML=pend.map(function(rec){
+          const rid=escHtml(rec.requestId||'');
+          const sub=rec.subfolder?'<span style="color:var(--text3)"> / '+escHtml(rec.subfolder)+'</span>':'';
+          return'<tr data-request-id="'+rid+'">'+
+            '<td>'+fmtDate(rec.requestedAt)+'</td>'+
+            '<td>'+escHtml(rec.folder||'')+sub+'</td>'+
+            '<td><span style="font-size:.78rem">'+escHtml(rec.oldName||'')+'</span> \u2192 <strong>'+escHtml(rec.requestedName||'')+'</strong></td>'+
+            '<td>'+displayUsername(rec.requestedByName||rec.requestedBy||'')+'</td>'+
+            '<td style="white-space:nowrap">'+
+            '<button type="button" data-rename-action="approve" class="btn btn-primary" style="padding:6px 12px;font-size:.76rem;margin-right:6px">Approve</button>'+
+            '<button type="button" data-rename-action="reject" class="btn btn-ghost" style="padding:6px 12px;font-size:.76rem">Reject</button>'+
+            '</td></tr>';
+        }).join('');
+      }
+    }
+    const recent=d.recent||[];
+    const rb=$('#rename-recent-body');
+    if(rb){
+      if(!recent.length){
+        rb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:16px">No recent activity</td></tr>';
+      }else{
+        rb.innerHTML=recent.map(function(row){
+          const change=row.newName
+            ? escHtml(row.oldName||'')+' \u2192 '+escHtml(row.newName)
+            : escHtml(row.oldName||'')+' \u2192 '+escHtml(row.requestedName||'');
+          return'<tr>'+
+            '<td>'+fmtDate(row.reviewedAt||row.requestedAt)+'</td>'+
+            '<td>'+escHtml(row.folder||'')+'</td>'+
+            '<td style="font-size:.78rem">'+change+'</td>'+
+            '<td>'+renameStatusBadge(row.status)+'</td>'+
+            '<td style="font-size:.78rem;color:var(--text2)">'+escHtml(row.reviewedBy||'\u2014')+'</td>'+
+            '</tr>';
+        }).join('');
+      }
+    }
+  }catch(e){console.error('loadRenameRequests',e)}
+}
+
+async function reviewRenameRequest(requestId, action){
+  if(!requestId)return;
+  try{
+    const res=await fetch('/admin/api/video-rename-review',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'include',
+      body:JSON.stringify({requestId,action})
+    });
+    const d=await res.json().catch(()=>({}));
+    if(!res.ok){alert(d.error||d.message||'Request failed');return;}
+    await loadRenameRequests();
+  }catch(e){alert('Network error')}
+}
+window.reviewRenameRequest=reviewRenameRequest;
+
+const _renamePendingEl=$('#rename-pending-body');
+if(_renamePendingEl){
+  _renamePendingEl.addEventListener('click',function(e){
+    const btn=e.target.closest('[data-rename-action]');
+    if(!btn)return;
+    const tr=btn.closest('tr[data-request-id]');
+    if(!tr)return;
+    const requestId=tr.getAttribute('data-request-id');
+    const action=btn.getAttribute('data-rename-action');
+    if(requestId&&action)reviewRenameRequest(requestId,action);
+  });
+}
+const _renameReload=$('#rename-reload-btn');
+if(_renameReload)_renameReload.addEventListener('click',function(){loadRenameRequests();});
 
 // ── Watchtime ───────────────────────────────────────────────────────────────
 function fmtDuration(seconds){
@@ -711,14 +831,14 @@ async function loadWatchtime(){
 let refreshing=false;
 let chartRange='24h';
 // Track which secondary tabs have been loaded at least once
-var _tabsLoaded={stats:false,signups:false,users:false,geo:false,uploads:false,customLinks:false,payments:false,watchtime:false};
+var _tabsLoaded={stats:false,signups:false,users:false,geo:false,uploads:false,renameRequests:false,customLinks:false,payments:false,watchtime:false};
 async function loadAll(forceAll){
   if(refreshing)return;refreshing=true;
   const btn=$('#refresh-btn');btn.innerHTML='<span class="spin" style="display:inline-block"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>';
   try{
     if(forceAll){
       // Full refresh — load everything
-      await Promise.all([loadStats(),loadSignups(),loadUsers(),loadGeo(),loadUploads(),loadCustomLinks(),loadPayments(),loadWatchtime()]);
+      await Promise.all([loadStats(),loadSignups(),loadUsers(),loadGeo(),loadUploads(),loadRenameRequests(),loadCustomLinks(),loadPayments(),loadWatchtime()]);
       for(var k in _tabsLoaded)_tabsLoaded[k]=true;
     }else{
       // Fast initial load — only stats (dashboard overview) + signups
@@ -734,6 +854,7 @@ async function loadAll(forceAll){
         if(pid==='page-custom-links'&&!_tabsLoaded.customLinks){promises.push(loadCustomLinks());_tabsLoaded.customLinks=true}
         if(pid==='page-payments'&&!_tabsLoaded.payments){promises.push(loadPayments());_tabsLoaded.payments=true}
         if(pid==='page-watchtime'&&!_tabsLoaded.watchtime){promises.push(loadWatchtime());_tabsLoaded.watchtime=true}
+        if(pid==='page-rename-requests'&&!_tabsLoaded.renameRequests){promises.push(loadRenameRequests());_tabsLoaded.renameRequests=true}
       }
       _tabsLoaded.stats=true;
       await Promise.all(promises);

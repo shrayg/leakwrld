@@ -2467,6 +2467,42 @@ async function applyApprovedVideoRename(rec, moderatorTag) {
   scheduleVideoRenamePersist();
 }
 
+/** Caller must have loaded `videoRenameRequests`. Used by Discord moderate links and admin panel. */
+async function runVideoRenameModeration(requestId, action, actorLabel) {
+  const rec = videoRenameRequests.find((r) => r && r.requestId === requestId);
+  if (!rec) return { type: 'not_found' };
+  if (rec.finalized && rec.status === 'approved') {
+    return { type: 'already_approved', newName: rec.newName };
+  }
+  if (rec.status === 'rejected' && action === 'reject') {
+    return { type: 'already_rejected' };
+  }
+  if (rec.status !== 'pending') {
+    return { type: 'not_pending', status: rec.status };
+  }
+  if (action === 'reject') {
+    rec.status = 'rejected';
+    rec.finalized = false;
+    rec.reviewedBy = actorLabel;
+    rec.reviewedAt = Date.now();
+    rec.updatedAt = Date.now();
+    scheduleVideoRenamePersist();
+    return { type: 'rejected' };
+  }
+  try {
+    await applyApprovedVideoRename(rec, actorLabel);
+    return { type: 'approved', newName: rec.newName };
+  } catch (e) {
+    rec.status = 'error';
+    rec.finalized = false;
+    rec.reviewedBy = actorLabel;
+    rec.reviewedAt = Date.now();
+    rec.updatedAt = Date.now();
+    scheduleVideoRenamePersist();
+    return { type: 'apply_error', message: e && e.message ? e.message : 'Unknown error' };
+  }
+}
+
 function _safeNum(v, min = 0, max = Number.MAX_SAFE_INTEGER) {
   const n = Number(v);
   if (!Number.isFinite(n)) return min;
@@ -7322,6 +7358,76 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 405, { error: 'Method Not Allowed' });
       }
 
+      // ── Video rename requests (admin) ──
+      if (requestUrl.pathname === '/admin/api/video-rename-requests' && (req.method || 'GET').toUpperCase() === 'GET') {
+        await loadVideoRenameRequests(true);
+        const site = String(SITE_ORIGIN || '').replace(/\/$/, '');
+        const key = renameModerateSigningKey();
+        const pending = videoRenameRequests.filter((r) => r && r.status === 'pending' && !r.finalized);
+        const recent = videoRenameRequests
+          .filter((r) => r && r.status !== 'pending')
+          .sort((a, b) => (b.updatedAt || b.requestedAt || 0) - (a.updatedAt || a.requestedAt || 0))
+          .slice(0, 40);
+        const mapRow = (r) => {
+          const row = {
+            requestId: r.requestId,
+            folder: r.folder || '',
+            subfolder: r.subfolder || '',
+            vault: r.vault || '',
+            oldName: r.oldName || '',
+            requestedName: r.requestedName || '',
+            requestedBy: r.requestedBy || '',
+            requestedByName: r.requestedByName || '',
+            requestedAt: r.requestedAt || 0,
+            status: r.status || '',
+            newName: r.newName || '',
+            reviewedAt: r.reviewedAt || 0,
+            reviewedBy: r.reviewedBy || '',
+          };
+          if (key && site && r.requestId && r.status === 'pending') {
+            try {
+              row.approveUrl = buildRenameModerateLink(site, r.requestId, 'approve', key);
+              row.rejectUrl = buildRenameModerateLink(site, r.requestId, 'reject', key);
+            } catch {}
+          }
+          return row;
+        };
+        return sendJson(res, 200, {
+          ok: true,
+          pending: pending.map(mapRow),
+          recent: recent.map(mapRow),
+          canSignLinks: !!(key && site),
+        });
+      }
+
+      if (requestUrl.pathname === '/admin/api/video-rename-review' && (req.method || 'POST').toUpperCase() === 'POST') {
+        const body = await readJsonBody(req, res, 16 * 1024);
+        if (!body) return;
+        const requestId = String(body.requestId || '').trim();
+        const action = String(body.action || '').trim().toLowerCase();
+        if (!requestId || (action !== 'approve' && action !== 'reject')) {
+          return sendJson(res, 400, { error: 'requestId and action (approve|reject) required' });
+        }
+        await loadVideoRenameRequests(true);
+        const out = await runVideoRenameModeration(requestId, action, 'admin-panel');
+        if (out.type === 'not_found') return sendJson(res, 404, { error: 'Request not found' });
+        if (out.type === 'not_pending') return sendJson(res, 400, { error: `Not pending (status: ${out.status || 'unknown'})` });
+        if (out.type === 'already_approved') {
+          return sendJson(res, 200, { ok: true, already: true, message: 'Already approved', newName: out.newName || '' });
+        }
+        if (out.type === 'already_rejected') {
+          return sendJson(res, 200, { ok: true, already: true, message: 'Already rejected' });
+        }
+        if (out.type === 'apply_error') {
+          return sendJson(res, 500, { ok: false, error: out.message || 'Rename failed' });
+        }
+        return sendJson(res, 200, {
+          ok: true,
+          result: out.type,
+          newName: out.newName || '',
+        });
+      }
+
       return sendJson(res, 404, { error: 'Unknown admin endpoint' });
     }
 
@@ -11116,49 +11222,39 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       await loadVideoRenameRequests();
-      const rec = videoRenameRequests.find((r) => r && r.requestId === requestId);
-      if (!rec) {
+      const out = await runVideoRenameModeration(requestId, action, 'discord-link');
+      if (out.type === 'not_found') {
         sendRenameModerateResultPage(res, false, 'Not found', 'No rename request matches this link.');
         return;
       }
-      if (rec.finalized && rec.status === 'approved') {
+      if (out.type === 'already_approved') {
         sendRenameModerateResultPage(
           res,
           true,
           'Already approved',
-          `This request was already approved.${rec.newName ? ` File: ${rec.newName}` : ''}`,
+          `This request was already approved.${out.newName ? ` File: ${out.newName}` : ''}`,
         );
         return;
       }
-      if (rec.status === 'rejected' && action === 'reject') {
+      if (out.type === 'already_rejected') {
         sendRenameModerateResultPage(res, true, 'Already rejected', 'This request was already rejected.');
         return;
       }
-      if (rec.status !== 'pending') {
-        sendRenameModerateResultPage(res, false, 'Not pending', `This request is not pending (status: ${rec.status || 'unknown'}).`);
+      if (out.type === 'not_pending') {
+        sendRenameModerateResultPage(res, false, 'Not pending', `This request is not pending (status: ${out.status || 'unknown'}).`);
         return;
       }
-      if (action === 'reject') {
-        rec.status = 'rejected';
-        rec.finalized = false;
-        rec.reviewedBy = 'discord-link';
-        rec.reviewedAt = Date.now();
-        rec.updatedAt = Date.now();
-        scheduleVideoRenamePersist();
+      if (out.type === 'rejected') {
         sendRenameModerateResultPage(res, true, 'Rejected', 'Rename request rejected.');
         return;
       }
-      try {
-        await applyApprovedVideoRename(rec, 'discord-link');
-        sendRenameModerateResultPage(res, true, 'Approved', `Rename applied. New file name: ${rec.newName || 'OK'}`);
-      } catch (e) {
-        rec.status = 'error';
-        rec.finalized = false;
-        rec.reviewedBy = 'discord-link';
-        rec.reviewedAt = Date.now();
-        rec.updatedAt = Date.now();
-        scheduleVideoRenamePersist();
-        sendRenameModerateResultPage(res, false, 'Rename failed', e && e.message ? e.message : 'Unknown error');
+      if (out.type === 'approved') {
+        sendRenameModerateResultPage(res, true, 'Approved', `Rename applied. New file name: ${out.newName || 'OK'}`);
+        return;
+      }
+      if (out.type === 'apply_error') {
+        sendRenameModerateResultPage(res, false, 'Rename failed', out.message || 'Unknown error');
+        return;
       }
       return;
     }
