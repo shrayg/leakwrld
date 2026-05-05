@@ -17,6 +17,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { VideoBySlugPage } from './pages/VideoBySlugPage';
 import { AgeGateModal } from './components/shell/AgeGateModal';
 import { ScrollToTop } from './components/layout/ScrollToTop';
+import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import {
   AboutPage,
   BrandPage,
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/checkout.html" element={<Navigate to="/checkout" replace />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route element={<AppLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/recommended" element={<VideoSectionPage variant="recommended" />} />
@@ -96,7 +98,7 @@ export default function App() {
           <Route path="/nip-slips" element={<FolderPage seoFolder="Nip Slips" />} />
           <Route path="/omegle" element={<FolderPage seoFolder="Omegle" />} />
           <Route path="/of-leaks" element={<FolderPage seoFolder="OF Leaks" />} />
-          <Route path="/premium-leaks" element={<FolderPage seoFolder="Premium Leaks" />} />
+          <Route path="/premium-leaks" element={<Navigate to="/" replace />} />
           <Route path="/onlyfans" element={<OnlyFansPage />} />
           <Route path="/:categorySlug/:videoSlug" element={<VideoBySlugPage />} />
           <Route path="*" element={<NotFoundPage />} />

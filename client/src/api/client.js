@@ -1,17 +1,32 @@
 /**
  * Central API client — same-origin, credentials included (tbw_session cookie).
+ * When Supabase session exists, adds Authorization: Bearer for /api/* auth.
  */
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+let accessTokenGetter = () => null;
+
+/** Wired by SupabaseAuthProvider when env keys are present. */
+export function setApiAccessTokenGetter(fn) {
+  accessTokenGetter = typeof fn === 'function' ? fn : () => null;
+}
+
+function authHeaders() {
+  const t = accessTokenGetter();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
 
 async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function apiGet(path, opts = {}) {
+  const { headers: hdr = {}, ...rest } = opts;
   const r = await fetch(path, {
-    cache: opts.cache ?? 'no-store',
+    cache: rest.cache ?? 'no-store',
     credentials: 'same-origin',
-    ...opts,
+    headers: { ...authHeaders(), ...hdr },
+    ...rest,
   });
   return r;
 }
@@ -53,12 +68,13 @@ async function apiJsonWithRetry(path, opts = {}) {
 }
 
 export async function apiPost(path, body, opts = {}) {
+  const { headers: hdr = {}, ...rest } = opts;
   const r = await fetch(path, {
     method: 'POST',
     credentials: 'same-origin',
-    headers: { ...JSON_HEADERS, ...opts.headers },
+    headers: { ...JSON_HEADERS, ...authHeaders(), ...hdr },
     body: typeof body === 'string' ? body : JSON.stringify(body),
-    ...opts,
+    ...rest,
   });
   const text = await r.text();
   let data;
@@ -159,6 +175,48 @@ export async function fetchComments(key) {
 
 export async function postComment(key, text) {
   return apiPost('/api/comments', { key, text });
+}
+
+export async function fetchVideoUploaderMeta(params) {
+  const q = new URLSearchParams();
+  q.set('folder', String(params?.folder || ''));
+  q.set('name', String(params?.name || ''));
+  if (params?.subfolder) q.set('subfolder', String(params.subfolder));
+  return apiJson('/api/video/uploader?' + q.toString());
+}
+
+export async function fetchVideoRenameStatus(params) {
+  const q = new URLSearchParams();
+  q.set('folder', String(params?.folder || ''));
+  q.set('name', String(params?.name || ''));
+  if (params?.subfolder) q.set('subfolder', String(params.subfolder));
+  if (params?.vault) q.set('vault', String(params.vault));
+  return apiJson('/api/video-rename/status?' + q.toString());
+}
+
+export async function requestVideoRename(body) {
+  return apiPost('/api/video-rename/request', body);
+}
+
+export async function toggleCreatorFollow(targetUserKey, follow) {
+  return apiPost('/api/creator/follow', { targetUserKey, follow });
+}
+
+export async function uploadUserAssets(formData) {
+  const r = await fetch('/api/userassets/upload', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { ...authHeaders() },
+    body: formData,
+  });
+  const text = await r.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  return { ok: r.ok, status: r.status, data };
 }
 
 export async function resolveCleanVideo(categorySlug, videoSlug) {

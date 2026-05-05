@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { ShellProvider } from './context/ShellContext';
+import { SupabaseAuthProvider } from './context/SupabaseAuthProvider';
 import App from './App';
 import { ScrollToTop } from './components/layout/ScrollToTop';
 import '../../styles.css';
@@ -13,8 +14,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <ShellProvider>
-        <ScrollToTop />
-        <App />
+        <SupabaseAuthProvider>
+          <ScrollToTop />
+          <App />
+        </SupabaseAuthProvider>
       </ShellProvider>
     </BrowserRouter>
   </React.StrictMode>

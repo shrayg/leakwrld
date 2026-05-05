@@ -3,12 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useShell } from '../../context/ShellContext';
 import { logout } from '../../api/client';
+import { useSupabaseAuth } from '../../context/SupabaseAuthProvider';
 import { UserAvatar } from '../ui/UserAvatar';
 import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../../constants/officialContact';
 
 export function ProfileMenu() {
   const { user, loading, isAuthed, tier } = useAuth();
   const { openAuth } = useShell();
+  const sb = useSupabaseAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef(null);
@@ -31,6 +33,7 @@ export function ProfileMenu() {
 
   async function onLogout() {
     try {
+      await sb?.signOutSupabase?.();
       await logout();
     } finally {
       setMenuOpen(false);

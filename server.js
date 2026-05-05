@@ -18,6 +18,7 @@ const {
 const {
   VAULT_FOLDERS,
   ALL_LEGACY_DISCORD_TIER_PREFIXES,
+  LEGACY_TIER_PREFIX_VARIANTS,
   accessibleVaultFolders,
   accessibleLegacyTierPrefixes,
 } = require('./lib/r2VaultLayout');
@@ -100,6 +101,9 @@ const DISCORD_WEBHOOK_TIER_REACHED_URL = String(process.env.DISCORD_WEBHOOK_TIER
 const DISCORD_WEBHOOK_PAYMENTS_URL = String(process.env.DISCORD_WEBHOOK_PAYMENTS_URL || '').trim();
 const DISCORD_WEBHOOK_SIGNUPS_URL = String(process.env.DISCORD_WEBHOOK_SIGNUPS_URL || '').trim();
 const DISCORD_WEBHOOK_PURCHASE_EVENTS_URL = String(process.env.DISCORD_WEBHOOK_PURCHASE_EVENTS_URL || '').trim();
+const DISCORD_WEBHOOK_USER_UPLOADS_URL = String(process.env.DISCORD_WEBHOOK_USER_UPLOADS_URL || '').trim();
+const DISCORD_WEBHOOK_RENAMES_URL = String(process.env.DISCORD_WEBHOOK_RENAMES_URL || '').trim();
+const DISCORD_INTERACTIONS_PUBLIC_KEY = String(process.env.DISCORD_INTERACTIONS_PUBLIC_KEY || '').trim();
 const PATREON_REDEEM_WEBHOOK_URL = String(process.env.PATREON_REDEEM_WEBHOOK_URL || '').trim();
 const ACCESS_REDEEM_WEBHOOK_URL = String(process.env.ACCESS_REDEEM_WEBHOOK_URL || '').trim();
 
@@ -224,6 +228,11 @@ const uploadRequests = [];
 let uploadRequestsLoaded = false;
 const uploadRateLimit = new Map(); // userKey -> lastUploadTimestamp
 const UPLOAD_COOLDOWN_MS = 10 * 1000; // 10 seconds between individual uploads (allows batch uploading)
+const VIDEO_RENAME_REQUESTS_R2_KEY = 'data/video_rename_requests.json';
+const videoRenameRequests = [];
+let videoRenameRequestsLoaded = false;
+let videoRenameWritePromise = Promise.resolve();
+let videoRenameFlushTimer = null;
 
 // NOTE: `allowedFolders` depends on R2 prefix constants declared later.
 
@@ -248,6 +257,8 @@ function buildVideoObjectKeys(categorySlug, entityId, sourceExt) {
 // ── XYZPurchase + Supabase access key integration ───────────────────────────
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_SECRET_KEY = String(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+/** Public anon key — password grant + browser client. Never log or expose in responses beyond tokens you intentionally return. */
+const SUPABASE_ANON_KEY = String(process.env.SUPABASE_ANON_KEY || '').trim();
 const SUPABASE_ACCESS_KEYS_TABLE = String(process.env.SUPABASE_ACCESS_KEYS_TABLE || 'issued_access_keys');
 const SUPABASE_USERS_TABLE = String(process.env.SUPABASE_USERS_TABLE || 'users');
 const SUPABASE_USERS_SYNC = String(process.env.SUPABASE_USERS_SYNC || '1') === '1';
@@ -318,6 +329,210 @@ async function supabaseInsertRows(table, rows) {
     },
     body: JSON.stringify(rows),
   });
+}
+
+/** Lazy Supabase service-role client — verifies JWTs + admin.createUser */
+let _supabaseAdminClient = null;
+function getSupabaseAdmin() {
+  if (_supabaseAdminClient) return _supabaseAdminClient;
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return null;
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    _supabaseAdminClient = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    return _supabaseAdminClient;
+  } catch (e) {
+    console.error('[auth] Supabase admin client:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
+function jwtAccessTokenSub(accessToken) {
+  try {
+    const part = String(accessToken || '').split('.')[1];
+    if (!part) return null;
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+    const json = Buffer.from(b64 + pad, 'base64').toString('utf8');
+    const payload = JSON.parse(json);
+    return payload.sub ? String(payload.sub) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getSupabaseAuthUserFromBearer(req) {
+  const rawAuth = req.headers.authorization || req.headers.Authorization || '';
+  const m = String(rawAuth).match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+  const jwt = m[1].trim();
+  if (!jwt || jwt.split('.').length < 2) return null;
+  const admin = getSupabaseAdmin();
+  if (!admin) return null;
+  try {
+    const { data, error } = await admin.auth.getUser(jwt);
+    if (error || !data?.user) return null;
+    return data.user;
+  } catch {
+    return null;
+  }
+}
+
+async function getUserKeyFromSupabaseBearer(req) {
+  const su = await getSupabaseAuthUserFromBearer(req);
+  if (!su?.id || !SUPABASE_USERS_SYNC || !SUPABASE_URL || !SUPABASE_SECRET_KEY) return null;
+  const authId = String(su.id);
+  try {
+    const q = `/rest/v1/${encodeURIComponent(SUPABASE_USERS_TABLE)}?auth_user_id=eq.${encodeURIComponent(authId)}&select=user_key&limit=1`;
+    const resp = await supabaseJson(q, { method: 'GET' });
+    if (!resp.ok || !Array.isArray(resp.data) || resp.data.length === 0) return null;
+    const uk = String(resp.data[0].user_key || '').trim();
+    return uk || null;
+  } catch {
+    return null;
+  }
+}
+
+function legacySyntheticLoginEmail(record, userKey) {
+  const em = String(record.email || '').trim().toLowerCase();
+  if (em.includes('@')) return em;
+  const slug = String(userKey || '').toLowerCase().replace(/[^a-z0-9_-]/g, '_').slice(0, 48) || 'user';
+  return `${slug}@legacy.pornwrld`;
+}
+
+async function supabasePasswordGrant(email, password) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !email || !password) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ email, password }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) return null;
+    return {
+      access_token: j.access_token,
+      refresh_token: j.refresh_token,
+      expires_in: j.expires_in,
+      expires_at: j.expires_at,
+      token_type: j.token_type,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function provisionLegacyLoginSupabaseSession(record, userKey, plainPassword) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SECRET_KEY) return null;
+  const email = legacySyntheticLoginEmail(record, userKey);
+  let tokens = await supabasePasswordGrant(email, plainPassword);
+  const admin = getSupabaseAdmin();
+  if (!tokens && admin) {
+    const { error } = await admin.auth.admin.createUser({
+      email,
+      password: plainPassword,
+      email_confirm: true,
+      user_metadata: { user_key: userKey, username: record.username || userKey },
+    });
+    const msg = String(error?.message || error || '');
+    if (error && !/already|registered|exists/i.test(msg)) {
+      console.warn('[auth] legacy Supabase createUser:', msg);
+    }
+    tokens = await supabasePasswordGrant(email, plainPassword);
+  }
+  if (!tokens?.access_token) return null;
+  const sub = jwtAccessTokenSub(tokens.access_token);
+  if (sub && !record.auth_user_id) record.auth_user_id = sub;
+  await queueUsersDbWrite();
+  return tokens;
+}
+
+async function handleAuthSyncProfile(req, res) {
+  const su = await getSupabaseAuthUserFromBearer(req);
+  if (!su?.id) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  const authId = String(su.id);
+  const db = await ensureUsersDbFresh();
+
+  for (const [k, u] of Object.entries(db.users || {})) {
+    if (u && String(u.auth_user_id || '') === authId) {
+      return sendJson(res, 200, { ok: true, userKey: k });
+    }
+  }
+
+  const meta = su.user_metadata || {};
+  const identities = Array.isArray(su.identities) ? su.identities : [];
+  let discordId = null;
+  let googleId = null;
+  for (const idRow of identities) {
+    if (!idRow || typeof idRow !== 'object') continue;
+    if (idRow.provider === 'discord') {
+      discordId = String(idRow.identity_data?.sub || idRow.id || '').trim() || discordId;
+    }
+    if (idRow.provider === 'google') {
+      googleId = String(idRow.identity_data?.sub || idRow.id || '').trim() || googleId;
+    }
+  }
+
+  let userKey = String(meta.user_key || '').trim().toLowerCase();
+  if (!userKey || !isValidUsername(userKey)) {
+    const emailLocal = String(su.email || '').trim().toLowerCase().split('@')[0] || '';
+    const slug = emailLocal.replace(/[^a-z0-9_-]/gi, '').slice(0, 24);
+    userKey = slug && isValidUsername(slug) ? slug : '';
+  }
+  if (!userKey) {
+    userKey = `u_${authId.replace(/-/g, '').slice(0, 12)}`;
+  }
+
+  let tries = 0;
+  while (db.users[userKey] && String(db.users[userKey].auth_user_id || '') !== authId && tries < 24) {
+    userKey = `${userKey}_${crypto.randomBytes(2).toString('hex')}`;
+    tries += 1;
+  }
+
+  const existing = db.users[userKey] && typeof db.users[userKey] === 'object' ? db.users[userKey] : {};
+  const oauthUsername =
+    meta.full_name ||
+    meta.name ||
+    meta.username ||
+    meta.preferred_username ||
+    meta.global_name ||
+    '';
+
+  db.users[userKey] = {
+    ...existing,
+    username:
+      existing.username ||
+      meta.username ||
+      meta.preferred_username ||
+      oauthUsername ||
+      userKey,
+    email: String(existing.email || su.email || '').trim().toLowerCase(),
+    auth_user_id: authId,
+    provider: discordId ? 'discord' : googleId ? 'google' : existing.provider || 'local',
+    discordId: discordId || existing.discordId || null,
+    discordUsername: discordId ? String(oauthUsername || existing.discordUsername || '') : existing.discordUsername,
+    googleId: googleId || existing.googleId || null,
+    googleEmail: googleId ? String(su.email || existing.googleEmail || '').trim().toLowerCase() : existing.googleEmail,
+    createdAt: existing.createdAt || Date.now(),
+    signupIp: existing.signupIp || normalizeIp(getClientIp(req)),
+    tier: existing.tier ?? null,
+    referralCode: existing.referralCode || null,
+    referredBy: existing.referredBy || null,
+    referredUsers: Array.isArray(existing.referredUsers) ? existing.referredUsers : [],
+    referralCreditIps: Array.isArray(existing.referralCreditIps) ? existing.referralCreditIps : [],
+    hash: existing.hash || null,
+    salt: existing.salt || null,
+  };
+
+  ensureUserReferralCode(db, userKey);
+  await queueUsersDbWrite();
+  return sendJson(res, 200, { ok: true, userKey });
 }
 
 const SUPABASE_APP_STATE_TABLE = String(process.env.SUPABASE_APP_STATE_TABLE || 'app_state');
@@ -567,7 +782,6 @@ const CATEGORY_SLUG_MAP = {
   'Nip Slips': 'nip-slips',
   'Omegle': 'omegle',
   'OF Leaks': 'of-leaks',
-  'Premium Leaks': 'premium-leaks',
 };
 const SLUG_TO_CATEGORY = {};
 for (const [cat, slug] of Object.entries(CATEGORY_SLUG_MAP)) SLUG_TO_CATEGORY[slug] = cat;
@@ -631,6 +845,9 @@ function rebuildVideoSlugMap(files) {
 const STATIC_ALLOWLIST = new Set([
   '/styles.css',
   '/whitney-fonts.css',
+  '/site-icon.png',
+  '/favicon.ico',
+  '/apple-touch-icon.png',
   '/5e213853413a598023a5583149f32445.html',
   '/robots.txt',
   '/sitemap.xml',
@@ -674,6 +891,7 @@ const R2_DATA_STATE_ENABLED = String(process.env.R2_DATA_STATE_ENABLED || '0') =
 const R2_ROOT_PREFIX = String(process.env.CLOUDFLARE_R2_ROOT_PREFIX || 'pornwrld').replace(/^\/+|\/+$/g, '');
 const R2_VIDEOS_PREFIX = String(process.env.CLOUDFLARE_R2_VIDEOS_PREFIX || `${R2_ROOT_PREFIX}/videos`).replace(/^\/+|\/+$/g, '');
 const R2_ASSETS_PREFIX = String(process.env.CLOUDFLARE_R2_ASSETS_PREFIX || `${R2_ROOT_PREFIX}/assets`).replace(/^\/+|\/+$/g, '');
+const R2_USER_ASSETS_PREFIX = String(process.env.CLOUDFLARE_R2_USER_ASSETS_PREFIX || `${R2_ROOT_PREFIX}/userassets`).replace(/^\/+|\/+$/g, '');
 
 const allowedFolders = new Map([
   ['NSFW Straight', `${R2_VIDEOS_PREFIX}/nsfw-straight`],
@@ -690,7 +908,6 @@ const allowedFolders = new Map([
   ['Nip Slips', `${R2_VIDEOS_PREFIX}/nip-slips`],
   ['Omegle', `${R2_VIDEOS_PREFIX}/omegle`],
   ['OF Leaks', `${R2_VIDEOS_PREFIX}/of-leaks`],
-  ['Premium Leaks', `${R2_VIDEOS_PREFIX}/premium-leaks`],
 ]);
 
 // AWS Signature V4 helpers (no SDK needed) ────────────────────────────────────
@@ -1082,6 +1299,56 @@ function scheduleUploadPersist() {
   }, 3000);
 }
 
+async function loadVideoRenameRequests(forceRefresh) {
+  if (videoRenameRequestsLoaded && !forceRefresh) return;
+  try {
+    if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+      const stateResp = await loadAppStateSnapshot('video_rename_requests');
+      if (stateResp && stateResp.ok && Array.isArray(stateResp.data)) {
+        videoRenameRequests.length = 0;
+        videoRenameRequests.push(...stateResp.data);
+        videoRenameRequestsLoaded = true;
+        return;
+      }
+    }
+    if (R2_ENABLED) {
+      const raw = await r2GetObject(VIDEO_RENAME_REQUESTS_R2_KEY);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          videoRenameRequests.length = 0;
+          videoRenameRequests.push(...arr);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[video-rename] load error:', e && e.message ? e.message : e);
+  }
+  videoRenameRequestsLoaded = true;
+}
+
+async function persistVideoRenameRequestsNow() {
+  if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
+    const stateResp = await saveAppStateSnapshot('video_rename_requests', videoRenameRequests);
+    if (!stateResp.ok) {
+      throw new Error(`Supabase state write failed: ${stateResp.status || stateResp.reason || 'unknown'}`);
+    }
+  }
+  if (R2_ENABLED) {
+    await r2PutObject(VIDEO_RENAME_REQUESTS_R2_KEY, JSON.stringify(videoRenameRequests), 'application/json');
+  }
+}
+
+function scheduleVideoRenamePersist() {
+  if (videoRenameFlushTimer) return;
+  videoRenameFlushTimer = setTimeout(() => {
+    videoRenameFlushTimer = null;
+    videoRenameWritePromise = videoRenameWritePromise.then(persistVideoRenameRequestsNow).catch((e) => {
+      console.error('[video-rename] persist error:', e && e.message ? e.message : e);
+    });
+  }, 2000);
+}
+
 /**
  * List media file names from an R2 prefix.
  * Returns items with name, size, lastModified (ms).
@@ -1366,8 +1633,10 @@ function setSessionCookie(res, token) {
     'SameSite=Lax',
     `Max-Age=${SESSION_TTL_SECONDS}`,
   ];
-  // Add Secure flag in production (when PORT is set by hosting platform, or explicitly enabled).
-  if (process.env.TBW_SECURE_COOKIES === '1' || process.env.PORT) parts.push('Secure');
+  // Secure cookies require HTTPS. Prefer NODE_ENV / TBW_SECURE_COOKIES — not PORT alone (PORT breaks plain-http dev).
+  const envSecure = String(process.env.TBW_SECURE_COOKIES || '').trim() === '1';
+  const prodSecure = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (envSecure || prodSecure) parts.push('Secure');
   const cookie = parts.join('; ');
   appendSetCookie(res, cookie);
 }
@@ -1425,6 +1694,12 @@ function getAuthedUserKey(req) {
 
 // Re-fetch sessions from R2 when a token is not found locally (multi-machine sync)
 async function getAuthedUserKeyWithRefresh(req) {
+  try {
+    const jwKey = await getUserKeyFromSupabaseBearer(req);
+    if (jwKey) return jwKey;
+  } catch (e) {
+    console.warn('[auth] bearer user lookup:', e && e.message ? e.message : e);
+  }
   const key = getAuthedUserKey(req);
   if (key) return key;
   // Token exists in cookie but not in local sessions — another machine may have created it
@@ -1773,6 +2048,238 @@ function parseCanonicalVideoId(videoId) {
     vault: '',
     name: parts.slice(2).join('|') || '',
   };
+}
+
+function videoRenameIdentity(folder, subfolder, name, vault) {
+  return canonicalVideoId(folder || '', subfolder || '', name || '', vault || '');
+}
+
+function getVideoRenameRecordByIdentity(identity) {
+  let latest = null;
+  for (const r of videoRenameRequests) {
+    if (!r || r.videoIdentity !== identity) continue;
+    if (!latest || Number(r.updatedAt || r.requestedAt || 0) > Number(latest.updatedAt || latest.requestedAt || 0)) {
+      latest = r;
+    }
+  }
+  return latest;
+}
+
+function getVideoRenameStatus(identity) {
+  const rec = getVideoRenameRecordByIdentity(identity);
+  if (!rec) return { state: 'none', record: null };
+  if (rec.finalized || rec.status === 'approved') return { state: 'finalized', record: rec };
+  if (rec.status === 'pending') return { state: 'pending', record: rec };
+  return { state: 'none', record: rec };
+}
+
+function buildRenamedFileName(requestedTitle, oldName) {
+  const ext = path.extname(String(oldName || '')).toLowerCase() || '.mp4';
+  const rawBase = String(requestedTitle || '').trim();
+  const sanitizedBase = sanitizeObjectKeySegment(rawBase, 96);
+  if (!sanitizedBase) return '';
+  return sanitizedBase + ext;
+}
+
+function migrateVideoKeyedStateAfterRename(folder, subfolder, oldName, newName) {
+  const sf = String(subfolder || '');
+  const oldBase = canonicalVideoId(folder, sf, oldName);
+  const newBase = canonicalVideoId(folder, sf, newName);
+
+  // shortStats
+  const oldStatKeys = Object.keys(shortStats || {});
+  for (const k of oldStatKeys) {
+    const parsed = parseCanonicalVideoId(k);
+    if (parsed.folder !== folder || parsed.subfolder !== sf || parsed.name !== oldName) continue;
+    const nextKey = canonicalVideoId(folder, sf, newName, parsed.vault || '');
+    const cur = shortStats[k] || {};
+    const dst = shortStats[nextKey] || { views: 0, likes: 0, dislikes: 0 };
+    shortStats[nextKey] = {
+      views: Math.max(Number(dst.views || 0), Number(cur.views || 0)),
+      likes: Math.max(Number(dst.likes || 0), Number(cur.likes || 0)),
+      dislikes: Math.max(Number(dst.dislikes || 0), Number(cur.dislikes || 0)),
+      _votes: dst._votes || cur._votes || {},
+    };
+    delete shortStats[k];
+  }
+
+  // Handle simple legacy keys that are just filename-based.
+  if (shortStats[oldName]) {
+    const cur = shortStats[oldName] || {};
+    const dst = shortStats[newName] || { views: 0, likes: 0, dislikes: 0 };
+    shortStats[newName] = {
+      views: Math.max(Number(dst.views || 0), Number(cur.views || 0)),
+      likes: Math.max(Number(dst.likes || 0), Number(cur.likes || 0)),
+      dislikes: Math.max(Number(dst.dislikes || 0), Number(cur.dislikes || 0)),
+      _votes: dst._votes || cur._votes || {},
+    };
+    delete shortStats[oldName];
+  }
+  if (shortStats[oldBase]) {
+    const cur = shortStats[oldBase] || {};
+    const dst = shortStats[newBase] || { views: 0, likes: 0, dislikes: 0 };
+    shortStats[newBase] = {
+      views: Math.max(Number(dst.views || 0), Number(cur.views || 0)),
+      likes: Math.max(Number(dst.likes || 0), Number(cur.likes || 0)),
+      dislikes: Math.max(Number(dst.dislikes || 0), Number(cur.dislikes || 0)),
+      _votes: dst._votes || cur._votes || {},
+    };
+    delete shortStats[oldBase];
+  }
+  scheduleShortStatsPersist();
+
+  // comments
+  const oldCommentKeys = Object.keys(videoComments || {});
+  for (const k of oldCommentKeys) {
+    const parsed = parseCanonicalVideoId(k);
+    if (parsed.folder !== folder || parsed.subfolder !== sf || parsed.name !== oldName) continue;
+    const nextKey = canonicalVideoId(folder, sf, newName, parsed.vault || '');
+    const dst = Array.isArray(videoComments[nextKey]) ? videoComments[nextKey] : [];
+    const cur = Array.isArray(videoComments[k]) ? videoComments[k] : [];
+    videoComments[nextKey] = [...dst, ...cur];
+    delete videoComments[k];
+  }
+  if (Array.isArray(videoComments[oldName])) {
+    const dst = Array.isArray(videoComments[newName]) ? videoComments[newName] : [];
+    videoComments[newName] = [...dst, ...videoComments[oldName]];
+    delete videoComments[oldName];
+  }
+  if (Array.isArray(videoComments[oldBase])) {
+    const dst = Array.isArray(videoComments[newBase]) ? videoComments[newBase] : [];
+    videoComments[newBase] = [...dst, ...videoComments[oldBase]];
+    delete videoComments[oldBase];
+  }
+  scheduleCommentsPersist();
+}
+
+function clearMediaCachesAfterRename() {
+  Object.keys(_r2ListCache).forEach((k) => delete _r2ListCache[k]);
+  if (global._listCache) Object.keys(global._listCache).forEach((k) => delete global._listCache[k]);
+  if (global._videoListCache) Object.keys(global._videoListCache).forEach((k) => delete global._videoListCache[k]);
+  if (global._mediaKeyCache) Object.keys(global._mediaKeyCache).forEach((k) => delete global._mediaKeyCache[k]);
+  if (global._tierLookupCache) Object.keys(global._tierLookupCache).forEach((k) => delete global._tierLookupCache[k]);
+  Object.keys(previewUrlMap).forEach((k) => delete previewUrlMap[k]);
+  previewFileList = [];
+  ensurePreviewCacheReady(true).catch(() => {});
+}
+
+function discordPublicKeyToSpki(hexKey) {
+  const raw = Buffer.from(String(hexKey || ''), 'hex');
+  if (raw.length !== 32) return null;
+  const prefix = Buffer.from('302a300506032b6570032100', 'hex');
+  return Buffer.concat([prefix, raw]);
+}
+
+function verifyDiscordInteractionSignature(req, rawBody) {
+  try {
+    if (!DISCORD_INTERACTIONS_PUBLIC_KEY) return false;
+    const sigHex = String(req.headers['x-signature-ed25519'] || '');
+    const ts = String(req.headers['x-signature-timestamp'] || '');
+    if (!sigHex || !ts || !rawBody) return false;
+    const sig = Buffer.from(sigHex, 'hex');
+    if (sig.length !== 64) return false;
+    const msg = Buffer.concat([Buffer.from(ts, 'utf8'), rawBody]);
+    const spki = discordPublicKeyToSpki(DISCORD_INTERACTIONS_PUBLIC_KEY);
+    if (!spki) return false;
+    const keyObj = crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
+    return crypto.verify(null, msg, keyObj, sig);
+  } catch {
+    return false;
+  }
+}
+
+async function sendVideoRenameDiscordRequest(rec, requesterName, videoUrl) {
+  const endpoint = DISCORD_WEBHOOK_RENAMES_URL;
+  if (!endpoint) return;
+  const reqId = String(rec.requestId || '');
+  const customApprove = `rename:${reqId}:approve`;
+  const customReject = `rename:${reqId}:reject`;
+  const payload = {
+    content: `Rename request for **${rec.folder}**`,
+    embeds: [
+      {
+        title: 'Video Rename Request',
+        description: `Requested by: **${requesterName || 'user'}**`,
+        fields: [
+          { name: 'Current name', value: rec.oldName || 'unknown', inline: false },
+          { name: 'Requested name', value: rec.requestedName || 'unknown', inline: false },
+          { name: 'Video', value: videoUrl || 'n/a', inline: false },
+          { name: 'Request ID', value: reqId, inline: false },
+        ],
+        timestamp: new Date().toISOString(),
+      },
+    ],
+    components: [
+      {
+        type: 1,
+        components: [
+          { type: 2, style: 3, label: 'Approve', custom_id: customApprove },
+          { type: 2, style: 4, label: 'Reject', custom_id: customReject },
+        ],
+      },
+    ],
+  };
+  try {
+    const body = Buffer.from(JSON.stringify(payload), 'utf8');
+    await httpsRequest(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(body.length),
+      },
+    }, body);
+  } catch {}
+}
+
+async function applyApprovedVideoRename(rec, moderatorTag) {
+  const basePath = allowedFolders.get(rec.folder);
+  if (!basePath) throw new Error('Invalid folder');
+  const oldName = String(rec.oldName || '');
+  const newName = buildRenamedFileName(rec.requestedName, oldName);
+  if (!newName) throw new Error('Invalid requested name');
+  if (newName === oldName) throw new Error('Name unchanged');
+
+  const sourceCandidates = buildObjectKeyCandidates(
+    basePath,
+    rec.folder,
+    rec.subfolder || '',
+    oldName,
+    rec.vault || undefined,
+    null,
+  );
+  let sourceKey = null;
+  for (const k of sourceCandidates) {
+    try {
+      if (await r2HeadObject(k)) {
+        sourceKey = k;
+        break;
+      }
+    } catch {}
+  }
+  if (!sourceKey) throw new Error('Source object not found');
+  const destKey = sourceKey.replace(/\/[^/]+$/, '/' + newName);
+  if (destKey === sourceKey) throw new Error('Invalid destination key');
+  if (await r2HeadObject(destKey)) throw new Error('Destination key already exists');
+
+  const srcBytes = await r2GetObjectBytes(sourceKey);
+  if (!srcBytes || srcBytes.length < 1) throw new Error('Source read failed');
+  await r2PutObjectBytes(destKey, srcBytes, 'application/octet-stream');
+  const verify = await r2HeadObject(destKey);
+  if (!verify) throw new Error('Destination verify failed');
+  await r2DeleteObject(sourceKey);
+
+  migrateVideoKeyedStateAfterRename(rec.folder, rec.subfolder || '', oldName, newName);
+  clearMediaCachesAfterRename();
+
+  rec.status = 'approved';
+  rec.finalized = true;
+  rec.newName = newName;
+  rec.sourceObjectKey = sourceKey;
+  rec.destObjectKey = destKey;
+  rec.reviewedBy = String(moderatorTag || 'discord');
+  rec.reviewedAt = Date.now();
+  rec.updatedAt = Date.now();
+  scheduleVideoRenamePersist();
 }
 
 function _safeNum(v, min = 0, max = Number.MAX_SAFE_INTEGER) {
@@ -2371,6 +2878,9 @@ void loadVisitStatsFromStorage();
 const THUMB_DIR = path.join(__dirname, 'thumbnails');
 const THUMB_GEN_DIR = path.join(THUMB_DIR, 'generated'); // ffmpeg-generated thumbs (separate from static PNGs)
 try { fs.mkdirSync(THUMB_GEN_DIR, { recursive: true }); } catch {}
+const THUMB_MAX_WIDTH = Math.max(160, parseInt(process.env.THUMB_MAX_WIDTH || '320', 10) || 320);
+const THUMB_QUALITY = Math.min(12, Math.max(2, parseInt(process.env.THUMB_JPEG_QUALITY || '7', 10) || 7));
+const THUMB_R2_PREFIX = 'data/thumbnails/';
 // LRU-ish thumbnail cache: keeps at most THUMB_CACHE_MAX entries in memory.
 // Each entry stores a JPEG Buffer; evicts least-recently-used when full.
 const THUMB_CACHE_MAX = 2000;
@@ -2378,6 +2888,9 @@ const THUMB_CACHE_MAX = 2000;
 const PLACEHOLDER_THUMB = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAACAA IDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAFBABAAAAAAAAAAAAAAAAAAAACf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKgA/9k=', 'base64');
 const _thumbAccessOrder = []; // ordered list of cache keys (most-recent at end)
 const thumbnailCache = {}; // { "cacheKey": Buffer(jpeg) } — in-memory hot cache
+const _thumbR2ExistsCache = {}; // { r2Key: { exists:boolean, ts:number } }
+const _THUMB_R2_EXISTS_TTL_MS = 5 * 60 * 1000;
+const _THUMB_R2_MISS_TTL_MS = 60 * 1000;
 
 function _thumbCacheSet(key, buf, skipR2) {
   const isNew = !thumbnailCache[key];
@@ -2432,11 +2945,6 @@ function _thumbDiskPathLegacy(name) {
 
 // Build a thumbnail URL for API responses — presigned R2 URL if cached, else fallback to /thumbnail endpoint
 function _thumbUrl(folder, subfolder, name, vault) {
-  const cacheKey = _thumbCacheKey(folder, subfolder, name, vault);
-  // If thumbnail is in memory cache, it's also in R2 — serve directly from R2 (bypasses Node)
-  if (R2_ENABLED && _thumbCacheGet(cacheKey)) {
-    return r2PresignedUrl(_thumbR2Key(cacheKey), 3600);
-  }
   let url = '/thumbnail?folder=' + encodeURIComponent(folder) + '&name=' + encodeURIComponent(name);
   if (subfolder) url += '&subfolder=' + encodeURIComponent(subfolder);
   if (vault) url += '&vault=' + encodeURIComponent(vault);
@@ -2444,32 +2952,39 @@ function _thumbUrl(folder, subfolder, name, vault) {
 }
 
 // R2 thumbnail persistence: store generated thumbnails to R2 so they survive deploys
-const THUMB_R2_PREFIX = 'data/thumbnails/';
 function _thumbR2Key(cacheKey) {
   return THUMB_R2_PREFIX + encodeURIComponent(cacheKey) + '.jpg';
 }
 async function _thumbSaveToR2(cacheKey, buf) {
   if (!R2_ENABLED) return;
-  try { await r2PutObjectBytes(_thumbR2Key(cacheKey), buf, 'image/jpeg'); } catch {}
+  const r2Key = _thumbR2Key(cacheKey);
+  try {
+    await r2PutObjectBytes(r2Key, buf, 'image/jpeg');
+    _thumbR2ExistsCache[r2Key] = { exists: true, ts: Date.now() };
+  } catch {}
 }
 async function _thumbLoadAllFromR2() {
   if (!R2_ENABLED) return 0;
   try {
-    const entries = await r2ListObjects(THUMB_R2_PREFIX);
+    const prefixes = [THUMB_R2_PREFIX];
     let loaded = 0;
-    for (const e of entries) {
-      const fname = e.key.slice(THUMB_R2_PREFIX.length);
-      if (!fname.endsWith('.jpg')) continue;
-      const cacheKey = decodeURIComponent(fname.replace(/\.jpg$/, ''));
-      if (_thumbCacheGet(cacheKey)) { loaded++; continue; } // already in memory
-      try {
-        const buf = await r2GetObjectBytes(e.key);
-        if (buf && buf.length > 5000) {
-          // Skip dark/blank thumbnails (< 5KB) so they regenerate with multi-timestamp logic
-          _thumbCacheSet(cacheKey, buf, true); // skipR2=true since we just loaded from R2
-          loaded++;
-        }
-      } catch {}
+    for (const prefix of prefixes) {
+      const entries = await r2ListObjects(prefix);
+      for (const e of entries) {
+        const fname = e.key.slice(prefix.length);
+        if (!fname.endsWith('.jpg')) continue;
+        const cacheKey = decodeURIComponent(fname.replace(/\.jpg$/, ''));
+        if (_thumbCacheGet(cacheKey)) { loaded++; continue; } // already in memory
+        try {
+          const buf = await r2GetObjectBytes(e.key);
+          if (buf && buf.length > 5000) {
+            // Skip dark/blank thumbnails (< 5KB) so they regenerate with multi-timestamp logic
+            _thumbCacheSet(cacheKey, buf, true); // skipR2=true since we just loaded from R2
+            _thumbR2ExistsCache[e.key] = { exists: true, ts: Date.now() };
+            loaded++;
+          }
+        } catch {}
+      }
     }
     return loaded;
   } catch (err) {
@@ -2593,9 +3108,10 @@ async function extractDuration(videoUrl) {
 // Load durations on startup
 setTimeout(() => _loadDurationsFromR2(), 1000);
 
-// Concurrency limiter for ffmpeg — max 1 at a time to prevent CPU starvation on small Fly machines
+// Concurrency limiter for ffmpeg — keep modest to protect small Fly machines.
 let _ffmpegActive = 0;
 const _ffmpegQueue = [];
+const THUMB_FFMPEG_CONCURRENCY = Math.min(3, Math.max(1, parseInt(process.env.THUMB_FFMPEG_CONCURRENCY || '1', 10) || 1));
 function _runFfmpeg(args, opts) {
   return new Promise((resolve) => {
     const run = () => {
@@ -2606,7 +3122,7 @@ function _runFfmpeg(args, opts) {
         resolve({ err, stdout });
       });
     };
-    if (_ffmpegActive < 1) run();
+    if (_ffmpegActive < THUMB_FFMPEG_CONCURRENCY) run();
     else _ffmpegQueue.push(run);
   });
 }
@@ -2614,7 +3130,7 @@ function _runFfmpeg(args, opts) {
 function generateThumbnail(videoUrl, name) {
   return new Promise(async (resolve) => {
     const _ffOpts = { encoding: 'buffer', maxBuffer: 2 * 1024 * 1024, timeout: 8000 };
-    const _baseArgs = ['-vframes', '1', '-vf', 'scale=480:-1', '-f', 'image2', '-vcodec', 'mjpeg', '-q:v', '6', 'pipe:1'];
+    const _baseArgs = ['-vframes', '1', '-vf', `scale=${THUMB_MAX_WIDTH}:-1`, '-f', 'image2', '-vcodec', 'mjpeg', '-q:v', String(THUMB_QUALITY), 'pipe:1'];
     const DARK_THRESHOLD = 5000;
 
     // Try 2 timestamps only: 2s (skip intros) then 0.5s (fallback for short clips)
@@ -2631,6 +3147,79 @@ function generateThumbnail(videoUrl, name) {
     }
 
     resolve(bestBuf && bestBuf.length >= 100 ? bestBuf : null);
+  });
+}
+
+function schedulePrioritizedThumbWarm(files, tier, opts = {}) {
+  if (!R2_ENABLED || !Array.isArray(files) || files.length === 0) return;
+  const priorityCount = Math.max(1, Number(opts.priorityCount || 24));
+  setImmediate(() => {
+    const uncached = files.filter(
+      (f) =>
+        f &&
+        f.type === 'video' &&
+        f.folder &&
+        f.name &&
+        !_thumbCacheGet(_thumbCacheKey(f.folder, f.subfolder || '', f.name, f.vault)),
+    );
+    if (uncached.length === 0) return;
+
+    const priorityBatch = uncached.slice(0, priorityCount);
+    const deferredBatch = uncached.slice(priorityCount);
+
+    const warmOne = async (item) => {
+      const ck = _thumbCacheKey(item.folder, item.subfolder || '', item.name, item.vault);
+      if (_thumbInFlight[ck]) return;
+      const bp = allowedFolders.get(item.folder);
+      if (!bp) return;
+      try {
+        let vUrl = null;
+        const candidates = buildObjectKeyCandidates(
+          bp,
+          item.folder,
+          item.subfolder || '',
+          item.name,
+          item.vault || undefined,
+          tier,
+        );
+        for (const ok of candidates) {
+          try {
+            if (await r2HeadObject(ok)) {
+              vUrl = r2PresignedUrl(ok, 120);
+              break;
+            }
+          } catch { /* next */ }
+        }
+        if (!vUrl) return;
+        const buf = await generateThumbnail(vUrl, item.name);
+        if (buf) {
+          _thumbCacheSet(ck, buf);
+          const dp = _thumbDiskPath(item.folder, item.subfolder || '', item.name);
+          fs.writeFile(dp, buf, () => {});
+        }
+      } catch { /* noop */ }
+    };
+
+    const runBatch = async (batch, maxConcurrent) => {
+      if (!batch.length) return;
+      let idx = 0;
+      const workers = Array.from({ length: Math.min(maxConcurrent, batch.length) }, async () => {
+        while (idx < batch.length) {
+          const item = batch[idx++];
+          await warmOne(item);
+        }
+      });
+      await Promise.all(workers);
+    };
+
+    runBatch(priorityBatch, 3)
+      .then(() => {
+        if (!deferredBatch.length) return;
+        setTimeout(() => {
+          runBatch(deferredBatch, 2).catch(() => {});
+        }, 1200);
+      })
+      .catch(() => {});
   });
 }
 
@@ -2823,6 +3412,7 @@ async function buildFolderThumbnailCache() {
 // ── Preview URL cache: pre-generate all presigned URLs at startup ────────────
 const previewUrlMap = {}; // { "folder/name.mp4": presignedUrl }
 let previewFileList = []; // full deduped list for /api/random-videos
+let _previewCacheBuildInFlight = null;
 const folderCounts = {}; // { "Omegle": 1234, ... } populated after prewarm
 
 async function buildFolderCounts() {
@@ -2917,6 +3507,23 @@ async function buildPreviewCache() {
   console.log('[preview-cache] Cached', Object.keys(previewUrlMap).length, 'preview URLs,', files.length, 'videos');
 }
 
+async function ensurePreviewCacheReady(force = false) {
+  if (!R2_ENABLED) return;
+  if (!force && Array.isArray(previewFileList) && previewFileList.length > 0) return;
+  if (_previewCacheBuildInFlight) {
+    await _previewCacheBuildInFlight;
+    return;
+  }
+  _previewCacheBuildInFlight = (async () => {
+    try {
+      await buildPreviewCache();
+    } finally {
+      _previewCacheBuildInFlight = null;
+    }
+  })();
+  await _previewCacheBuildInFlight;
+}
+
 // Build on startup (after randomized delay so multiple machines don't blast R2 simultaneously)
 // Pre-warm R2 list cache for all folder prefixes so first user request is instant
 async function prewarmR2ListCache() {
@@ -2950,25 +3557,11 @@ setTimeout(async () => {
     await prewarmR2ListCache();
     await buildPreviewCache();
     buildFolderCounts().catch(e => console.error('[folder-counts] init error:', e.message));
-    // Generate preview thumbnails first, then all folder thumbnails in background
-    buildThumbnailCache().then(() => {
-      buildFolderThumbnailCache().catch(e => console.error('[folder-thumbs] init error:', e.message));
-    }).catch(e => console.error('[thumbnails] init error:', e.message));
   } catch (e) { console.error('[preview-cache] init error:', e.message); }
 }, _startupDelay);
 setInterval(async () => {
   try {
     await buildPreviewCache();
-    // Only generate thumbnails for genuinely new videos (skip if already ran once)
-    if (_thumbGenRanOnce) {
-      const newFiles = previewFileList.filter(f => !_thumbCacheGet(f.name));
-      if (newFiles.length > 0) {
-        console.log('[thumbnails] refresh: ' + newFiles.length + ' new files to generate');
-        buildThumbnailCache().catch(e => console.error('[thumbnails] refresh error:', e.message));
-      }
-    }
-    // Also refresh folder thumbnails for any new uploads
-    buildFolderThumbnailCache().catch(e => console.error('[folder-thumbs] refresh error:', e.message));
   } catch (e) { console.error('[preview-cache] refresh error:', e.message); }
 }, 50 * 60 * 1000);
 
@@ -3712,6 +4305,7 @@ void loadAdminDataFromStorage();
 void loadCustomLinks();
 void loadPatreonPatrons();
 loadUploadRequests().then(() => console.log('Loaded upload requests from R2'));
+loadVideoRenameRequests().then(() => console.log('Loaded video rename requests from storage'));
 
 function getActiveUsersNow() {
   const cutoff = Date.now() - PRESENCE_WINDOW_MS;
@@ -4091,6 +4685,73 @@ async function readJsonBody(req, res, maxBytes = 64 * 1024) {
       resolve(null);
     });
   });
+}
+
+async function readMultipartBody(req, res, maxBytes = 64 * 1024 * 1024) {
+  const ct = String(req.headers['content-type'] || '');
+  const boundaryMatch = ct.match(/boundary=(?:"([^"]+)"|([^\s;]+))/i);
+  if (!boundaryMatch) {
+    sendJson(res, 400, { error: 'Missing multipart boundary' });
+    return null;
+  }
+  const boundary = boundaryMatch[1] || boundaryMatch[2];
+  const rawBuf = await new Promise((resolve) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        req.destroy();
+        resolve(null);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', () => resolve(null));
+  });
+  if (!rawBuf) {
+    sendJson(res, 413, { error: 'Upload too large' });
+    return null;
+  }
+
+  const delimiter = Buffer.from('--' + boundary);
+  const parts = [];
+  let pos = 0;
+  while (pos < rawBuf.length) {
+    const start = rawBuf.indexOf(delimiter, pos);
+    if (start === -1) break;
+    const afterDelim = start + delimiter.length;
+    if (rawBuf[afterDelim] === 0x2D && rawBuf[afterDelim + 1] === 0x2D) break;
+    const headStart = (rawBuf[afterDelim] === 0x0D && rawBuf[afterDelim + 1] === 0x0A) ? afterDelim + 2 : afterDelim;
+    const headerEnd = rawBuf.indexOf(Buffer.from('\r\n\r\n'), headStart);
+    if (headerEnd === -1) break;
+    const headers = rawBuf.slice(headStart, headerEnd).toString('utf8');
+    const bodyStart = headerEnd + 4;
+    const nextDelim = rawBuf.indexOf(delimiter, bodyStart);
+    const bodyEnd = nextDelim !== -1 ? nextDelim - 2 : rawBuf.length;
+    const body = rawBuf.slice(bodyStart, Math.max(bodyStart, bodyEnd));
+    const nameMatch = headers.match(/name="([^"]+)"/);
+    const filenameMatch = headers.match(/filename="([^"]+)"/);
+    const ctMatch = headers.match(/Content-Type:\s*(.+)/i);
+    parts.push({
+      name: nameMatch ? nameMatch[1] : '',
+      filename: filenameMatch ? filenameMatch[1] : null,
+      contentType: ctMatch ? ctMatch[1].trim() : null,
+      data: body,
+    });
+    pos = nextDelim !== -1 ? nextDelim : rawBuf.length;
+  }
+  return parts;
+}
+
+function sanitizeObjectKeySegment(v, maxLen = 64) {
+  return String(v || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLen);
 }
 
 function isValidUsername(username) {
@@ -4591,6 +5252,7 @@ function dbUserToSupabaseUserRow(userKey, u) {
   };
   return {
     user_key: String(userKey || ''),
+    auth_user_id: safeUser.auth_user_id || null,
     username: String(safeUser.username || userKey || ''),
     email: String(safeUser.email || '').trim().toLowerCase() || null,
     provider: String(safeUser.provider || 'local'),
@@ -4626,6 +5288,7 @@ function supabaseRowToDbUser(row) {
   const raw = row && row.raw && typeof row.raw === 'object' ? row.raw : {};
   return {
     ...raw,
+    auth_user_id: row?.auth_user_id || raw.auth_user_id || null,
     username: String(row?.username || raw.username || ''),
     email: row?.email ? String(row.email) : '',
     provider: String(row?.provider || raw.provider || 'local'),
@@ -5138,12 +5801,16 @@ function buildObjectKeyCandidates(basePath, folderName, subfolder, name, vault, 
   if (v) {
     if (folderName === 'Omegle' && subfolder) {
       push(`${basePath}/${v}/${subfolder}/${name}`);
+    } else if (folderName === 'Omegle') {
+      push(`${basePath}/${v}/${name}`);
     } else if (folderName !== 'Omegle') {
       push(`${basePath}/${v}/${name}`);
     }
     for (const legacyCt of ['video', 'photo', 'gif']) {
       if (folderName === 'Omegle' && subfolder) {
         push(`${basePath}/${legacyCt}/${v}/${subfolder}/${name}`);
+      } else if (folderName === 'Omegle') {
+        push(`${basePath}/${legacyCt}/${v}/${name}`);
       } else if (folderName !== 'Omegle') {
         push(`${basePath}/${legacyCt}/${v}/${name}`);
       }
@@ -5151,25 +5818,35 @@ function buildObjectKeyCandidates(basePath, folderName, subfolder, name, vault, 
   }
   if (folderName === 'Omegle' && subfolder) {
     if (allowLegacyT3) {
-      push(`${basePath}/tier 3/${subfolder}/${name}`);
+      for (const p of LEGACY_TIER_PREFIX_VARIANTS.t3) push(`${basePath}/${p}/${subfolder}/${name}`);
       // Same entitlement as tier 3 Discord folder: older uploads used vault `ultimate/`.
       push(`${basePath}/ultimate/${subfolder}/${name}`);
       for (const legacyCt of ['video', 'photo', 'gif']) {
         push(`${basePath}/${legacyCt}/ultimate/${subfolder}/${name}`);
       }
     }
-    if (allowLegacyT2) push(`${basePath}/tier 2/${subfolder}/${name}`);
-    if (allowLegacyT1) push(`${basePath}/tier 1/${subfolder}/${name}`);
-  } else if (folderName !== 'Omegle') {
+    if (allowLegacyT2) for (const p of LEGACY_TIER_PREFIX_VARIANTS.t2) push(`${basePath}/${p}/${subfolder}/${name}`);
+    if (allowLegacyT1) for (const p of LEGACY_TIER_PREFIX_VARIANTS.t1) push(`${basePath}/${p}/${subfolder}/${name}`);
+  } else if (folderName === 'Omegle') {
     if (allowLegacyT3) {
-      push(`${basePath}/tier 3/${name}`);
+      for (const p of LEGACY_TIER_PREFIX_VARIANTS.t3) push(`${basePath}/${p}/${name}`);
       push(`${basePath}/ultimate/${name}`);
       for (const legacyCt of ['video', 'photo', 'gif']) {
         push(`${basePath}/${legacyCt}/ultimate/${name}`);
       }
     }
-    if (allowLegacyT2) push(`${basePath}/tier 2/${name}`);
-    if (allowLegacyT1) push(`${basePath}/tier 1/${name}`);
+    if (allowLegacyT2) for (const p of LEGACY_TIER_PREFIX_VARIANTS.t2) push(`${basePath}/${p}/${name}`);
+    if (allowLegacyT1) for (const p of LEGACY_TIER_PREFIX_VARIANTS.t1) push(`${basePath}/${p}/${name}`);
+  } else if (folderName !== 'Omegle') {
+    if (allowLegacyT3) {
+      for (const p of LEGACY_TIER_PREFIX_VARIANTS.t3) push(`${basePath}/${p}/${name}`);
+      push(`${basePath}/ultimate/${name}`);
+      for (const legacyCt of ['video', 'photo', 'gif']) {
+        push(`${basePath}/${legacyCt}/ultimate/${name}`);
+      }
+    }
+    if (allowLegacyT2) for (const p of LEGACY_TIER_PREFIX_VARIANTS.t2) push(`${basePath}/${p}/${name}`);
+    if (allowLegacyT1) for (const p of LEGACY_TIER_PREFIX_VARIANTS.t1) push(`${basePath}/${p}/${name}`);
   }
   return keys;
 }
@@ -5357,7 +6034,7 @@ const server = http.createServer(async (req, res) => {
     if (!_isStaticReq) {
       try {
         await ensureSessionsLoaded();
-        const _uk = getAuthedUserKey(req);
+        const _uk = await getAuthedUserKeyWithRefresh(req);
         if (_uk) {
           const now = Date.now();
           adminLastSeen.set(_uk, now);
@@ -6434,7 +7111,7 @@ const server = http.createServer(async (req, res) => {
 
       // Must be logged in
       await ensureSessionsLoaded();
-      const userKey = getAuthedUserKey(req);
+      const userKey = await getAuthedUserKeyWithRefresh(req);
       if (!userKey) return sendJson(res, 401, { error: 'You must be logged in to redeem a key.' });
 
       const ip = normalizeIp(getClientIp(req));
@@ -6656,7 +7333,7 @@ const server = http.createServer(async (req, res) => {
       if (!isAllowedRedeemOrigin(req)) return sendJson(res, 403, { error: 'Forbidden' });
 
       await ensureSessionsLoaded();
-      const userKey = getAuthedUserKey(req);
+      const userKey = await getAuthedUserKeyWithRefresh(req);
       if (!userKey) return sendJson(res, 401, { error: 'You must be logged in to redeem.' });
 
       const ip = normalizeIp(getClientIp(req));
@@ -7062,7 +7739,14 @@ const server = http.createServer(async (req, res) => {
       persistSessionsToR2();
       setSessionCookie(res, signupToken);
 
-      return sendJson(res, 201, { ok: true });
+      let sbSignupTokens = null;
+      try {
+        sbSignupTokens = await provisionLegacyLoginSupabaseSession(db.users[key], key, password);
+      } catch (e) {
+        console.warn('[auth] signup provisionLegacyLoginSupabaseSession', e && e.message ? e.message : e);
+      }
+
+      return sendJson(res, 201, { ok: true, ...(sbSignupTokens || {}) });
 
       } finally { releaseSignupLock(); }
     }
@@ -7072,7 +7756,7 @@ const server = http.createServer(async (req, res) => {
       const method = (req.method || 'GET').toUpperCase();
       if (method !== 'POST' && method !== 'GET') return sendJson(res, 405, { error: 'Method Not Allowed' });
       await ensureSessionsLoaded();
-      const pingUserKey = getAuthedUserKey(req);
+      const pingUserKey = await getAuthedUserKeyWithRefresh(req);
       if (!pingUserKey) return sendJson(res, 200, { ok: false, authed: false });
       adminLastSeen.set(pingUserKey, Date.now());
       scheduleAdminPersist();
@@ -7246,20 +7930,44 @@ const server = http.createServer(async (req, res) => {
 
       const loginId = String(body.username || body.email || '').trim();
       const password = String(body.password || '');
-      if (!loginId) return sendJson(res, 401, { error: 'Invalid credentials' });
-      if (!isValidPassword(password)) return sendJson(res, 401, { error: 'Invalid credentials' });
+      if (!loginId) return sendJson(res, 401, { error: 'Invalid username or password.' });
+      if (!isValidPassword(password)) return sendJson(res, 401, { error: 'Invalid username or password.' });
 
       const db = await ensureUsersDbFresh();
       const key = findUserKeyByLoginIdentifier(db, loginId);
-      if (!key) return sendJson(res, 401, { error: 'Invalid credentials' });
+      if (!key) return sendJson(res, 401, { error: 'Invalid username or password.' });
       const record = db.users[key];
-      if (!record || record.provider !== 'local') return sendJson(res, 401, { error: 'Invalid credentials' });
+      if (!record) return sendJson(res, 401, { error: 'Invalid username or password.' });
+
+      if (String(record.provider || 'local') !== 'local') {
+        const p = String(record.provider || '').toLowerCase();
+        if (p === 'discord') {
+          return sendJson(res, 401, {
+            error: 'This account uses Discord. Sign in with the Discord button below instead of password.',
+          });
+        }
+        if (p === 'google') {
+          return sendJson(res, 401, {
+            error: 'This account uses Google. Sign in with the Google button below instead of password.',
+          });
+        }
+        return sendJson(res, 401, {
+          error: 'Password sign-in is not available for this account. Use Discord or Google if you signed up with those.',
+        });
+      }
+
+      if (!record.salt || !record.hash) {
+        return sendJson(res, 401, {
+          error:
+            'No password is stored for this account yet. Use Discord or Google if you signed up with social login, or create a password by signing up through this site.',
+        });
+      }
 
       const calc = scryptHex(password, record.salt);
       const a = Buffer.from(calc, 'hex');
       const b = Buffer.from(String(record.hash || ''), 'hex');
       if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-        return sendJson(res, 401, { error: 'Invalid credentials' });
+        return sendJson(res, 401, { error: 'Invalid username or password.' });
       }
 
       if (record.banned) {
@@ -7271,11 +7979,18 @@ const server = http.createServer(async (req, res) => {
       record.lastLoginAt = Date.now();
       await queueUsersDbWrite();
 
+      let sbTokens = null;
+      try {
+        sbTokens = await provisionLegacyLoginSupabaseSession(record, key, password);
+      } catch (e) {
+        console.warn('[auth] provisionLegacyLoginSupabaseSession', e && e.message ? e.message : e);
+      }
+
       const token = crypto.randomBytes(32).toString('hex');
       sessions.set(token, { userKey: key, createdAt: Date.now() });
       persistSessionsToR2();
       setSessionCookie(res, token);
-      return sendJson(res, 200, { ok: true });
+      return sendJson(res, 200, { ok: true, ...(sbTokens || {}) });
     }
 
     // ===== AUTH: LOGOUT =====
@@ -7290,6 +8005,13 @@ const server = http.createServer(async (req, res) => {
       }
       clearSessionCookie(res);
       return sendJson(res, 200, { ok: true });
+    }
+
+    // ===== AUTH: sync public.users row from Supabase Auth JWT (OAuth / email signup) =====
+    if (requestUrl.pathname === '/api/auth/sync-profile') {
+      const method = (req.method || 'POST').toUpperCase();
+      if (method !== 'POST') return sendJson(res, 405, { error: 'Method Not Allowed' });
+      return await handleAuthSyncProfile(req, res);
     }
 
     // ===== AUTH: WHOAMI =====
@@ -8376,8 +9098,8 @@ const server = http.createServer(async (req, res) => {
             for (const item of items) {
               if (_isDupe(seenSizes, seenTitles, item)) continue;
               const isVid = isVideoFile(item.name);
-              const key = isVid ? videoKey(folder, subfolder, item.name, v) : null;
-              const stats = key ? (shortStats[key] || { views: 0, likes: 0, dislikes: 0 }) : {};
+              const key = videoKey(folder, subfolder, item.name, v);
+              const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
               const lk = mediaLookupKey(folder, subfolder, v || '', item.name);
               const rck = mediaR2ResolveCacheKey(lk, tier);
               global._mediaKeyCache[rck] = { key: _prefix + item.name, ts: Date.now() };
@@ -8402,6 +9124,50 @@ const server = http.createServer(async (req, res) => {
               });
             }
           }
+          // Fallback: if requested Omegle subfolder is empty, include root-level layout files.
+          if (allFiles.length === 0) {
+            const rootJobs = [];
+            for (const v of vaultFolders) rootJobs.push({ v, prefix: basePath + '/' + v + '/' });
+            for (const legacyCt of ['video', 'photo', 'gif']) {
+              for (const v of vaultFolders) rootJobs.push({ v, prefix: basePath + '/' + legacyCt + '/' + v + '/' });
+            }
+            for (const tf of accessibleLegacyTierPrefixes(tier)) rootJobs.push({ prefix: basePath + '/' + tf + '/' });
+            const rootResults = await Promise.all(rootJobs.map(j => R2_ENABLED ? r2ListMediaFilesFromPrefix(j.prefix).catch(() => []) : Promise.resolve([])));
+            for (let _pi = 0; _pi < rootResults.length; _pi++) {
+              const items = rootResults[_pi];
+              const job = rootJobs[_pi];
+              const _prefix = job.prefix;
+              const v = job.v;
+              for (const item of items) {
+                if (_isDupe(seenSizes, seenTitles, item)) continue;
+                const isVid = isVideoFile(item.name);
+                const key = videoKey(folder, '', item.name, v);
+                const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
+                const lk = mediaLookupKey(folder, '', v || '', item.name);
+                const rck = mediaR2ResolveCacheKey(lk, tier);
+                global._mediaKeyCache[rck] = { key: _prefix + item.name, ts: Date.now() };
+                _cacheEntries.push({ k: rck, v: _prefix + item.name });
+                let src = `/media?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`;
+                if (v) src += `&vault=${encodeURIComponent(v)}`;
+                const thumb = isVid ? _thumbUrl(folder, '', item.name, v) : src;
+                allFiles.push({
+                  name: item.name,
+                  type: isVid ? 'video' : 'image',
+                  src,
+                  ...(thumb ? { thumb } : {}),
+                  ...(v ? { vault: v } : {}),
+                  size: item.size || 0,
+                  lastModified: item.lastModified || 0,
+                  duration: isVid ? _getDuration(folder, '', item.name, v) : 0,
+                  folder,
+                  subfolder: '',
+                  category: folder,
+                  uploader: uploaderMap.get(item.name) || null,
+                  ...(key ? { videoKey: key, views: stats.views || 0, likes: stats.likes || 0, dislikes: stats.dislikes || 0 } : {}),
+                });
+              }
+            }
+          }
           global._listCache[_listCacheKey] = { files: allFiles, _cacheEntries, ts: Date.now() };
           return sendJson(res, 200, { type: 'files', files: allFiles });
         }
@@ -8423,6 +9189,18 @@ const server = http.createServer(async (req, res) => {
             _omPrefixes.push({ sf, prefix: basePath + '/' + tf + '/' + sf + '/' });
           }
         }
+        // Also support root-style Omegle layouts with no category subfolder
+        for (const v of vaultFolders) {
+          _omPrefixes.push({ sf: '', v, prefix: basePath + '/' + v + '/' });
+        }
+        for (const legacyCt of ['video', 'photo', 'gif']) {
+          for (const v of vaultFolders) {
+            _omPrefixes.push({ sf: '', v, prefix: basePath + '/' + legacyCt + '/' + v + '/' });
+          }
+        }
+        for (const tf of accessibleLegacyTierPrefixes(tier)) {
+          _omPrefixes.push({ sf: '', prefix: basePath + '/' + tf + '/' });
+        }
         const _omResults = await Promise.all(_omPrefixes.map(({ prefix }) => R2_ENABLED ? r2ListMediaFilesFromPrefix(prefix).catch(() => []) : Promise.resolve([])));
         if (!global._mediaKeyCache) global._mediaKeyCache = {};
         for (let i = 0; i < _omPrefixes.length; i++) {
@@ -8433,8 +9211,8 @@ const server = http.createServer(async (req, res) => {
           for (const item of items) {
             if (_isDupe(seenSizes, seenTitles, item)) continue;
             const isVid = isVideoFile(item.name);
-            const key = isVid ? videoKey(folder, sf, item.name, v) : null;
-            const stats = key ? (shortStats[key] || { views: 0, likes: 0, dislikes: 0 }) : {};
+              const key = videoKey(folder, sf, item.name, v);
+            const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
             const lk = mediaLookupKey(folder, sf, v || '', item.name);
             const rck = mediaR2ResolveCacheKey(lk, tier);
             global._mediaKeyCache[rck] = { key: _prefix + item.name, ts: Date.now() };
@@ -8489,8 +9267,8 @@ const server = http.createServer(async (req, res) => {
         for (const item of items) {
           if (_isDupe(seenSizes, seenTitles, item)) continue;
           const isVid = isVideoFile(item.name);
-          const key = isVid ? videoKey(folder, '', item.name, v) : null;
-          const stats = key ? (shortStats[key] || { views: 0, likes: 0, dislikes: 0 }) : {};
+          const key = videoKey(folder, '', item.name, v);
+          const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
           const lk = mediaLookupKey(folder, '', v || '', item.name);
           const rck = mediaR2ResolveCacheKey(lk, tier);
           global._mediaKeyCache[rck] = { key: _prefix + item.name, ts: Date.now() };
@@ -8519,48 +9297,7 @@ const server = http.createServer(async (req, res) => {
 
       // Background: pre-generate thumbnails for any uncached videos in this listing
       if (R2_ENABLED && files.length > 0) {
-        setImmediate(() => {
-          const uncached = files.filter(
-            f =>
-              f.type === 'video' &&
-              !_thumbCacheGet(_thumbCacheKey(f.folder, f.subfolder || '', f.name, f.vault)),
-          );
-          if (uncached.length === 0) return;
-          for (const item of uncached) {
-            const ck = _thumbCacheKey(item.folder, item.subfolder || '', item.name, item.vault);
-            if (_thumbInFlight[ck]) continue;
-            const bp = allowedFolders.get(item.folder);
-            if (!bp) continue;
-            (async () => {
-              try {
-                let vUrl = null;
-                const candidates = buildObjectKeyCandidates(
-                  bp,
-                  item.folder,
-                  item.subfolder || '',
-                  item.name,
-                  item.vault || undefined,
-                  tier,
-                );
-                for (const ok of candidates) {
-                  try {
-                    if (await r2HeadObject(ok)) {
-                      vUrl = r2PresignedUrl(ok, 120);
-                      break;
-                    }
-                  } catch { /* next */ }
-                }
-                if (!vUrl) return;
-                const buf = await generateThumbnail(vUrl, item.name);
-                if (buf) {
-                  _thumbCacheSet(ck, buf);
-                  const dp = _thumbDiskPath(item.folder, item.subfolder || '', item.name);
-                  fs.writeFile(dp, buf, () => {});
-                }
-              } catch {}
-            })();
-          }
-        });
+        schedulePrioritizedThumbWarm(files, tier, { priorityCount: 24 });
       }
 
       return sendJson(res, 200, { type: 'files', files });
@@ -8570,7 +9307,7 @@ const server = http.createServer(async (req, res) => {
     // ── Email preferences ──
     if (requestUrl.pathname === '/api/email/preferences') {
       if (req.method === 'POST') {
-        const userKey = getAuthedUserKey(req);
+        const userKey = await getAuthedUserKeyWithRefresh(req);
         if (!userKey) return sendJson(res, 401, { error: 'Not authenticated' });
         const body = await readJsonBody(req, res);
         if (!body) return;
@@ -8586,7 +9323,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { ok: true, prefs: u.emailPrefs });
       }
       // GET
-      const userKey = getAuthedUserKey(req);
+      const userKey = await getAuthedUserKeyWithRefresh(req);
       if (!userKey) return sendJson(res, 401, { error: 'Not authenticated' });
       const db = await getOrLoadUsersDb();
       const u = db.users[userKey];
@@ -8636,7 +9373,7 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname === '/api/shorts/like') {
       if ((req.method || '').toUpperCase() !== 'POST') return sendJson(res, 405, { error: 'POST only' });
       await ensureSessionsLoaded();
-      const likeUserKey = getAuthedUserKey(req);
+      const likeUserKey = await getAuthedUserKeyWithRefresh(req);
       if (!likeUserKey) return sendJson(res, 401, { error: 'Login required to like' });
       const body = await readRawBody(req, res, 2048);
       if (!body) return;
@@ -8815,6 +9552,72 @@ const server = http.createServer(async (req, res) => {
                 } catch { /* skip */ }
               }
             }
+            // Support Omegle layouts where files are directly under vault/tier folders (no subfolder segment).
+            for (const v of vaultFolders) {
+              const prefix = basePath + '/' + v + '/';
+              try {
+                const items = await r2ListMediaFilesFromPrefix(prefix);
+                for (const item of items) {
+                  if (!isVideoFile(item.name)) continue;
+                  const sz = item.size || 0;
+                  let isDupe = false;
+                  if (sz > 10000) {
+                    for (const s of seenSizes) { if (Math.abs(sz - s) / Math.max(sz, s) < 0.001) { isDupe = true; break; } }
+                    if (!isDupe) seenSizes.add(sz);
+                  }
+                  if (isDupe) continue;
+                  const key = videoKey(folderName, '', item.name, v);
+                  const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
+                  allItems.push({
+                    name: item.name,
+                    folder: folderName,
+                    subfolder: '',
+                    vault: v,
+                    type: 'video',
+                    size: item.size || 0,
+                    lastModified: item.lastModified || 0,
+                    videoKey: key,
+                    src: `/media?folder=${encodeURIComponent(folderName)}&name=${encodeURIComponent(item.name)}&vault=${encodeURIComponent(v)}`,
+                    duration: _getDuration(folderName, '', item.name, v),
+                    views: stats.views || 0,
+                    likes: stats.likes || 0,
+                    dislikes: stats.dislikes || 0,
+                  });
+                }
+              } catch { /* skip */ }
+            }
+            for (const tf of legacyTierFolders) {
+              const prefix = basePath + '/' + tf + '/';
+              try {
+                const items = await r2ListMediaFilesFromPrefix(prefix);
+                for (const item of items) {
+                  if (!isVideoFile(item.name)) continue;
+                  const sz = item.size || 0;
+                  let isDupe = false;
+                  if (sz > 10000) {
+                    for (const s of seenSizes) { if (Math.abs(sz - s) / Math.max(sz, s) < 0.001) { isDupe = true; break; } }
+                    if (!isDupe) seenSizes.add(sz);
+                  }
+                  if (isDupe) continue;
+                  const key = videoKey(folderName, '', item.name);
+                  const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
+                  allItems.push({
+                    name: item.name,
+                    folder: folderName,
+                    subfolder: '',
+                    type: 'video',
+                    size: item.size || 0,
+                    lastModified: item.lastModified || 0,
+                    videoKey: key,
+                    src: `/media?folder=${encodeURIComponent(folderName)}&name=${encodeURIComponent(item.name)}`,
+                    duration: _getDuration(folderName, '', item.name),
+                    views: stats.views || 0,
+                    likes: stats.likes || 0,
+                    dislikes: stats.dislikes || 0,
+                  });
+                }
+              } catch { /* skip */ }
+            }
           } else {
             for (const v of vaultFolders) {
               const prefix = basePath + '/' + v + '/';
@@ -8939,13 +9742,7 @@ const server = http.createServer(async (req, res) => {
 
       const total = filtered.length;
       const page = filtered.slice(offset, offset + limit).map(f => {
-        let thumb =
-          '/thumbnail?folder=' +
-          encodeURIComponent(f.folder || '') +
-          '&name=' +
-          encodeURIComponent(f.name) +
-          (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '');
-        if (f.vault) thumb += '&vault=' + encodeURIComponent(f.vault);
+        const thumb = _thumbUrl(f.folder || '', f.subfolder || '', f.name, f.vault);
         return { ...f, thumb };
       });
       return sendJson(res, 200, { files: page, total });
@@ -8988,7 +9785,7 @@ const server = http.createServer(async (req, res) => {
     // POST /api/comments — add a comment (requires auth, rate limited, filtered)
     if (requestUrl.pathname === '/api/comments' && (req.method || 'GET').toUpperCase() === 'POST') {
       await ensureSessionsLoaded();
-      const commentUserKey = getAuthedUserKey(req);
+      const commentUserKey = await getAuthedUserKeyWithRefresh(req);
       if (!commentUserKey) return sendJson(res, 401, { error: 'Login required to comment' });
       const body = await readRawBody(req, res, 2048);
       if (!body) return;
@@ -9018,7 +9815,7 @@ const server = http.createServer(async (req, res) => {
     // POST /api/comments/vote — like or dislike a comment
     if (requestUrl.pathname === '/api/comments/vote' && (req.method || 'GET').toUpperCase() === 'POST') {
       await ensureSessionsLoaded();
-      const voteUserKey = getAuthedUserKey(req);
+      const voteUserKey = await getAuthedUserKeyWithRefresh(req);
       if (!voteUserKey) return sendJson(res, 401, { error: 'Login required' });
       const body = await readRawBody(req, res, 1024);
       if (!body) return;
@@ -9060,7 +9857,7 @@ const server = http.createServer(async (req, res) => {
     // POST /api/comments/reply — reply to a comment
     if (requestUrl.pathname === '/api/comments/reply' && (req.method || 'GET').toUpperCase() === 'POST') {
       await ensureSessionsLoaded();
-      const replyUserKey = getAuthedUserKey(req);
+      const replyUserKey = await getAuthedUserKeyWithRefresh(req);
       if (!replyUserKey) return sendJson(res, 401, { error: 'Login required' });
       const body = await readRawBody(req, res, 2048);
       if (!body) return;
@@ -9100,7 +9897,7 @@ const server = http.createServer(async (req, res) => {
       const commentCount = (videoComments[key] || []).length;
       // Include user's own vote so frontend can persist button state
       await ensureSessionsLoaded();
-      const statsUserKey = getAuthedUserKey(req);
+      const statsUserKey = await getAuthedUserKeyWithRefresh(req);
       const myVote = (statsUserKey && s._votes) ? (s._votes[statsUserKey] || null) : null;
       return sendJson(res, 200, { views: s.views || 0, likes: s.likes || 0, dislikes: s.dislikes || 0, commentCount, myVote });
     }
@@ -9127,7 +9924,7 @@ const server = http.createServer(async (req, res) => {
         } else {
           // Like/dislike requires auth
           await ensureSessionsLoaded();
-          voteUserKey = getAuthedUserKey(req);
+          voteUserKey = await getAuthedUserKeyWithRefresh(req);
           if (!voteUserKey) return sendJson(res, 401, { error: 'Login required to vote' });
 
           const prevVote = shortStats[key]._votes[voteUserKey];
@@ -9260,6 +10057,7 @@ const server = http.createServer(async (req, res) => {
     // GET /api/recommendations — personalized recommendations by surface/context.
     if (requestUrl.pathname === '/api/recommendations') {
       await ensureShortStatsFresh();
+      await ensurePreviewCacheReady();
       const identity = ensureIdentity(req, res);
       const limit = Math.min(30, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '12', 10) || 12));
       const surface = (requestUrl.searchParams.get('surface') || 'home').toLowerCase();
@@ -9272,22 +10070,18 @@ const server = http.createServer(async (req, res) => {
       const slice = ranked.slice(0, limit).map(f => {
         const out = Object.assign({}, f);
         if (isVideoFile(f.name)) {
-          out.thumb =
-            '/thumbnail?folder=' +
-            encodeURIComponent(f.folder || '') +
-            '&name=' +
-            encodeURIComponent(f.name) +
-            (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '') +
-            (f.vault ? '&vault=' + encodeURIComponent(f.vault) : '');
+          out.thumb = _thumbUrl(f.folder || '', f.subfolder || '', f.name, f.vault);
         }
         out.recoScore = Number(f._score || 0);
         return out;
       });
+      schedulePrioritizedThumbWarm(slice, 0, { priorityCount: Math.min(limit, 18) });
       return sendJson(res, 200, { files: slice });
     }
 
     if (requestUrl.pathname === '/api/recommendations/related') {
       await ensureShortStatsFresh();
+      await ensurePreviewCacheReady();
       const identity = ensureIdentity(req, res);
       const videoId = requestUrl.searchParams.get('videoId') || '';
       if (!videoId) return sendJson(res, 400, { error: 'Missing videoId' });
@@ -9301,16 +10095,11 @@ const server = http.createServer(async (req, res) => {
       const slice = ranked.slice(0, limit).map((f) => {
         const out = Object.assign({}, f);
         if (isVideoFile(f.name)) {
-          out.thumb =
-            '/thumbnail?folder=' +
-            encodeURIComponent(f.folder || '') +
-            '&name=' +
-            encodeURIComponent(f.name) +
-            (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '') +
-            (f.vault ? '&vault=' + encodeURIComponent(f.vault) : '');
+          out.thumb = _thumbUrl(f.folder || '', f.subfolder || '', f.name, f.vault);
         }
         return out;
       });
+      schedulePrioritizedThumbWarm(slice, 0, { priorityCount: Math.min(limit, 18) });
       return sendJson(res, 200, { files: slice });
     }
 
@@ -9327,6 +10116,7 @@ const server = http.createServer(async (req, res) => {
     // GET /api/trending — videos with most views in recent period
     if (requestUrl.pathname === '/api/trending') {
       await ensureShortStatsFresh();
+      await ensurePreviewCacheReady();
       const limit = Math.min(30, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '12', 10) || 12));
       let allFiles = enrichPreviewFilesWithLiveStats(previewFileList.slice());
       allFiles.sort((a, b) => (b.views || 0) - (a.views || 0));
@@ -9334,22 +10124,18 @@ const server = http.createServer(async (req, res) => {
         const out = Object.assign({}, f);
         out.isTrending = true;
         if (isVideoFile(f.name)) {
-          out.thumb =
-            '/thumbnail?folder=' +
-            encodeURIComponent(f.folder || '') +
-            '&name=' +
-            encodeURIComponent(f.name) +
-            (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '') +
-            (f.vault ? '&vault=' + encodeURIComponent(f.vault) : '');
+          out.thumb = _thumbUrl(f.folder || '', f.subfolder || '', f.name, f.vault);
         }
         return out;
       });
+      schedulePrioritizedThumbWarm(slice, 0, { priorityCount: Math.min(limit, 18) });
       return sendJson(res, 200, { files: slice });
     }
 
     // GET /api/newest — most recently added videos
     if (requestUrl.pathname === '/api/newest') {
       await ensureShortStatsFresh();
+      await ensurePreviewCacheReady();
       const limit = Math.min(30, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '12', 10) || 12));
       let allFiles = enrichPreviewFilesWithLiveStats(previewFileList.slice());
       // Sort by lastModified desc (newest first)
@@ -9358,16 +10144,11 @@ const server = http.createServer(async (req, res) => {
         const out = Object.assign({}, f);
         out.isNew = true;
         if (isVideoFile(f.name)) {
-          out.thumb =
-            '/thumbnail?folder=' +
-            encodeURIComponent(f.folder || '') +
-            '&name=' +
-            encodeURIComponent(f.name) +
-            (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '') +
-            (f.vault ? '&vault=' + encodeURIComponent(f.vault) : '');
+          out.thumb = _thumbUrl(f.folder || '', f.subfolder || '', f.name, f.vault);
         }
         return out;
       });
+      schedulePrioritizedThumbWarm(slice, 0, { priorityCount: Math.min(limit, 18) });
       return sendJson(res, 200, { files: slice });
     }
 
@@ -9384,6 +10165,7 @@ const server = http.createServer(async (req, res) => {
       if (!R2_ENABLED) return sendJson(res, 200, { files: [], totalPages: 0 });
 
       await ensureShortStatsFresh();
+      await ensurePreviewCacheReady();
       // Use pre-built list; views/likes merged from shortStats so counts stay current between cache rebuilds
       let allFiles = enrichPreviewFilesWithLiveStats(previewFileList.slice());
       if (sort === 'views') {
@@ -9411,11 +10193,12 @@ const server = http.createServer(async (req, res) => {
       const slice = allFiles.slice(start, start + limit).map(f => {
         const out = Object.assign({}, f);
         if (isVideoFile(f.name)) {
-          out.thumb = '/thumbnail?folder=' + encodeURIComponent(f.folder || '') + '&name=' + encodeURIComponent(f.name) + (f.subfolder ? '&subfolder=' + encodeURIComponent(f.subfolder) : '');
+          out.thumb = _thumbUrl(f.folder || '', f.subfolder || '', f.name, f.vault);
         }
         return out;
       });
-      return sendJson(res, 200, { files: slice, totalPages, page });
+      schedulePrioritizedThumbWarm(slice, 0, { priorityCount: Math.min(limit, 18) });
+      return sendJson(res, 200, { files: slice, videos: slice, totalPages, page });
     }
 
     // GET /api/folder-counts — public, returns video counts per category
@@ -9542,7 +10325,7 @@ const server = http.createServer(async (req, res) => {
       if (global._videoListCache) Object.keys(global._videoListCache).forEach(k => delete global._videoListCache[k]);
       Object.keys(previewUrlMap).forEach(k => delete previewUrlMap[k]);
       previewFileList = [];
-      buildPreviewCache().catch(e => console.error('[cache-bust] rebuild error:', e && e.message ? e.message : e));
+      ensurePreviewCacheReady(true).catch(e => console.error('[cache-bust] rebuild error:', e && e.message ? e.message : e));
       return sendJson(res, 200, { ok: true, message: 'All caches cleared and rebuild kicked off' });
     }
 
@@ -9614,20 +10397,24 @@ const server = http.createServer(async (req, res) => {
       const items = R2_ENABLED ? await r2ListMediaFilesFromPrefix(prefix) : [];
       const files = items.map((item) => {
         const isVid = isVideoFile(item.name);
-        const key = isVid ? videoKey(folder, '', item.name) : null;
-        const stats = key ? (shortStats[key] || { views: 0, likes: 0, dislikes: 0 }) : {};
-        const commentCount = key ? (videoComments[key] || []).length : 0;
+        const key = videoKey(folder, '', item.name);
+        const stats = shortStats[key] || { views: 0, likes: 0, dislikes: 0 };
+        const commentCount = (videoComments[key] || []).length;
         return {
           name: item.name,
           type: isVid ? 'video' : 'image',
           src: `/preview-media?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`,
           thumb: isVid
-            ? `/thumbnail?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`
+            ? _thumbUrl(folder, '', item.name)
             : `/preview-media?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(item.name)}`,
           size: item.size || 0,
           duration: isVid ? _getDuration(folder, 'previews', item.name) : 0,
           folder,
-          ...(key ? { videoKey: key, views: stats.views || 0, likes: stats.likes || 0, dislikes: stats.dislikes || 0, commentCount } : {}),
+          videoKey: key,
+          views: stats.views || 0,
+          likes: stats.likes || 0,
+          dislikes: stats.dislikes || 0,
+          commentCount,
         };
       });
       return sendJson(res, 200, { files });
@@ -9701,7 +10488,14 @@ const server = http.createServer(async (req, res) => {
       if (R2_ENABLED) {
         const r2Key = _thumbR2Key(cacheKey);
         try {
-          const exists = await r2HeadObject(r2Key);
+          const memo = _thumbR2ExistsCache[r2Key];
+          let exists;
+          if (memo && (Date.now() - memo.ts < (memo.exists ? _THUMB_R2_EXISTS_TTL_MS : _THUMB_R2_MISS_TTL_MS))) {
+            exists = memo.exists;
+          } else {
+            exists = await r2HeadObject(r2Key);
+            _thumbR2ExistsCache[r2Key] = { exists, ts: Date.now() };
+          }
           if (exists) {
             // Thumbnail exists in R2 — redirect to presigned URL (no Node buffering)
             const thumbUrl = r2PresignedUrl(r2Key, 3600);
@@ -9720,6 +10514,15 @@ const server = http.createServer(async (req, res) => {
 
       if (folder && R2_ENABLED) {
         const basePath = allowedFolders.get(folder);
+        // Direct preview-path fallback for categories that store list cards in previews/.
+        if (!videoUrl && basePath) {
+          const previewObjectKey = basePath + '/previews/' + name;
+          try {
+            if (await r2HeadObject(previewObjectKey)) {
+              videoUrl = r2PresignedUrl(previewObjectKey, 120);
+            }
+          } catch {}
+        }
         if (global._mediaKeyCache && basePath) {
           const tryKeys = [];
           if (vaultQ) tryKeys.push(mediaLookupKey(folder, subfolder, vaultQ, name));
@@ -9773,19 +10576,10 @@ const server = http.createServer(async (req, res) => {
 
       if (!videoUrl) return sendText(res, 404, 'Not Found');
 
-      // NON-BLOCKING: Return placeholder immediately, generate in background
-      // This prevents 15+ thumbnail requests from hanging the server
-      res.writeHead(200, {
-        'Content-Type': 'image/jpeg',
-        'Content-Length': PLACEHOLDER_THUMB.length,
-        'Cache-Control': 'no-cache, max-age=0',
-        'X-Thumb-Status': 'generating',
-      });
-      res.end(PLACEHOLDER_THUMB);
-
-      // Queue background generation (deduplicated)
+      // On cache miss, attempt generation and wait briefly so first paint gets a real frame.
+      // If ffmpeg is slow for this specific item, fall back to placeholder but keep generation in-flight.
       if (!_thumbInFlight[cacheKey]) {
-        const genPromise = generateThumbnail(videoUrl, name).then(genBuf => {
+        const genPromise = generateThumbnail(videoUrl, name).then((genBuf) => {
           delete _thumbInFlight[cacheKey];
           if (genBuf) {
             _thumbCacheSet(cacheKey, genBuf);
@@ -9793,9 +10587,36 @@ const server = http.createServer(async (req, res) => {
             fs.writeFile(diskPath, genBuf, () => {});
           }
           return genBuf;
-        }).catch(e => { delete _thumbInFlight[cacheKey]; return null; });
+        }).catch(() => {
+          delete _thumbInFlight[cacheKey];
+          return null;
+        });
         _thumbInFlight[cacheKey] = genPromise;
       }
+
+      const genBuf = await _thumbInFlight[cacheKey];
+      if (genBuf) {
+        const etag = '"t-' + genBuf.length + '"';
+        if (req.headers['if-none-match'] === etag) {
+          res.writeHead(304);
+          return res.end();
+        }
+        res.writeHead(200, {
+          'Content-Type': 'image/jpeg',
+          'Content-Length': genBuf.length,
+          'Cache-Control': 'public, max-age=604800, immutable',
+          'ETag': etag,
+        });
+        return res.end(genBuf);
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'image/jpeg',
+        'Content-Length': PLACEHOLDER_THUMB.length,
+        'Cache-Control': 'no-cache, max-age=0',
+        'X-Thumb-Status': 'generating',
+      });
+      res.end(PLACEHOLDER_THUMB);
       return;
     }
 
@@ -9902,6 +10723,317 @@ const server = http.createServer(async (req, res) => {
       if (asset.mp4_720_object_key) sources.push({ quality: '720p', url: r2PresignedUrl(asset.mp4_720_object_key, 3600) });
 
       return sendJson(res, 200, { videoId, sources });
+    }
+
+    if (requestUrl.pathname === '/api/video-rename/status') {
+      if ((req.method || '').toUpperCase() !== 'GET') return sendJson(res, 405, { error: 'GET only' });
+      const folder = String(requestUrl.searchParams.get('folder') || '').trim();
+      const name = String(requestUrl.searchParams.get('name') || '').trim();
+      const subfolder = String(requestUrl.searchParams.get('subfolder') || '').trim();
+      const vault = String(requestUrl.searchParams.get('vault') || '').trim();
+      if (!folder || !name) return sendJson(res, 400, { error: 'Missing folder/name' });
+      await loadVideoRenameRequests();
+      const identity = videoRenameIdentity(folder, subfolder, name, vault);
+      const state = getVideoRenameStatus(identity);
+      return sendJson(res, 200, {
+        state: state.state,
+        requestId: state.record ? state.record.requestId : null,
+        requestedName: state.record ? state.record.requestedName || '' : '',
+        finalizedName: state.record ? state.record.newName || '' : '',
+      });
+    }
+
+    if (requestUrl.pathname === '/api/video-rename/request') {
+      if ((req.method || '').toUpperCase() !== 'POST') return sendJson(res, 405, { error: 'POST only' });
+      const authed = await requireAuthedUser(req, res);
+      if (!authed) return;
+      const body = await readJsonBody(req, res, 24 * 1024);
+      if (!body) return;
+
+      const folder = String(body.folder || '').trim();
+      const name = String(body.name || '').trim();
+      const subfolder = String(body.subfolder || '').trim();
+      const vault = String(body.vault || '').trim();
+      const requestedName = trimText(body.requestedName, 140);
+      if (!folder || !name || !requestedName) return sendJson(res, 400, { error: 'Missing required fields' });
+      if (!allowedFolders.has(folder)) return sendJson(res, 400, { error: 'Invalid folder' });
+      if (folder === 'Omegle' && subfolder && !OMEGLE_SUBFOLDERS.includes(subfolder)) {
+        return sendJson(res, 400, { error: 'Invalid Omegle subfolder' });
+      }
+      if (!isAllowedMediaFile(name)) return sendJson(res, 400, { error: 'Invalid source media' });
+
+      const nextFileName = buildRenamedFileName(requestedName, name);
+      if (!nextFileName) return sendJson(res, 400, { error: 'Requested title is invalid' });
+      if (nextFileName === name) return sendJson(res, 400, { error: 'Requested title is unchanged' });
+
+      await loadVideoRenameRequests();
+      const identity = videoRenameIdentity(folder, subfolder, name, vault);
+      const state = getVideoRenameStatus(identity);
+      if (state.state === 'pending') return sendJson(res, 409, { error: 'Rename already pending' });
+      if (state.state === 'finalized') return sendJson(res, 409, { error: 'Rename already finalized for this video' });
+
+      const requestId = crypto.randomUUID();
+      const now = Date.now();
+      const requesterName = authed.record.username || authed.record.discordUsername || authed.userKey;
+      const rec = {
+        requestId,
+        videoIdentity: identity,
+        folder,
+        subfolder,
+        vault,
+        oldName: name,
+        requestedName,
+        status: 'pending',
+        finalized: false,
+        requestedBy: authed.userKey,
+        requestedByName: requesterName,
+        requestedAt: now,
+        updatedAt: now,
+        reviewedBy: '',
+        reviewedAt: 0,
+        newName: '',
+      };
+      videoRenameRequests.push(rec);
+      scheduleVideoRenamePersist();
+
+      const q = new URLSearchParams();
+      q.set('folder', folder);
+      q.set('name', name);
+      if (subfolder) q.set('subfolder', subfolder);
+      if (vault) q.set('vault', vault);
+      const videoUrl = getRequestOrigin(req) + '/video?' + q.toString();
+      void sendVideoRenameDiscordRequest(rec, requesterName, videoUrl);
+
+      return sendJson(res, 200, { ok: true, state: 'pending', requestId });
+    }
+
+    if (requestUrl.pathname === '/api/discord/interactions') {
+      if ((req.method || '').toUpperCase() !== 'POST') return sendJson(res, 405, { error: 'POST only' });
+      const raw = await readRawBody(req, res, 256 * 1024);
+      if (!raw) return;
+      if (!verifyDiscordInteractionSignature(req, raw)) return sendJson(res, 401, { error: 'Invalid signature' });
+      let payload = null;
+      try {
+        payload = JSON.parse(raw.toString('utf8'));
+      } catch {
+        return sendJson(res, 400, { error: 'Invalid JSON' });
+      }
+      if (Number(payload?.type) === 1) {
+        return sendJson(res, 200, { type: 1 }); // PING/PONG handshake
+      }
+      const customId = String(payload?.data?.custom_id || '');
+      const m = customId.match(/^rename:([0-9a-fA-F-]{36}):(approve|reject)$/);
+      if (!m) return sendJson(res, 200, { type: 4, data: { content: 'Unsupported action.', flags: 64 } });
+      const requestId = m[1];
+      const action = m[2];
+      await loadVideoRenameRequests();
+      const rec = videoRenameRequests.find((r) => r && r.requestId === requestId);
+      if (!rec) return sendJson(res, 200, { type: 4, data: { content: 'Request not found.', flags: 64 } });
+      if (rec.finalized || rec.status === 'approved') {
+        return sendJson(res, 200, { type: 4, data: { content: 'Already approved/finalized.', flags: 64 } });
+      }
+      if (rec.status === 'rejected' && action === 'reject') {
+        return sendJson(res, 200, { type: 4, data: { content: 'Already rejected.', flags: 64 } });
+      }
+      const actor = String(payload?.member?.user?.username || payload?.user?.username || 'discord-moderator');
+      if (action === 'reject') {
+        rec.status = 'rejected';
+        rec.finalized = false;
+        rec.reviewedBy = actor;
+        rec.reviewedAt = Date.now();
+        rec.updatedAt = Date.now();
+        scheduleVideoRenamePersist();
+        return sendJson(res, 200, { type: 4, data: { content: `Rejected rename request ${requestId}.`, flags: 64 } });
+      }
+      try {
+        await applyApprovedVideoRename(rec, actor);
+        return sendJson(res, 200, {
+          type: 4,
+          data: { content: `Approved and renamed to ${rec.newName}.`, flags: 64 },
+        });
+      } catch (e) {
+        rec.status = 'error';
+        rec.finalized = false;
+        rec.reviewedBy = actor;
+        rec.reviewedAt = Date.now();
+        rec.updatedAt = Date.now();
+        scheduleVideoRenamePersist();
+        return sendJson(res, 200, {
+          type: 4,
+          data: { content: `Rename failed: ${e && e.message ? e.message : 'unknown error'}`, flags: 64 },
+        });
+      }
+    }
+
+    // ── Userassets uploader metadata for video page ─────────────────────────
+    if (requestUrl.pathname === '/api/video/uploader') {
+      if ((req.method || '').toUpperCase() !== 'GET') return sendJson(res, 405, { error: 'GET only' });
+      const folder = String(requestUrl.searchParams.get('folder') || '');
+      const name = String(requestUrl.searchParams.get('name') || '');
+      if (!folder || !name) return sendJson(res, 400, { error: 'Missing folder/name' });
+      const authed = await getOptionalAuthedUser(req, res);
+      if (!authed) return;
+      const db = await ensureUsersDbFresh();
+      const source = uploadRequests
+        .filter((r) => r && r.status === 'approved' && r.category === folder && (r.uploadType || 'library') === 'userassets')
+        .find((r) => r.r2FinalKey && String(r.r2FinalKey).endsWith('/' + name));
+      if (!source) return sendJson(res, 200, { uploader: null, isFollowing: false });
+      const uploaderKey = String(source.userKey || '');
+      const uploader = db.users[uploaderKey];
+      if (!uploader) return sendJson(res, 200, { uploader: { username: source.username || 'creator' }, isFollowing: false });
+      const displayName = stripDiscordPrefix(uploader.username || source.username || uploaderKey);
+      const avatarUrl = normalizeOptionalUrl(uploader.avatarUrl || '');
+      const followersCount = Math.max(0, Number(uploader.followerCount || 0) || 0);
+      const following = authed.record && Array.isArray(authed.record.followingUserKeys) ? authed.record.followingUserKeys : [];
+      return sendJson(res, 200, {
+        uploader: {
+          userKey: uploaderKey,
+          username: displayName,
+          displayName,
+          avatarUrl,
+          followersCount,
+        },
+        isFollowing: following.includes(uploaderKey),
+      });
+    }
+
+    if (requestUrl.pathname === '/api/creator/follow') {
+      if ((req.method || '').toUpperCase() !== 'POST') return sendJson(res, 405, { error: 'POST only' });
+      const authed = await requireAuthedUser(req, res);
+      if (!authed) return;
+      const body = await readJsonBody(req, res, 16 * 1024);
+      if (!body) return;
+      const targetUserKey = String(body.targetUserKey || '').trim();
+      const follow = body.follow !== false;
+      if (!targetUserKey) return sendJson(res, 400, { error: 'Missing target user' });
+      if (targetUserKey === authed.userKey) return sendJson(res, 400, { error: 'Cannot follow yourself' });
+      const target = authed.db.users[targetUserKey];
+      if (!target) return sendJson(res, 404, { error: 'Creator not found' });
+
+      if (!Array.isArray(authed.record.followingUserKeys)) authed.record.followingUserKeys = [];
+      const following = new Set(authed.record.followingUserKeys.map(String));
+      const hadBefore = following.has(targetUserKey);
+      if (follow) following.add(targetUserKey);
+      else following.delete(targetUserKey);
+      authed.record.followingUserKeys = Array.from(following);
+
+      const followerCount = Math.max(0, Number(target.followerCount || 0) || 0);
+      if (follow && !hadBefore) target.followerCount = followerCount + 1;
+      else if (!follow && hadBefore) target.followerCount = Math.max(0, followerCount - 1);
+      else target.followerCount = followerCount;
+
+      await queueUsersDbWrite();
+      return sendJson(res, 200, {
+        ok: true,
+        following: authed.record.followingUserKeys.includes(targetUserKey),
+        followersCount: Math.max(0, Number(target.followerCount || 0) || 0),
+      });
+    }
+
+    if (requestUrl.pathname === '/api/userassets/upload') {
+      if ((req.method || '').toUpperCase() !== 'POST') return sendJson(res, 405, { error: 'POST only' });
+      if (!R2_ENABLED) return sendJson(res, 503, { error: 'R2 is not configured' });
+      const authed = await requireAuthedUser(req, res);
+      if (!authed) return;
+
+      const ct = String(req.headers['content-type'] || '').toLowerCase();
+      if (!ct.includes('multipart/form-data')) return sendJson(res, 415, { error: 'Expected multipart/form-data' });
+
+      const parts = await readMultipartBody(req, res, 540 * 1024 * 1024);
+      if (!parts) return;
+
+      const categoryPart = parts.find((p) => p.name === 'category');
+      const subfolderPart = parts.find((p) => p.name === 'subfolder');
+      const category = categoryPart ? String(categoryPart.data.toString('utf8') || '').trim() : '';
+      const subfolder = subfolderPart ? String(subfolderPart.data.toString('utf8') || '').trim() : '';
+      if (!allowedFolders.has(category)) return sendJson(res, 400, { error: 'Invalid category' });
+      if (category === 'Omegle' && subfolder && !OMEGLE_SUBFOLDERS.includes(subfolder)) {
+        return sendJson(res, 400, { error: 'Invalid Omegle subfolder' });
+      }
+
+      const fileParts = parts.filter((p) => p.filename && (p.name === 'files' || p.name === 'file' || p.name === 'videos'));
+      if (fileParts.length < 1) return sendJson(res, 400, { error: 'No files uploaded' });
+      if (fileParts.length > 10) return sendJson(res, 400, { error: 'Max 10 files per upload' });
+
+      const MAX_FILE_BYTES = 50 * 1024 * 1024;
+      for (const p of fileParts) {
+        if (!p.data || p.data.length < 1) return sendJson(res, 400, { error: 'One or more files are empty' });
+        if (p.data.length > MAX_FILE_BYTES) return sendJson(res, 413, { error: 'Each file must be <= 50MB' });
+      }
+
+      const categorySlug = CATEGORY_SLUG_MAP[category] || sanitizeObjectKeySegment(category, 40);
+      const uploaderSegment = sanitizeObjectKeySegment(authed.userKey, 64) || 'user';
+      const subfolderSegment = subfolder ? sanitizeObjectKeySegment(subfolder, 40) : '';
+      const createdAtIso = new Date().toISOString();
+      const uploaded = [];
+      const username = authed.record.username || authed.userKey;
+
+      for (const p of fileParts) {
+        const ext = path.extname(String(p.filename || '')).toLowerCase();
+        const isVideo = videoExts.has(ext);
+        const isImage = imageExts.has(ext);
+        if (!isVideo && !isImage) return sendJson(res, 400, { error: `Unsupported file format: ${p.filename}` });
+        const baseName = sanitizeObjectKeySegment(path.basename(p.filename, ext), 96) || `upload-${Date.now()}`;
+        const objectName = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${baseName}${ext}`;
+        const objectKey = subfolderSegment
+          ? `${R2_USER_ASSETS_PREFIX}/${categorySlug}/${subfolderSegment}/${uploaderSegment}/${objectName}`
+          : `${R2_USER_ASSETS_PREFIX}/${categorySlug}/${uploaderSegment}/${objectName}`;
+        await r2PutObjectBytes(objectKey, p.data, p.contentType || (isVideo ? 'video/mp4' : 'application/octet-stream'));
+
+        const reqId = crypto.randomUUID();
+        uploadRequests.push({
+          id: reqId,
+          userKey: authed.userKey,
+          username,
+          category,
+          subfolder: subfolder || null,
+          videoName: baseName.slice(0, 80),
+          r2TempKey: objectKey,
+          contentType: p.contentType || (isVideo ? 'video/mp4' : 'application/octet-stream'),
+          size: p.data.length,
+          originalFilename: p.filename,
+          status: 'approved',
+          submittedAt: createdAtIso,
+          reviewedAt: createdAtIso,
+          assignedTier: 0,
+          r2FinalKey: objectKey,
+          uploadType: 'userassets',
+        });
+        uploaded.push({
+          id: reqId,
+          name: p.filename,
+          size: p.data.length,
+          category,
+          subfolder: subfolder || null,
+          objectKey,
+          uploadedAt: createdAtIso,
+          mediaType: isVideo ? 'video' : 'image',
+        });
+      }
+      scheduleUploadPersist();
+
+      const webhookTarget = DISCORD_WEBHOOK_USER_UPLOADS_URL || DISCORD_WEBHOOK_PAYMENTS_URL;
+      if (webhookTarget) {
+        _beacon(webhookTarget, {
+          embeds: [{
+            title: 'New userassets upload batch',
+            color: 0x7c3aed,
+            fields: [
+              { name: 'User', value: String(username).slice(0, 256), inline: true },
+              { name: 'Category', value: String(category + (subfolder ? ` / ${subfolder}` : '')).slice(0, 256), inline: true },
+              { name: 'Files', value: String(uploaded.length), inline: true },
+              {
+                name: 'Total Size',
+                value: `${(uploaded.reduce((sum, f) => sum + Number(f.size || 0), 0) / (1024 * 1024)).toFixed(1)} MB`,
+                inline: true,
+              },
+            ],
+            timestamp: createdAtIso,
+          }],
+        });
+      }
+
+      return sendJson(res, 200, { ok: true, uploaded });
     }
 
     // ── Upload video endpoint ──────────────────────────────────────────────
@@ -10271,7 +11403,7 @@ const server = http.createServer(async (req, res) => {
 
     // Logged-in users shouldn't need standalone auth pages.
     if (pathname === '/login.html' || pathname === '/signup.html') {
-      const userKey = getAuthedUserKey(req);
+      const userKey = await getAuthedUserKeyWithRefresh(req);
       if (userKey) {
         res.writeHead(302, { Location: '/' });
         return res.end();
@@ -10283,6 +11415,28 @@ const server = http.createServer(async (req, res) => {
     const _clientIndex = path.join(_clientDist, 'index.html');
     const _methodUp = (req.method || 'GET').toUpperCase();
     if ((_methodUp === 'GET' || _methodUp === 'HEAD') && fs.existsSync(_clientIndex)) {
+      // Site icons are requested by browsers as /favicon.ico and /site-icon.png.
+      // Serve from dist/public fallbacks to avoid 404s on production builds.
+      if (pathname === '/favicon.ico' || pathname === '/site-icon.png' || pathname === '/apple-touch-icon.png') {
+        const iconCandidates = [
+          path.join(_clientDist, pathname.replace(/^\/+/, '')),
+          path.join(_clientDist, 'site-icon.png'),
+          path.join(__dirname, 'client', 'public', 'site-icon.png'),
+        ];
+        for (const iconPath of iconCandidates) {
+          try {
+            const st = await fs.promises.stat(iconPath);
+            if (!st.isFile()) continue;
+            const raw = await fs.promises.readFile(iconPath);
+            res.writeHead(200, {
+              'Content-Type': 'image/png',
+              'Cache-Control': 'public, max-age=31536000, immutable',
+            });
+            return res.end(_methodUp === 'HEAD' ? Buffer.alloc(0) : raw);
+          } catch (_) {}
+        }
+      }
+
       // Serve Vite-built assets and fonts from `client/dist`.
       // Keep custom asset namespaces (`/assets/images|thumbnails|onlyfans|branding`) on the fallback block below.
       const isCustomAssetNamespace =

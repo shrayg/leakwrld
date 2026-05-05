@@ -3,10 +3,26 @@ import { X } from 'lucide-react';
 import { useShell } from '../../context/ShellContext';
 import { login, signup } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import { useSupabaseAuth } from '../../context/SupabaseAuthProvider';
+
+async function syncProfileWithToken(accessToken) {
+  await fetch('/api/auth/sync-profile', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: '{}',
+  });
+}
 
 export function AuthModal() {
   const { authOpen, authTab, setAuthTab, closeAuth } = useShell();
   const { refresh } = useAuth();
+  const sb = useSupabaseAuth();
+  const configured = !!(sb?.configured && sb?.supabase);
+
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,13 +34,47 @@ export function AuthModal() {
   async function onLogin(e) {
     e.preventDefault();
     setMessage('');
-    const res = await login({ username: username.trim(), password });
+    const id = username.trim();
+    let supabaseLoginHint = null;
+
+    if (configured && sb.supabase && id.includes('@')) {
+      const { data, error } = await sb.supabase.auth.signInWithPassword({
+        email: id.toLowerCase(),
+        password,
+      });
+      if (!error && data.session?.access_token) {
+        await syncProfileWithToken(data.session.access_token);
+        const next = await refresh();
+        if (next?.authed) {
+          closeAuth();
+          return;
+        }
+        supabaseLoginHint = 'Signed in with Supabase but profile sync failed — try again.';
+      } else if (error?.message) {
+        supabaseLoginHint = error.message;
+      }
+    }
+
+    const res = await login({ username: id, password });
     if (res.ok) {
-      await refresh();
+      const d = res.data || {};
+      if (d.access_token && d.refresh_token && sb?.applySessionTokens) {
+        await sb.applySessionTokens({
+          access_token: d.access_token,
+          refresh_token: d.refresh_token,
+        });
+      }
+      const next = await refresh();
+      if (!next || !next.authed) {
+        setMessage(
+          'Login succeeded but your browser did not keep the session. Use HTTPS, allow cookies, or ensure VITE_SUPABASE_* env keys match your project.',
+        );
+        return;
+      }
       closeAuth();
       return;
     }
-    setMessage(res.data?.error || 'Login failed');
+    setMessage(res.data?.error || supabaseLoginHint || `Login failed${res.status ? ` (${res.status})` : ''}`);
   }
 
   async function onSignup(e) {
@@ -38,17 +88,86 @@ export function AuthModal() {
       setMessage('Passwords do not match');
       return;
     }
+
+    const u = username.trim();
+
+    if (configured && sb.supabase) {
+      const signupEmail = (
+        email.trim() || `${u.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}@legacy.pornwrld`
+      ).toLowerCase();
+      const { data, error } = await sb.supabase.auth.signUp({
+        email: signupEmail,
+        password,
+        options: {
+          data: { user_key: u.toLowerCase(), username: u },
+        },
+      });
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+      if (!data.session?.access_token) {
+        setMessage(
+          data.user
+            ? 'Check your email to confirm your account (Supabase), then log in.'
+            : 'Sign up incomplete — try again.',
+        );
+        return;
+      }
+      await syncProfileWithToken(data.session.access_token);
+      const next = await refresh();
+      if (!next || !next.authed) {
+        setMessage('Account created — refresh the page if you are not signed in.');
+        return;
+      }
+      closeAuth();
+      return;
+    }
+
     const res = await signup({
-      username: username.trim(),
+      username: u,
       password,
       ...(email.trim() ? { email: email.trim() } : {}),
     });
     if (res.ok) {
-      await refresh();
+      const d = res.data || {};
+      if (d.access_token && d.refresh_token && sb?.applySessionTokens) {
+        await sb.applySessionTokens({
+          access_token: d.access_token,
+          refresh_token: d.refresh_token,
+        });
+      }
+      const next = await refresh();
+      if (!next || !next.authed) {
+        setMessage(
+          'Account created but the session cookie was not saved. Use HTTPS, allow cookies for this origin, and reload.',
+        );
+        return;
+      }
       closeAuth();
       return;
     }
     setMessage(res.data?.error || 'Sign up failed');
+  }
+
+  async function onDiscordOAuth() {
+    setMessage('');
+    if (configured && sb?.signInOAuth) {
+      const { error } = await sb.signInOAuth('discord');
+      if (error) setMessage(error.message);
+      return;
+    }
+    window.location.href = '/auth/discord';
+  }
+
+  async function onGoogleOAuth() {
+    setMessage('');
+    if (configured && sb?.signInOAuth) {
+      const { error } = await sb.signInOAuth('google');
+      if (error) setMessage(error.message);
+      return;
+    }
+    window.location.href = '/auth/google';
   }
 
   return (
@@ -58,8 +177,16 @@ export function AuthModal() {
           <X size={20} strokeWidth={2.4} aria-hidden="true" />
         </button>
 
-        <h2 id="auth-title">Create Account</h2>
-        <p className="auth-subtitle">Log in with username &amp; password</p>
+        <h2 id="auth-title">{authTab === 'login' ? 'Log in' : 'Create account'}</h2>
+        <p className="auth-subtitle">
+          {authTab === 'login'
+            ? configured
+              ? 'Email + password via Supabase, or username + password (legacy). OAuth uses Supabase when configured.'
+              : 'Username or email plus password. Configure VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY for Supabase Auth.'
+            : configured
+              ? 'Email optional — we use a placeholder address if blank. Same username rules as before.'
+              : 'Pick a username and password. Email is optional.'}
+        </p>
 
         <div className="auth-tabs" role="tablist">
           <button
@@ -116,7 +243,7 @@ export function AuthModal() {
             </label>
             <label>
               <span>
-                Email <small style={{ color: '#666' }}>(optional)</small>
+                Email <small style={{ color: '#666' }}>{configured ? '(optional)' : '(optional)'}</small>
               </span>
               <input name="email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
             </label>
@@ -138,13 +265,13 @@ export function AuthModal() {
           <span>Or Sign Up / In With…</span>
         </div>
         <div className="auth-social">
-          <button className="social-btn discord" type="button" aria-label="Discord" onClick={() => (window.location.href = '/auth/discord')}>
+          <button className="social-btn discord" type="button" aria-label="Discord" onClick={() => void onDiscordOAuth()}>
             <svg className="social-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z" />
             </svg>
             <span>Discord</span>
           </button>
-          <button className="social-btn google" type="button" aria-label="Google" onClick={() => (window.location.href = '/auth/google')}>
+          <button className="social-btn google" type="button" aria-label="Google" onClick={() => void onGoogleOAuth()}>
             <svg className="social-icon-svg google-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
