@@ -91,39 +91,6 @@ export function AuthModal() {
 
     const u = username.trim();
 
-    if (configured && sb.supabase) {
-      const signupEmail = (
-        email.trim() || `${u.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}@legacy.pornwrld`
-      ).toLowerCase();
-      const { data, error } = await sb.supabase.auth.signUp({
-        email: signupEmail,
-        password,
-        options: {
-          data: { user_key: u.toLowerCase(), username: u },
-        },
-      });
-      if (error) {
-        setMessage(error.message);
-        return;
-      }
-      if (!data.session?.access_token) {
-        setMessage(
-          data.user
-            ? 'Check your email to confirm your account (Supabase), then log in.'
-            : 'Sign up incomplete — try again.',
-        );
-        return;
-      }
-      await syncProfileWithToken(data.session.access_token);
-      const next = await refresh();
-      if (!next || !next.authed) {
-        setMessage('Account created — refresh the page if you are not signed in.');
-        return;
-      }
-      closeAuth();
-      return;
-    }
-
     const res = await signup({
       username: u,
       password,
@@ -183,9 +150,7 @@ export function AuthModal() {
             ? configured
               ? 'Email + password via Supabase, or username + password (legacy). OAuth uses Supabase when configured.'
               : 'Username or email plus password. Configure VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY for Supabase Auth.'
-            : configured
-              ? 'Email optional — we use a placeholder address if blank. Same username rules as before.'
-              : 'Pick a username and password. Email is optional.'}
+            : 'Pick a username and password. Email is optional (stored on your profile).'}
         </p>
 
         <div className="auth-tabs" role="tablist">
