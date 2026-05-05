@@ -29,6 +29,21 @@ export function AuthModal() {
   const [password2, setPassword2] = useState('');
   const [message, setMessage] = useState('');
 
+  async function finalizeAuthSuccess() {
+    // useAuth() is currently hook-local; force a full refresh so all surfaces pick up logged-in state.
+    const next = await refresh();
+    if (!next || !next.authed) {
+      setTimeout(() => {
+        window.location.reload();
+      }, 80);
+      return;
+    }
+    closeAuth();
+    setTimeout(() => {
+      window.location.reload();
+    }, 20);
+  }
+
   if (!authOpen) return null;
 
   async function onLogin(e) {
@@ -44,12 +59,8 @@ export function AuthModal() {
       });
       if (!error && data.session?.access_token) {
         await syncProfileWithToken(data.session.access_token);
-        const next = await refresh();
-        if (next?.authed) {
-          closeAuth();
-          return;
-        }
-        supabaseLoginHint = 'Signed in with Supabase but profile sync failed — try again.';
+        await finalizeAuthSuccess();
+        return;
       } else if (error?.message) {
         supabaseLoginHint = error.message;
       }
@@ -64,14 +75,7 @@ export function AuthModal() {
           refresh_token: d.refresh_token,
         });
       }
-      const next = await refresh();
-      if (!next || !next.authed) {
-        setMessage(
-          'Login succeeded but your browser did not keep the session. Use HTTPS, allow cookies, or ensure VITE_SUPABASE_* env keys match your project.',
-        );
-        return;
-      }
-      closeAuth();
+      await finalizeAuthSuccess();
       return;
     }
     setMessage(res.data?.error || supabaseLoginHint || `Login failed${res.status ? ` (${res.status})` : ''}`);
@@ -104,14 +108,7 @@ export function AuthModal() {
           refresh_token: d.refresh_token,
         });
       }
-      const next = await refresh();
-      if (!next || !next.authed) {
-        setMessage(
-          'Account created but the session cookie was not saved. Use HTTPS, allow cookies for this origin, and reload.',
-        );
-        return;
-      }
-      closeAuth();
+      await finalizeAuthSuccess();
       return;
     }
     setMessage(res.data?.error || 'Sign up failed');
@@ -149,7 +146,7 @@ export function AuthModal() {
           {authTab === 'login'
             ? configured
               ? 'Email + password via Supabase, or username + password (legacy). OAuth uses Supabase when configured.'
-              : 'Username or email plus password. Configure VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY for Supabase Auth.'
+              : 'Username or email plus password.'
             : 'Pick a username and password. Email is optional (stored on your profile).'}
         </p>
 
