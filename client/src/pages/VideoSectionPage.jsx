@@ -3,8 +3,7 @@ import { fetchNewest, fetchRandomVideos } from '../api/client';
 import { HomepageMediaTile } from '../components/home/HomepageMediaTile';
 import { videoCardStableKey } from '../components/media/VideoCard';
 import { sortFiles } from '../lib/folderMedia';
-
-const PAGE_SIZE = 24;
+import { useResponsiveGridPageSize } from '../hooks/useResponsiveGridPageSize';
 
 const CONFIG = {
   recommended: {
@@ -31,6 +30,7 @@ const CONFIG = {
 
 export function VideoSectionPage({ variant = 'recommended' }) {
   const cfg = CONFIG[variant] || CONFIG.recommended;
+  const pageSize = useResponsiveGridPageSize(6);
   const [allFiles, setAllFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -70,10 +70,10 @@ export function VideoSectionPage({ variant = 'recommended' }) {
     return sortFiles(list, sortKey);
   }, [allFiles, sortKey, videoSearch]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredFiles.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filteredFiles.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * PAGE_SIZE;
-  const items = filteredFiles.slice(start, start + PAGE_SIZE);
+  const start = (safePage - 1) * pageSize;
+  const items = filteredFiles.slice(start, start + pageSize);
 
   return (
     <div className="page-content folder-page">

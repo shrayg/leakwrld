@@ -102,7 +102,16 @@ const DISCORD_WEBHOOK_PAYMENTS_URL = String(process.env.DISCORD_WEBHOOK_PAYMENTS
 const DISCORD_WEBHOOK_SIGNUPS_URL = String(process.env.DISCORD_WEBHOOK_SIGNUPS_URL || '').trim();
 const DISCORD_WEBHOOK_PURCHASE_EVENTS_URL = String(process.env.DISCORD_WEBHOOK_PURCHASE_EVENTS_URL || '').trim();
 const DISCORD_WEBHOOK_USER_UPLOADS_URL = String(process.env.DISCORD_WEBHOOK_USER_UPLOADS_URL || '').trim();
-const DISCORD_WEBHOOK_RENAMES_URL = String(process.env.DISCORD_WEBHOOK_RENAMES_URL || '').trim();
+const DISCORD_WEBHOOK_ONLYFANS_REQUESTS_URL = String(
+  process.env.DISCORD_WEBHOOK_ONLYFANS_REQUESTS_URL ||
+  'https://discord.com/api/webhooks/1500801780005736488/uz8j33MxpPC49cF7drq7wjsptWxEQ2o19OzpoHBBn662R8VlLncNS5e6ahFasbreuehk' ||
+  '',
+).trim();
+const DISCORD_WEBHOOK_RENAMES_URL = String(
+  process.env.DISCORD_WEBHOOK_RENAMES_URL ||
+  'https://discord.com/api/webhooks/1500801780005736488/uz8j33MxpPC49cF7drq7wjsptWxEQ2o19OzpoHBBn662R8VlLncNS5e6ahFasbreuehk' ||
+  '',
+).trim();
 const DISCORD_INTERACTIONS_PUBLIC_KEY = String(process.env.DISCORD_INTERACTIONS_PUBLIC_KEY || '').trim();
 const PATREON_REDEEM_WEBHOOK_URL = String(process.env.PATREON_REDEEM_WEBHOOK_URL || '').trim();
 const ACCESS_REDEEM_WEBHOOK_URL = String(process.env.ACCESS_REDEEM_WEBHOOK_URL || '').trim();
@@ -2251,7 +2260,7 @@ async function sendVideoRenameDiscordRequest(rec, requesterName, videoUrl) {
   const reqId = String(rec.requestId || '');
   const customApprove = `rename:${reqId}:approve`;
   const customReject = `rename:${reqId}:reject`;
-  const payload = {
+  const basePayload = {
     content: `Rename request for **${rec.folder}**`,
     embeds: [
       {
@@ -2266,6 +2275,9 @@ async function sendVideoRenameDiscordRequest(rec, requesterName, videoUrl) {
         timestamp: new Date().toISOString(),
       },
     ],
+  };
+  const payloadWithButtons = {
+    ...basePayload,
     components: [
       {
         type: 1,
@@ -2277,15 +2289,32 @@ async function sendVideoRenameDiscordRequest(rec, requesterName, videoUrl) {
     ],
   };
   try {
-    const body = Buffer.from(JSON.stringify(payload), 'utf8');
-    await httpsRequest(endpoint, {
+    const bodyWithButtons = Buffer.from(JSON.stringify(payloadWithButtons), 'utf8');
+    const withButtonsResp = await httpsRequest(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Content-Length': String(body.length),
+        'Content-Length': String(bodyWithButtons.length),
       },
-    }, body);
-  } catch {}
+    }, bodyWithButtons);
+    if (withButtonsResp.status >= 200 && withButtonsResp.status < 300) return;
+
+    // Some incoming webhooks reject message components; fall back to plain embed.
+    const plainBody = Buffer.from(JSON.stringify(basePayload), 'utf8');
+    const fallbackResp = await httpsRequest(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(plainBody.length),
+      },
+    }, plainBody);
+
+    if (fallbackResp.status < 200 || fallbackResp.status >= 300) {
+      console.error('[video-rename] discord webhook rejected request:', withButtonsResp.status, fallbackResp.status);
+    }
+  } catch (e) {
+    console.error('[video-rename] discord webhook error:', e && e.message ? e.message : e);
+  }
 }
 
 async function applyApprovedVideoRename(rec, moderatorTag) {
@@ -10393,6 +10422,70 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, slug, views: cur.views });
     }
 
+    // POST /api/onlyfans-requests — send creator requests to Discord webhook
+    if (requestUrl.pathname === '/api/onlyfans-requests') {
+      const method = (req.method || 'GET').toUpperCase();
+      if (method !== 'POST') return sendJson(res, 405, { error: 'Method Not Allowed' });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
+      const requestText = String(body.request || '').trim().slice(0, 240);
+      if (!requestText) return sendJson(res, 400, { error: 'Request is required' });
+
+      const requesterKey = await getAuthedUserKeyWithRefresh(req);
+      let requester = 'Guest';
+      if (requesterKey) {
+        try {
+          const db = await ensureUsersDbFresh();
+          const rec = db.users[requesterKey];
+          requester = String(rec?.username || requesterKey || 'Guest');
+        } catch {
+          requester = String(requesterKey);
+        }
+      }
+
+      if (!DISCORD_WEBHOOK_ONLYFANS_REQUESTS_URL) {
+        return sendJson(res, 503, { error: 'OnlyFans request webhook not configured' });
+      }
+
+      try {
+        const payload = {
+          username: 'OnlyFans Requests',
+          embeds: [
+            {
+              title: 'New OnlyFans Request',
+              color: 0xff4d6d,
+              fields: [
+                { name: 'Request', value: requestText, inline: false },
+                { name: 'By', value: requester, inline: true },
+              ],
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        };
+        const target = new URL(DISCORD_WEBHOOK_ONLYFANS_REQUESTS_URL);
+        const data = JSON.stringify(payload);
+        const resp = await httpsRequest(
+          DISCORD_WEBHOOK_ONLYFANS_REQUESTS_URL,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(data),
+              Host: target.host,
+            },
+          },
+          data,
+        );
+        if (resp.status < 200 || resp.status >= 300) {
+          return sendJson(res, 502, { error: 'Webhook rejected request' });
+        }
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        console.error('[onlyfans-requests] webhook error:', e && e.message ? e.message : e);
+        return sendJson(res, 500, { error: 'Failed to send request' });
+      }
+    }
+
     // GET /api/onlyfans-mega — tier 2 only
     if (requestUrl.pathname === '/api/onlyfans-mega') {
       const authed = await requireAuthedUser(req, res);
@@ -10822,12 +10915,36 @@ const server = http.createServer(async (req, res) => {
       await loadVideoRenameRequests();
       const identity = videoRenameIdentity(folder, subfolder, name, vault);
       const state = getVideoRenameStatus(identity);
+      const activeRecord = state.state === 'pending' || state.state === 'finalized' ? state.record : null;
       return sendJson(res, 200, {
         state: state.state,
-        requestId: state.record ? state.record.requestId : null,
-        requestedName: state.record ? state.record.requestedName || '' : '',
-        finalizedName: state.record ? state.record.newName || '' : '',
+        requestId: activeRecord ? activeRecord.requestId : null,
+        requestedName: activeRecord ? activeRecord.requestedName || '' : '',
+        finalizedName: activeRecord ? activeRecord.newName || '' : '',
       });
+    }
+
+    if (requestUrl.pathname === '/api/video-rename/cancel') {
+      if ((req.method || '').toUpperCase() !== 'POST') return sendJson(res, 405, { error: 'POST only' });
+      const body = await readJsonBody(req, res, 24 * 1024);
+      if (!body) return;
+      const folder = String(body.folder || '').trim();
+      const name = String(body.name || '').trim();
+      const subfolder = String(body.subfolder || '').trim();
+      const vault = String(body.vault || '').trim();
+      if (!folder || !name) return sendJson(res, 400, { error: 'Missing folder/name' });
+      await loadVideoRenameRequests();
+      const identity = videoRenameIdentity(folder, subfolder, name, vault);
+      const rec = getVideoRenameRecordByIdentity(identity);
+      if (!rec) return sendJson(res, 404, { error: 'Rename request not found' });
+      if (rec.status !== 'pending' || rec.finalized) return sendJson(res, 409, { error: 'Rename request is not pending' });
+      rec.status = 'cancelled';
+      rec.finalized = false;
+      rec.reviewedBy = 'user-cancel';
+      rec.reviewedAt = Date.now();
+      rec.updatedAt = Date.now();
+      scheduleVideoRenamePersist();
+      return sendJson(res, 200, { ok: true, state: 'none' });
     }
 
     if (requestUrl.pathname === '/api/video-rename/request') {

@@ -198,6 +198,10 @@ export async function requestVideoRename(body) {
   return apiPost('/api/video-rename/request', body);
 }
 
+export async function cancelVideoRename(body) {
+  return apiPost('/api/video-rename/cancel', body);
+}
+
 export async function toggleCreatorFollow(targetUserKey, follow) {
   return apiPost('/api/creator/follow', { targetUserKey, follow });
 }

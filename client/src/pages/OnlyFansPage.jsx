@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock } from 'lucide-react';
+import { Lock, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useShell } from '../context/ShellContext';
+import { apiPost } from '../api/client';
+
+const OF_REQUEST_MAX_LEN = 240;
 
 /**
  * OnlyFans leaks hub — creator grid from /api/onlyfans-creators; tier 2 opens mega via /api/onlyfans-mega.
@@ -16,6 +19,11 @@ export function OnlyFansPage() {
   const [loadErr, setLoadErr] = useState(null);
   const [creatorsLoaded, setCreatorsLoaded] = useState(false);
   const [creatorSearch, setCreatorSearch] = useState('');
+  const [requesting, setRequesting] = useState(false);
+  const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [requestInput, setRequestInput] = useState('');
+  const [requestMsg, setRequestMsg] = useState(null);
+  const requestInputRef = useRef(null);
 
   useEffect(() => {
     document.title = 'OnlyFans Leaks — Pornwrld';
@@ -43,6 +51,34 @@ export function OnlyFansPage() {
       cancelled = true;
     };
   }, []);
+
+  const closeRequestModal = useCallback(() => {
+    setRequestModalOpen(false);
+    setRequestInput('');
+    setRequestMsg(null);
+  }, []);
+
+  const openRequestModal = useCallback(() => {
+    setRequestInput('');
+    setRequestMsg(null);
+    setRequestModalOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!requestModalOpen) return;
+    const id = requestAnimationFrame(() => requestInputRef.current?.focus());
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeRequestModal();
+    };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [requestModalOpen, closeRequestModal]);
 
   const onCreatorClick = useCallback(
     async (creator) => {
@@ -83,7 +119,32 @@ export function OnlyFansPage() {
     return creators.filter((c) => String(c.name || '').toLowerCase().includes(q));
   }, [creators, creatorSearch]);
 
+  const submitCreatorRequest = useCallback(async () => {
+    const trimmed = requestInput.trim().slice(0, OF_REQUEST_MAX_LEN);
+    if (!trimmed) {
+      setRequestMsg({ type: 'err', text: 'Enter a creator name or handle.' });
+      return;
+    }
+    setRequesting(true);
+    setRequestMsg(null);
+    try {
+      const res = await apiPost('/api/onlyfans-requests', { request: trimmed });
+      if (res.ok) {
+        setRequestMsg({ type: 'ok', text: 'Request sent. Thank you!' });
+        setRequestInput('');
+      } else {
+        const err = res.data?.error || 'Could not send right now. Try again.';
+        setRequestMsg({ type: 'err', text: err });
+      }
+    } catch {
+      setRequestMsg({ type: 'err', text: 'Could not send right now. Try again.' });
+    } finally {
+      setRequesting(false);
+    }
+  }, [requestInput]);
+
   return (
+    <>
     <main className="page-content folder-page onlyfans-page px-4 pb-20 pt-6 max-[640px]:px-3">
       <div className="folder-header pornwrld-folder-head">
         <h1 className="pornwrld-page-title">OnlyFans Leaks</h1>
@@ -198,21 +259,46 @@ export function OnlyFansPage() {
           </button>
         ))}
         {creatorsLoaded && !loadErr ? (
-          <div className="of-creator-card of-creator-teaser" aria-label="More creators coming soon">
-            <div className="of-teaser-thumb">
-              <img
-                className="of-teaser-blur"
-                src="/assets/images/preview.jpg"
-                alt=""
-                loading="lazy"
-                decoding="async"
-              />
-              <span className="of-teaser-qmark" aria-hidden>
-                ?
-              </span>
+          <>
+            <div className="media-item video-item of-creator-card of-creator-teaser" aria-label="More creators coming soon">
+              <div className="media-thumb-wrapper of-teaser-thumb">
+                <img
+                  className="media-thumb of-teaser-blur"
+                  src="/assets/images/preview.jpg"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                />
+                <span className="of-teaser-qmark" aria-hidden>
+                  ?
+                </span>
+              </div>
+              <div className="media-info">
+                <h3 className="media-title">More coming soon</h3>
+                <div className="media-stats-row">
+                  <span className="media-stat-tag media-stat-category">Soon</span>
+                </div>
+              </div>
             </div>
-            <div className="of-creator-name of-creator-teaser-label">More coming soon</div>
-          </div>
+            <button
+              type="button"
+              className="media-item video-item of-creator-card of-request-card"
+              onClick={openRequestModal}
+              aria-label="Request a creator"
+            >
+              <div className="media-thumb-wrapper of-request-thumb">
+                <span className="of-request-plus" aria-hidden>
+                  +
+                </span>
+              </div>
+              <div className="media-info">
+                <h3 className="media-title">Request a creator</h3>
+                <div className="media-stats-row">
+                  <span className="media-stat-tag media-stat-category">OnlyFans requests</span>
+                </div>
+              </div>
+            </button>
+          </>
         ) : null}
       </div>
       <section className="folder-seo" aria-label="OnlyFans description">
@@ -221,5 +307,80 @@ export function OnlyFansPage() {
         </p>
       </section>
     </main>
+
+    {requestModalOpen ? (
+      <div
+        className="of-request-modal-overlay"
+        role="presentation"
+        aria-hidden={false}
+        onClick={(e) => e.target === e.currentTarget && closeRequestModal()}
+      >
+        <div
+          className="of-request-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="of-request-modal-title"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button type="button" className="of-request-modal-close" aria-label="Close" onClick={closeRequestModal}>
+            <X size={20} strokeWidth={2.4} aria-hidden />
+          </button>
+          <h2 id="of-request-modal-title" className="of-request-modal-title">
+            Request a creator
+          </h2>
+          <p className="of-request-modal-sub">Who should we add next to OnlyFans Leaks?</p>
+          {requestMsg ? (
+            <div
+              className={
+                requestMsg.type === 'ok' ? 'of-request-modal-banner of-request-modal-banner--ok' : 'of-request-modal-banner of-request-modal-banner--err'
+              }
+              role="status"
+              aria-live="polite"
+            >
+              {requestMsg.text}
+            </div>
+          ) : null}
+          <label className="of-request-modal-label" htmlFor="of-request-input">
+            Creator name or @handle
+          </label>
+          <input
+            ref={requestInputRef}
+            id="of-request-input"
+            type="text"
+            className="of-request-modal-input"
+            maxLength={OF_REQUEST_MAX_LEN}
+            value={requestInput}
+            onChange={(e) => setRequestInput(e.target.value)}
+            placeholder="e.g. examplecreator or @example"
+            autoComplete="off"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void submitCreatorRequest();
+              }
+            }}
+          />
+          <div className="of-request-modal-footer">
+            <span className="of-request-modal-count">
+              {requestInput.length}/{OF_REQUEST_MAX_LEN}
+            </span>
+            <div className="of-request-modal-actions">
+              <button type="button" className="of-request-modal-btn of-request-modal-btn--ghost" onClick={closeRequestModal}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="of-request-modal-btn of-request-modal-btn--primary"
+                disabled={requesting}
+                onClick={() => void submitCreatorRequest()}
+              >
+                {requesting ? 'Sending…' : 'Send request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }

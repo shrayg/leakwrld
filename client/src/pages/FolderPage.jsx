@@ -9,8 +9,8 @@ import { dedupeFiles, formatDuration, sortFiles } from '../lib/folderMedia';
 import { FOLDER_DOC_META } from '../data/folderDocMeta';
 import { PageHero } from '../components/layout/PageHero';
 import { buildVideoId, sendTelemetry } from '../lib/telemetry';
+import { useResponsiveGridPageSize } from '../hooks/useResponsiveGridPageSize';
 
-const PAGE_SIZE = 15;
 export function FolderPage({ seoFolder: propFolder }) {
   const [params] = useSearchParams();
   const location = useLocation();
@@ -36,6 +36,7 @@ export function FolderPage({ seoFolder: propFolder }) {
   const [subfolderFilter, setSubfolderFilter] = useState('all');
   const [videoSearch, setVideoSearch] = useState('');
   const [recoRankMap, setRecoRankMap] = useState({});
+  const pageSize = useResponsiveGridPageSize(6);
 
   const docMeta = FOLDER_DOC_META[folder];
 
@@ -165,15 +166,15 @@ export function FolderPage({ seoFolder: propFolder }) {
       setItems(filteredFiles);
       return;
     }
-    const totalPages = Math.max(1, Math.ceil(filteredFiles.length / PAGE_SIZE));
+    const totalPages = Math.max(1, Math.ceil(filteredFiles.length / pageSize));
     const p = Math.min(page, totalPages);
-    const start = (p - 1) * PAGE_SIZE;
-    setItems(filteredFiles.slice(start, start + PAGE_SIZE));
-  }, [filteredFiles, page, previewMode]);
+    const start = (p - 1) * pageSize;
+    setItems(filteredFiles.slice(start, start + pageSize));
+  }, [filteredFiles, page, previewMode, pageSize]);
 
   const totalPages = previewMode
     ? 1
-    : Math.max(1, Math.ceil(filteredFiles.length / PAGE_SIZE));
+    : Math.max(1, Math.ceil(filteredFiles.length / pageSize));
 
   const pageButtons = useMemo(() => {
     if (previewMode || totalPages <= 1) return [];

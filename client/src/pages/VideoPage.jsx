@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { CustomVideoPlayer } from '../components/video/CustomVideoPlayer';
 import {
+  cancelVideoRename,
   fetchComments,
   fetchRelatedRecommendations,
   fetchVideoRenameStatus,
@@ -34,6 +35,7 @@ function videoQuery(folder, name, subfolder, vault) {
 }
 
 export function VideoPage() {
+  const [relatedCols, setRelatedCols] = useState(4);
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { user, isAuthed, tier, loading: authLoading } = useAuth();
@@ -55,6 +57,23 @@ export function VideoPage() {
   const [renameText, setRenameText] = useState('');
   const [renamePending, setRenamePending] = useState(false);
   const [renameMessage, setRenameMessage] = useState('');
+  const [renameCancelPending, setRenameCancelPending] = useState(false);
+  useEffect(() => {
+    const calcCols = () => {
+      const w = typeof window !== 'undefined' ? window.innerWidth : 1280;
+      if (w <= 640) return 2;
+      if (w <= 900) return 3;
+      if (w >= 1440) return 5;
+      return 4;
+    };
+    const apply = () => setRelatedCols(calcCols());
+    apply();
+    window.addEventListener('resize', apply);
+    return () => window.removeEventListener('resize', apply);
+  }, []);
+
+  const relatedLimit = Math.max(4, relatedCols * 2);
+
 
   const cleanTitle = useMemo(() => (name ? seoCleanTitle(name, folder) : ''), [name, folder]);
   const videoKey = useMemo(() => {
@@ -111,10 +130,11 @@ export function VideoPage() {
     if (!folder || !name) return;
     let cancelled = false;
     const currentVideoId = buildVideoId(folder, subfolder || '', name, vault);
-    fetchRelatedRecommendations(currentVideoId, 8).then(({ ok, data }) => {
+    fetchRelatedRecommendations(currentVideoId, relatedLimit).then(({ ok, data }) => {
       if (cancelled || !ok || !Array.isArray(data?.files)) return;
-      setRelated(data.files);
-      data.files.forEach((f, idx) => {
+      const next = data.files.slice(0, relatedLimit);
+      setRelated(next);
+      next.forEach((f, idx) => {
         sendTelemetry('impression', {
           surface: 'video_related',
           slot: idx,
@@ -131,7 +151,7 @@ export function VideoPage() {
     return () => {
       cancelled = true;
     };
-  }, [folder, name, subfolder, vault]);
+  }, [folder, name, subfolder, vault, relatedLimit]);
 
   useEffect(() => {
     if (!folder || !name) return;
@@ -415,7 +435,34 @@ export function VideoPage() {
           </div>
         )}
         {renameStatus.state === 'pending' && (
-          <p className="video-page-rename-note">A rename request is currently pending review.</p>
+          <div className="video-page-rename-note video-page-rename-note--pending">
+            <p>A rename request is currently pending review.</p>
+            <button
+              type="button"
+              className="video-page-rename-cancel-btn"
+              disabled={renameCancelPending}
+              onClick={async () => {
+                if (renameCancelPending) return;
+                setRenameCancelPending(true);
+                setRenameMessage('');
+                try {
+                  const res = await cancelVideoRename({ folder, name, subfolder, vault });
+                  if (res.ok) {
+                    setRenameStatus({ state: 'none', requestId: '', requestedName: '', finalizedName: '' });
+                    setRenameOpen(false);
+                    setRenameText('');
+                    setRenameMessage('Rename request removed.');
+                  } else {
+                    setRenameMessage(res.data?.error || 'Failed to remove rename request.');
+                  }
+                } finally {
+                  setRenameCancelPending(false);
+                }
+              }}
+            >
+              {renameCancelPending ? 'Removing...' : 'Remove rename request'}
+            </button>
+          </div>
         )}
         {renameStatus.state === 'finalized' && (
           <p className="video-page-rename-note">This video name has been finalized and cannot be changed again.</p>
@@ -535,7 +582,11 @@ export function VideoPage() {
       {related.length > 0 && (
       <div className="video-page-related" id="video-page-related">
         <h3>Related Videos</h3>
-        <div className="video-page-related-grid" id="video-page-related-grid">
+        <div
+          className="video-page-related-grid"
+          id="video-page-related-grid"
+          style={{ '--related-cols': String(relatedCols) }}
+        >
           {related.map((f) => {
             const rTitle = seoCleanTitle(f.name, folder);
             const href = videoQuery(folder, f.name, f.subfolder || subfolder || '', f.vault);
