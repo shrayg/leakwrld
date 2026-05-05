@@ -10236,6 +10236,14 @@ const server = http.createServer(async (req, res) => {
         // Discover the actual objectKey by listing a few likely prefixes.
         // This is intentionally conservative to avoid scanning the whole bucket.
         const prefixes = [
+          `${R2_ASSETS_PREFIX}/of-leaks/thumbnails/`,
+          `${R2_VIDEOS_PREFIX}/of-leaks/thumbnails/`,
+          `${R2_ROOT_PREFIX}/of-leaks/thumbnails/`,
+          `${R2_ASSETS_PREFIX}/of-leaks/`,
+          `${R2_VIDEOS_PREFIX}/of-leaks/`,
+          `${R2_ROOT_PREFIX}/of-leaks/`,
+          `porn/of-leaks/thumbnails/`,
+          `porn/of-leaks/`,
           `${R2_ASSETS_PREFIX}/onlyfans/thumbnails/`,
           `${R2_VIDEOS_PREFIX}/onlyfans/thumbnails/`,
           `${R2_ROOT_PREFIX}/onlyfans/thumbnails/`,
@@ -10277,6 +10285,10 @@ const server = http.createServer(async (req, res) => {
         const extCandidates = Array.from(new Set([c.ext, '.jpg', '.png', '.jpeg']));
         const keyCandidates = [];
         for (const ext of extCandidates) {
+          keyCandidates.push(`${R2_ASSETS_PREFIX}/of-leaks/thumbnails/${c.slug}${ext}`);
+          keyCandidates.push(`${R2_VIDEOS_PREFIX}/of-leaks/thumbnails/${c.slug}${ext}`);
+          keyCandidates.push(`${R2_ROOT_PREFIX}/of-leaks/thumbnails/${c.slug}${ext}`);
+          keyCandidates.push(`porn/of-leaks/thumbnails/${c.slug}${ext}`);
           keyCandidates.push(`${R2_ASSETS_PREFIX}/onlyfans/thumbnails/${c.slug}${ext}`);
           keyCandidates.push(`${R2_VIDEOS_PREFIX}/onlyfans/thumbnails/${c.slug}${ext}`);
           keyCandidates.push(`${R2_ROOT_PREFIX}/onlyfans/thumbnails/${c.slug}${ext}`); // root-level fallback
@@ -10294,9 +10306,9 @@ const server = http.createServer(async (req, res) => {
         return {
           slug: c.slug,
           name: c.name,
-          // Prefer the public URL so the frontend loads everything from `/assets/...`.
-          // If the public object isn't reachable, the client can fall back to presigned R2 URLs.
-          thumbUrl: `/assets/onlyfans/thumbnails/${c.slug}${c.ext}`,
+          // Prefer discovered/presigned R2 key (covers `of-leaks/thumbnails/*` uploads).
+          // Fall back to legacy public path for existing static assets.
+          thumbUrl: thumbUrlR2Candidates[0] || `/assets/onlyfans/thumbnails/${c.slug}${c.ext}`,
           // Back-compat: keep old single-field behavior.
           thumbUrlR2: thumbUrlR2Candidates[0] || null,
           thumbUrlR2Candidates,
