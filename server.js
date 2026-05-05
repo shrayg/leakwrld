@@ -3714,7 +3714,11 @@ const ADMIN_PASSWORD_ROTATION_HEALTH_GRACE_MS = Math.max(
   Number(process.env.ADMIN_PASSWORD_ROTATION_HEALTH_GRACE_MS || (ADMIN_PASSWORD_ROTATE_MS * 2)),
 );
 let ADMIN_PASSWORD_CURRENT = crypto.randomBytes(16).toString('hex');
+/** False until startup hydrate finishes — avoids rejecting Discord password during ephemeral mismatch window */
+let adminPasswordHydrated = false;
 console.warn('[admin] INFO: rotating admin password enabled (16-byte random, interval ms=' + ADMIN_PASSWORD_ROTATE_MS + ')');
+const ADMIN_PASSWORD_SECRET_STATE_KEY = 'admin_password_secret';
+const ADMIN_PASSWORD_SECRET_R2_KEY = 'data/admin_password_secret.json';
 const ADMIN_COOKIE = 'tbw_admin';
 const ADMIN_TOKEN_TTL = 86400000 * 7; // 7 days
 const PRESENCE_WINDOW_MS = 20000; // "Active Now" == user pinged within last 20s
@@ -3790,6 +3794,74 @@ const adminPasswordRotationState = {
   lastWebhookAttemptAt: 0,
   nextRotationAt: 0,
 };
+
+function parseStoredAdminPasswordHex(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const raw = payload.passwordHex != null ? String(payload.passwordHex) : payload.password != null ? String(payload.password) : '';
+  const h = raw.trim().toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(h)) return null;
+  return h;
+}
+
+async function loadPersistedAdminPasswordSecret() {
+  try {
+    const stateResp = await loadAppStateSnapshot(ADMIN_PASSWORD_SECRET_STATE_KEY);
+    if (stateResp.ok && stateResp.data) {
+      const fromSb = parseStoredAdminPasswordHex(stateResp.data);
+      if (fromSb) return fromSb;
+    }
+  } catch (e) {
+    console.warn('[admin] load admin_password_secret from Supabase failed:', e && e.message ? e.message : e);
+  }
+  if (!R2_ENABLED) return null;
+  try {
+    const raw = await r2GetObject(ADMIN_PASSWORD_SECRET_R2_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return parseStoredAdminPasswordHex(data);
+  } catch (e) {
+    console.warn('[admin] load admin_password_secret from R2 failed:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
+async function persistAdminPasswordSecret(hexPassword) {
+  const row = {
+    v: 1,
+    passwordHex: String(hexPassword || ''),
+    updatedAt: new Date().toISOString(),
+  };
+  if (!row.passwordHex || !/^[0-9a-f]{32}$/.test(row.passwordHex)) return;
+  try {
+    await saveAppStateSnapshot(ADMIN_PASSWORD_SECRET_STATE_KEY, row);
+  } catch (e) {
+    console.warn('[admin] persist admin_password_secret to Supabase failed:', e && e.message ? e.message : e);
+  }
+  if (!R2_ENABLED) return;
+  try {
+    await r2PutObject(ADMIN_PASSWORD_SECRET_R2_KEY, JSON.stringify(row), 'application/json');
+  } catch (e) {
+    console.warn('[admin] persist admin_password_secret to R2 failed:', e && e.message ? e.message : e);
+  }
+}
+
+function normalizeAdminLoginPassword(raw) {
+  let s = String(raw || '');
+  try {
+    s = s.normalize('NFKC');
+  } catch {
+    /* ignore */
+  }
+  s = s.trim().replace(/\s+/g, '');
+  while (
+    (s.startsWith('`') && s.endsWith('`')) ||
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s.trim().toLowerCase();
+}
 
 async function shouldRunStartupAdminRotation() {
   const now = Date.now();
@@ -3905,6 +3977,7 @@ async function rotateAdminPassword(reason) {
     console.warn('[admin] password rotated (' + reasonLabel + ')');
     const rotatedPassword = ADMIN_PASSWORD_CURRENT;
     adminPasswordRotationState.lastRotatedAt = Date.now();
+    await persistAdminPasswordSecret(rotatedPassword);
     webhookResult = await postAdminPasswordToWebhook(rotatedPassword, reason);
     if (!webhookResult || !webhookResult.ok) {
       const errMsg = webhookResult && webhookResult.error ? webhookResult.error : 'unknown webhook failure';
@@ -3958,7 +4031,20 @@ function scheduleAdminPasswordRotation() {
 
 void (async () => {
   try {
-    const shouldRotateOnStartup = await shouldRunStartupAdminRotation();
+    const persisted = await loadPersistedAdminPasswordSecret();
+    if (persisted) {
+      ADMIN_PASSWORD_CURRENT = persisted;
+      console.warn('[admin] restored admin password from durable storage (aligned with Discord webhook)');
+    } else {
+      console.warn('[admin] no durable admin password row yet; using process bootstrap secret until next rotation');
+    }
+    let shouldRotateOnStartup = await shouldRunStartupAdminRotation();
+    if (!persisted && !shouldRotateOnStartup) {
+      console.warn(
+        '[admin] missing admin_password_secret while startup rotation skipped — forcing rotation so login matches Discord',
+      );
+      shouldRotateOnStartup = true;
+    }
     if (shouldRotateOnStartup) {
       await rotateAdminPassword('startup');
     } else {
@@ -3968,6 +4054,7 @@ void (async () => {
     const errMsg = err && err.message ? err.message : String(err);
     adminEmitEvent('admin_password_startup_error', 'Startup password rotation check failed', { error: errMsg });
   } finally {
+    adminPasswordHydrated = true;
     scheduleAdminPasswordRotation();
   }
 })();
@@ -6198,8 +6285,12 @@ const server = http.createServer(async (req, res) => {
       }
       const body = await readJsonBody(req, res);
       if (!body) return;
+      if (!adminPasswordHydrated) {
+        return sendJson(res, 503, { error: 'Admin login initializing; retry in a few seconds.' });
+      }
       // Use timing-safe comparison to prevent timing attacks
-      const inputBuf = Buffer.from(String(body.password || ''));
+      const normalizedPw = normalizeAdminLoginPassword(body.password);
+      const inputBuf = Buffer.from(normalizedPw);
       const correctBuf = Buffer.from(ADMIN_PASSWORD_CURRENT);
       const passwordMatch = inputBuf.length === correctBuf.length && crypto.timingSafeEqual(inputBuf, correctBuf);
       if (!passwordMatch) return sendJson(res, 401, { error: 'Wrong password' });
