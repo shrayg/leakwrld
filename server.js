@@ -107,11 +107,10 @@ const DISCORD_WEBHOOK_ONLYFANS_REQUESTS_URL = String(
   'https://discord.com/api/webhooks/1500801780005736488/uz8j33MxpPC49cF7drq7wjsptWxEQ2o19OzpoHBBn662R8VlLncNS5e6ahFasbreuehk' ||
   '',
 ).trim();
-const DISCORD_WEBHOOK_RENAMES_URL = String(
-  process.env.DISCORD_WEBHOOK_RENAMES_URL ||
-  'https://discord.com/api/webhooks/1500801780005736488/uz8j33MxpPC49cF7drq7wjsptWxEQ2o19OzpoHBBn662R8VlLncNS5e6ahFasbreuehk' ||
-  '',
-).trim();
+/** Admin / moderation channel — embed + Approve/Reject link buttons (signed URLs). */
+const DISCORD_WEBHOOK_RENAMES_URL = String(process.env.DISCORD_WEBHOOK_RENAMES_URL || '').trim();
+/** Optional FYI channel — short notification only (no moderation buttons). */
+const DISCORD_WEBHOOK_RENAMES_NOTIFY_URL = String(process.env.DISCORD_WEBHOOK_RENAMES_NOTIFY_URL || '').trim();
 const DISCORD_INTERACTIONS_PUBLIC_KEY = String(process.env.DISCORD_INTERACTIONS_PUBLIC_KEY || '').trim();
 const PATREON_REDEEM_WEBHOOK_URL = String(process.env.PATREON_REDEEM_WEBHOOK_URL || '').trim();
 const ACCESS_REDEEM_WEBHOOK_URL = String(process.env.ACCESS_REDEEM_WEBHOOK_URL || '').trim();
@@ -168,6 +167,10 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 const SESSIONS_R2_KEY = 'data/sessions/sessions.json';
 const PEPPER = process.env.TBW_PEPPER || '';
 if (!process.env.TBW_PEPPER) console.warn('[security] WARNING: TBW_PEPPER not set — password hashing is weaker without a pepper');
+
+function renameModerateSigningKey() {
+  return String(process.env.VIDEO_RENAME_MODERATE_SECRET || PEPPER || '').trim();
+}
 
 const REF_COOKIE = 'tbw_ref';
 const REF_CODE_LEN = 7;
@@ -2254,66 +2257,162 @@ function verifyDiscordInteractionSignature(req, rawBody) {
   }
 }
 
-async function sendVideoRenameDiscordRequest(rec, requesterName, videoUrl) {
-  const endpoint = DISCORD_WEBHOOK_RENAMES_URL;
-  if (!endpoint) return;
-  const reqId = String(rec.requestId || '');
-  const customApprove = `rename:${reqId}:approve`;
-  const customReject = `rename:${reqId}:reject`;
-  const basePayload = {
-    content: `Rename request for **${rec.folder}**`,
-    embeds: [
-      {
-        title: 'Video Rename Request',
-        description: `Requested by: **${requesterName || 'user'}**`,
-        fields: [
-          { name: 'Current name', value: rec.oldName || 'unknown', inline: false },
-          { name: 'Requested name', value: rec.requestedName || 'unknown', inline: false },
-          { name: 'Video', value: videoUrl || 'n/a', inline: false },
-          { name: 'Request ID', value: reqId, inline: false },
-        ],
-        timestamp: new Date().toISOString(),
-      },
-    ],
-  };
-  const payloadWithButtons = {
-    ...basePayload,
-    components: [
-      {
-        type: 1,
-        components: [
-          { type: 2, style: 3, label: 'Approve', custom_id: customApprove },
-          { type: 2, style: 4, label: 'Reject', custom_id: customReject },
-        ],
-      },
-    ],
-  };
+function discordRenameEmbedField(val, maxLen = 1010) {
+  const s = String(val ?? '');
+  if (s.length <= maxLen) return s;
+  return s.slice(0, Math.max(0, maxLen - 1)) + '…';
+}
+
+async function postDiscordWebhookExecute(webhookUrlStr, payloadObj) {
+  const target = new URL(webhookUrlStr);
+  const data = Buffer.from(JSON.stringify(payloadObj), 'utf8');
+  return httpsRequest(webhookUrlStr, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': String(data.length),
+      Host: target.host,
+    },
+  }, data);
+}
+
+function buildRenameModerateLink(publicOrigin, requestId, action, secret) {
+  const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+  const payload = `${requestId}|${action}|${exp}`;
+  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  const base = String(publicOrigin || '').replace(/\/$/, '');
+  const u = new URL('/api/video-rename/moderate', base);
+  u.searchParams.set('requestId', requestId);
+  u.searchParams.set('action', action);
+  u.searchParams.set('exp', String(exp));
+  u.searchParams.set('sig', sig);
+  return u.toString();
+}
+
+function verifyRenameModerateSignature(requestId, action, expRaw, sigHex, secret) {
+  const exp = Number(expRaw);
+  if (!secret || !requestId || (action !== 'approve' && action !== 'reject')) return false;
+  if (!Number.isFinite(exp) || exp <= 0) return false;
+  if (Math.floor(Date.now() / 1000) > exp) return false;
+  const payload = `${requestId}|${action}|${exp}`;
+  const expectedHex = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   try {
-    const bodyWithButtons = Buffer.from(JSON.stringify(payloadWithButtons), 'utf8');
-    const withButtonsResp = await httpsRequest(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': String(bodyWithButtons.length),
-      },
-    }, bodyWithButtons);
-    if (withButtonsResp.status >= 200 && withButtonsResp.status < 300) return;
+    const a = Buffer.from(String(sigHex || ''), 'hex');
+    const b = Buffer.from(expectedHex, 'hex');
+    return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 
-    // Some incoming webhooks reject message components; fall back to plain embed.
-    const plainBody = Buffer.from(JSON.stringify(basePayload), 'utf8');
-    const fallbackResp = await httpsRequest(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': String(plainBody.length),
-      },
-    }, plainBody);
+function htmlEscapeRenameModerate(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-    if (fallbackResp.status < 200 || fallbackResp.status >= 300) {
-      console.error('[video-rename] discord webhook rejected request:', withButtonsResp.status, fallbackResp.status);
+function sendRenameModerateResultPage(res, ok, title, message) {
+  const html =
+    '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    `<title>${htmlEscapeRenameModerate(title)}</title>` +
+    '<style>body{font-family:system-ui,sans-serif;background:#0f0f12;color:#e8e8ee;max-width:520px;margin:48px auto;padding:0 16px;line-height:1.45}a{color:#c084fc}</style></head><body>' +
+    `<h1>${htmlEscapeRenameModerate(title)}</h1><p>${htmlEscapeRenameModerate(message)}</p><p><a href="/">Back to site</a></p></body></html>`;
+  res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(html);
+}
+
+/**
+ * Sends optional FYI webhook + admin webhook with link buttons (no Discord Application needed).
+ * Approve/Reject use signed GET URLs → `/api/video-rename/moderate`.
+ */
+async function sendVideoRenameDiscordRequest(rec, requesterName, videoUrl, publicOrigin) {
+  const reqId = String(rec.requestId || '');
+  const signingKey = renameModerateSigningKey();
+  const originBase = String(publicOrigin || SITE_ORIGIN || '').trim().replace(/\/$/, '');
+
+  const embed = {
+    title: 'Video rename — moderation',
+    color: 0x5865f2,
+    description: `Requested by **${discordRenameEmbedField(requesterName || 'user', 200)}**`,
+    fields: [
+      { name: 'Folder', value: discordRenameEmbedField(rec.folder || '—'), inline: true },
+      { name: 'Current file', value: discordRenameEmbedField(rec.oldName || '—'), inline: false },
+      { name: 'Requested title', value: discordRenameEmbedField(rec.requestedName || '—'), inline: false },
+      { name: 'Watch link', value: discordRenameEmbedField(videoUrl || '—'), inline: false },
+      { name: 'Request ID', value: discordRenameEmbedField(reqId), inline: false },
+    ],
+    timestamp: new Date().toISOString(),
+  };
+
+  let moderationRow = null;
+  if (signingKey && reqId && originBase) {
+    try {
+      const approveUrl = buildRenameModerateLink(originBase, reqId, 'approve', signingKey);
+      const rejectUrl = buildRenameModerateLink(originBase, reqId, 'reject', signingKey);
+      if (approveUrl.length <= 512 && rejectUrl.length <= 512) {
+        moderationRow = {
+          type: 1,
+          components: [
+            { type: 2, style: 5, label: 'Approve', url: approveUrl },
+            { type: 2, style: 5, label: 'Reject', url: rejectUrl },
+          ],
+        };
+      } else {
+        console.warn('[video-rename] moderation URLs exceed Discord 512 limit; omitting buttons');
+      }
+    } catch (e) {
+      console.warn('[video-rename] could not build moderation links:', e && e.message ? e.message : e);
+    }
+  } else if (!signingKey) {
+    console.warn('[video-rename] VIDEO_RENAME_MODERATE_SECRET / TBW_PEPPER unset — Discord message will not include approve links');
+  } else if (!originBase) {
+    console.warn('[video-rename] TBW_PUBLIC_ORIGIN unset — cannot build approve links (set env or rely on request Host)');
+  }
+
+  const notifyUrl = DISCORD_WEBHOOK_RENAMES_NOTIFY_URL;
+  if (notifyUrl) {
+    try {
+      const notifyResp = await postDiscordWebhookExecute(notifyUrl, {
+        username: 'Pornwrld',
+        content:
+          '📋 **Rename request** · ' +
+          discordRenameEmbedField(rec.folder || '—', 60) +
+          `: \`${discordRenameEmbedField(rec.oldName || '', 100)}\` → \`${discordRenameEmbedField(rec.requestedName || '', 100)}\``,
+        embeds: [{ ...embed, title: 'Rename notification' }],
+      });
+      if (notifyResp.status < 200 || notifyResp.status >= 300) {
+        console.error('[video-rename] notify webhook HTTP', notifyResp.status);
+      }
+    } catch (e) {
+      console.error('[video-rename] notify webhook error:', e && e.message ? e.message : e);
+    }
+  }
+
+  const adminUrl = DISCORD_WEBHOOK_RENAMES_URL;
+  if (!adminUrl) {
+    console.warn('[video-rename] DISCORD_WEBHOOK_RENAMES_URL not set; skipping admin moderation webhook');
+    return;
+  }
+
+  const adminPayload = {
+    username: 'Pornwrld Admin — Renames',
+    content: moderationRow
+      ? '**Moderate this rename** — Use **Approve** or **Reject** below.'
+      : `**Pending rename** — Configure \`DISCORD_WEBHOOK_RENAMES_URL\`, \`TBW_PUBLIC_ORIGIN\`, and \`TBW_PEPPER\` (or \`VIDEO_RENAME_MODERATE_SECRET\`) for button links.\nRequest ID: \`${reqId}\``,
+    embeds: [embed],
+  };
+  if (moderationRow) adminPayload.components = [moderationRow];
+
+  try {
+    const resp = await postDiscordWebhookExecute(adminUrl, adminPayload);
+    if (resp.status < 200 || resp.status >= 300) {
+      const snippet = resp.body && resp.body.length ? resp.body.toString('utf8').replace(/\s+/g, ' ').slice(0, 220) : '';
+      console.error('[video-rename] admin webhook HTTP', resp.status, snippet);
     }
   } catch (e) {
-    console.error('[video-rename] discord webhook error:', e && e.message ? e.message : e);
+    console.error('[video-rename] admin webhook error:', e && e.message ? e.message : e);
   }
 }
 
@@ -10996,6 +11095,74 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { videoId, sources });
     }
 
+    // GET /api/video-rename/moderate — signed link from Discord (Approve / Reject)
+    if (requestUrl.pathname === '/api/video-rename/moderate') {
+      if ((req.method || '').toUpperCase() !== 'GET') return sendJson(res, 405, { error: 'GET only' });
+      const secret = renameModerateSigningKey();
+      if (!secret) {
+        sendRenameModerateResultPage(res, false, 'Not configured', 'Rename link signing is not configured on this server.');
+        return;
+      }
+      const requestId = String(requestUrl.searchParams.get('requestId') || '').trim();
+      const action = String(requestUrl.searchParams.get('action') || '').trim().toLowerCase();
+      const expQ = requestUrl.searchParams.get('exp');
+      const sig = String(requestUrl.searchParams.get('sig') || '').trim();
+      if (!requestId || (action !== 'approve' && action !== 'reject')) {
+        sendRenameModerateResultPage(res, false, 'Invalid link', 'Missing or invalid parameters.');
+        return;
+      }
+      if (!verifyRenameModerateSignature(requestId, action, expQ, sig, secret)) {
+        sendRenameModerateResultPage(res, false, 'Invalid or expired link', 'This link is invalid or has expired (links last 7 days).');
+        return;
+      }
+      await loadVideoRenameRequests();
+      const rec = videoRenameRequests.find((r) => r && r.requestId === requestId);
+      if (!rec) {
+        sendRenameModerateResultPage(res, false, 'Not found', 'No rename request matches this link.');
+        return;
+      }
+      if (rec.finalized && rec.status === 'approved') {
+        sendRenameModerateResultPage(
+          res,
+          true,
+          'Already approved',
+          `This request was already approved.${rec.newName ? ` File: ${rec.newName}` : ''}`,
+        );
+        return;
+      }
+      if (rec.status === 'rejected' && action === 'reject') {
+        sendRenameModerateResultPage(res, true, 'Already rejected', 'This request was already rejected.');
+        return;
+      }
+      if (rec.status !== 'pending') {
+        sendRenameModerateResultPage(res, false, 'Not pending', `This request is not pending (status: ${rec.status || 'unknown'}).`);
+        return;
+      }
+      if (action === 'reject') {
+        rec.status = 'rejected';
+        rec.finalized = false;
+        rec.reviewedBy = 'discord-link';
+        rec.reviewedAt = Date.now();
+        rec.updatedAt = Date.now();
+        scheduleVideoRenamePersist();
+        sendRenameModerateResultPage(res, true, 'Rejected', 'Rename request rejected.');
+        return;
+      }
+      try {
+        await applyApprovedVideoRename(rec, 'discord-link');
+        sendRenameModerateResultPage(res, true, 'Approved', `Rename applied. New file name: ${rec.newName || 'OK'}`);
+      } catch (e) {
+        rec.status = 'error';
+        rec.finalized = false;
+        rec.reviewedBy = 'discord-link';
+        rec.reviewedAt = Date.now();
+        rec.updatedAt = Date.now();
+        scheduleVideoRenamePersist();
+        sendRenameModerateResultPage(res, false, 'Rename failed', e && e.message ? e.message : 'Unknown error');
+      }
+      return;
+    }
+
     if (requestUrl.pathname === '/api/video-rename/status') {
       if ((req.method || '').toUpperCase() !== 'GET') return sendJson(res, 405, { error: 'GET only' });
       const folder = String(requestUrl.searchParams.get('folder') || '').trim();
@@ -11097,7 +11264,8 @@ const server = http.createServer(async (req, res) => {
       if (subfolder) q.set('subfolder', subfolder);
       if (vault) q.set('vault', vault);
       const videoUrl = getRequestOrigin(req) + '/video?' + q.toString();
-      void sendVideoRenameDiscordRequest(rec, requesterName, videoUrl);
+      const publicOrigin = SITE_ORIGIN || getRequestOrigin(req);
+      void sendVideoRenameDiscordRequest(rec, requesterName, videoUrl, publicOrigin);
 
       return sendJson(res, 200, { ok: true, state: 'pending', requestId });
     }
