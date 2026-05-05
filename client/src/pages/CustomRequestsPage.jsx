@@ -18,7 +18,7 @@ export function CustomRequestsPage() {
     (async () => {
       const r = await fetchMe();
       if (cancelled) return;
-      if (r.ok && r.data?.authed && r.data.tier >= 1) setTierOk(true);
+      if (r.ok && r.data?.authed && r.data.tier >= 2) setTierOk(true);
       else setTierOk(false);
     })();
     return () => {
@@ -30,7 +30,7 @@ export function CustomRequestsPage() {
     <main className="page-content custom-requests-page">
       <PageHero
         title="Custom Requests"
-        subtitle="Premium members can request specific content with standard or priority turnaround."
+        subtitle="Premium (Tier 2) and Ultimate (Tier 3) members can request specific content with standard or priority turnaround."
         className="custom-requests-hero"
       />
 
@@ -46,8 +46,8 @@ export function CustomRequestsPage() {
           <div className="cr-step">
             <div className="cr-step-number">1</div>
             <div className="cr-step-content">
-              <h3>Get Premium</h3>
-              <p>Custom requests are available to Tier 1 and Tier 2 members.</p>
+              <h3>Get Premium or Ultimate</h3>
+              <p>Custom requests are available to Tier 2 (Premium) and Tier 3 (Ultimate) members only.</p>
             </div>
           </div>
 
@@ -86,7 +86,7 @@ export function CustomRequestsPage() {
 
         {tierOk === false && (
           <Link to="/checkout" className="cr-upgrade-btn pornwrld-cr-btn" id="cr-upgrade-btn">
-            Upgrade to unlock requests
+            Upgrade to Premium/Ultimate
           </Link>
         )}
       </div>

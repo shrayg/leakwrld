@@ -446,6 +446,26 @@ html:has(.site-theme-pornwrld) {
   background: color-mix(in srgb, var(--color-primary) 10%, rgba(255, 255, 255, 0.04));
 }
 
+.account-profile-upload-form {
+  display: grid;
+  gap: 10px;
+  max-width: 560px;
+}
+
+.account-profile-upload-form label {
+  display: grid;
+  gap: 6px;
+  color: rgba(255, 245, 251, 0.85);
+}
+
+.account-profile-upload-form :is(select, input[type='file']) {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff5fb;
+  padding: 8px 10px;
+}
+
 .account-profile-grid-card {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--pornwrld-radius-card);

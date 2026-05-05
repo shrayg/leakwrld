@@ -18,7 +18,6 @@ const CATEGORY_ITEMS = [
   { label: 'Nip Slips', to: '/nip-slips' },
   { label: 'Omegle', to: '/omegle' },
   { label: 'OF Leaks', to: '/of-leaks', premium: true },
-  { label: 'Premium Leaks', to: '/premium-leaks', premium: true },
 ];
 
 const VIDEO_DROPDOWN = [
@@ -118,7 +117,12 @@ export function TopNavModern({ menuOpen = false, onToggleMenu }) {
     setBusyRandom(true);
     try {
       const res = await fetchRandomVideos({ limit: '1', page: '0', sort: 'random' });
-      const item = res?.data?.videos?.[0];
+      const pool = Array.isArray(res?.data?.files)
+        ? res.data.files
+        : Array.isArray(res?.data?.videos)
+          ? res.data.videos
+          : [];
+      const item = pool[0];
       if (item?.folder && item?.name) {
         const q = new URLSearchParams({ folder: item.folder, name: item.name });
         if (item.subfolder) q.set('subfolder', item.subfolder);

@@ -13,6 +13,7 @@ import { FooterSection } from '../ui/footer-section';
 export function AppLayout() {
   const { pathname, search } = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const hideLeaderboardDock = pathname.startsWith('/custom-requests');
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -31,7 +32,7 @@ export function AppLayout() {
       <main className="main-content">
         <Outlet />
       </main>
-      <LeaderboardDock />
+      {!hideLeaderboardDock ? <LeaderboardDock /> : null}
       <AuthModal />
       <ReferralModals />
       <FooterSection />

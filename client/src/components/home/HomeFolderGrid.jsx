@@ -30,7 +30,6 @@ const GRID_ROWS = [
   { kind: 'folder', countKey: 'Nip Slips', to: '/nip-slips', thumb: '/assets/thumbnails/liveslips.png', title: 'Nip Slips' },
   { kind: 'folder', countKey: 'Omegle', to: '/omegle', thumb: '/assets/thumbnails/omegle.jpg', title: 'Omegle' },
   { kind: 'folder', countKey: 'OF Leaks', to: '/of-leaks', thumb: '/assets/thumbnails/onlyfans.jpg', title: 'OF Leaks' },
-  { kind: 'folder', countKey: 'Premium Leaks', to: '/premium-leaks', thumb: '/assets/thumbnails/onlyfans.jpg', title: 'Premium Leaks' },
 ];
 
 export function HomeFolderGrid({ counts }) {

@@ -12,5 +12,4 @@ export const platformCategories = [
   { slug: "nip-slips", label: "Nip Slips" },
   { slug: "omegle", label: "Omegle" },
   { slug: "of-leaks", label: "OF Leaks" },
-  { slug: "premium-leaks", label: "Premium Leaks" },
 ] as const;

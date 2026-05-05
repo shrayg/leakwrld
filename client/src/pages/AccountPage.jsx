@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AccountAffiliateProgram } from '../components/account/AccountAffiliateProgram';
 import { AccountReferralPanel } from '../components/account/AccountReferralPanel';
-import { disconnectProvider, fetchAccount, fetchConnectUrl, updateAccount } from '../api/client';
+import { disconnectProvider, fetchAccount, fetchConnectUrl, updateAccount, uploadUserAssets } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { useShell } from '../context/ShellContext';
 import { UserAvatar } from '../components/ui/UserAvatar';
@@ -25,6 +25,25 @@ const CONTENT_TAB_LABELS = {
   about: 'About',
 };
 
+const USERASSET_CATEGORIES = [
+  'NSFW Straight',
+  'Alt and Goth',
+  'Petitie',
+  'Teen (18+ only)',
+  'MILF',
+  'Asian',
+  'Ebony',
+  'Feet',
+  'Hentai',
+  'Yuri',
+  'Yaoi',
+  'Nip Slips',
+  'Omegle',
+  'OF Leaks',
+];
+
+const OMEGLE_SUBFOLDERS = ['Dick Reactions', 'Monkey App Streamers', 'Points Game', 'Regular Wins'];
+
 function toNum(v) {
   return Number(v || 0).toLocaleString();
 }
@@ -44,6 +63,11 @@ export function AccountPage() {
   const [providerMessage, setProviderMessage] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
+  const [uploadCategory, setUploadCategory] = useState('NSFW Straight');
+  const [uploadSubfolder, setUploadSubfolder] = useState('');
+  const [uploadFiles, setUploadFiles] = useState([]);
+  const [uploadPending, setUploadPending] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState('');
 
   const [form, setForm] = useState({
     username: '',
@@ -161,6 +185,40 @@ export function AccountPage() {
       backgroundSize: 'cover',
       backgroundPosition: 'center',
     };
+  }
+
+  async function submitUserAssetUpload(e) {
+    e.preventDefault();
+    setUploadMessage('');
+    if (!uploadFiles.length) return setUploadMessage('Select at least one file.');
+    if (uploadFiles.length > 10) return setUploadMessage('Max 10 files per upload.');
+    const tooLarge = uploadFiles.find((f) => Number(f.size || 0) > 50 * 1024 * 1024);
+    if (tooLarge) return setUploadMessage(`"${tooLarge.name}" exceeds 50MB.`);
+    if (!USERASSET_CATEGORIES.includes(uploadCategory)) return setUploadMessage('Invalid category.');
+    if (uploadCategory === 'Omegle' && uploadSubfolder && !OMEGLE_SUBFOLDERS.includes(uploadSubfolder)) {
+      return setUploadMessage('Choose a valid Omegle subfolder.');
+    }
+
+    const fd = new FormData();
+    fd.set('category', uploadCategory);
+    if (uploadSubfolder) fd.set('subfolder', uploadSubfolder);
+    uploadFiles.forEach((f) => fd.append('files', f));
+
+    setUploadPending(true);
+    try {
+      const res = await uploadUserAssets(fd);
+      if (!res.ok) {
+        setUploadMessage(res.data?.error || 'Upload failed.');
+        return;
+      }
+      const count = Array.isArray(res.data?.uploaded) ? res.data.uploaded.length : 0;
+      setUploadMessage(`Uploaded ${count} file${count === 1 ? '' : 's'} to userassets.`);
+      setUploadFiles([]);
+    } catch {
+      setUploadMessage('Network error while uploading.');
+    } finally {
+      setUploadPending(false);
+    }
   }
 
   async function saveProfile(e) {
@@ -328,13 +386,39 @@ export function AccountPage() {
               </section>
             ) : contentTab === 'upload' ? (
               <section className="account-profile-upload" aria-label="Upload content">
-                <h3>Upload content</h3>
-                <p className="account-profile-upload__lede">Choose what you want to upload to your profile.</p>
-                <div className="account-profile-upload__grid">
-                  <button type="button" className="account-profile-upload__card">Upload Video</button>
-                  <button type="button" className="account-profile-upload__card">Upload Photo</button>
-                  <button type="button" className="account-profile-upload__card">Upload GIF</button>
-                </div>
+                <h3>Upload to Userassets</h3>
+                <p className="account-profile-upload__lede">Upload up to 10 files per batch (max 50MB each), sorted by category.</p>
+                <form className="account-profile-upload-form" onSubmit={submitUserAssetUpload}>
+                  <label>
+                    Category
+                    <select value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)}>
+                      {USERASSET_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                  {uploadCategory === 'Omegle' ? (
+                    <label>
+                      Omegle Subfolder
+                      <select value={uploadSubfolder} onChange={(e) => setUploadSubfolder(e.target.value)}>
+                        <option value="">None</option>
+                        {OMEGLE_SUBFOLDERS.map((sf) => <option key={sf} value={sf}>{sf}</option>)}
+                      </select>
+                    </label>
+                  ) : null}
+                  <label>
+                    Files
+                    <input
+                      type="file"
+                      multiple
+                      onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
+                      accept="video/*,image/*"
+                    />
+                  </label>
+                  <p className="account-profile-muted">{uploadFiles.length} file(s) selected</p>
+                  <button type="submit" disabled={uploadPending}>
+                    {uploadPending ? 'Uploading...' : 'Upload to userassets'}
+                  </button>
+                  {uploadMessage ? <p className="account-profile-muted">{uploadMessage}</p> : null}
+                </form>
               </section>
             ) : (
               <section className="account-profile-grid">

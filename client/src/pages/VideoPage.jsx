@@ -4,9 +4,13 @@ import { CustomVideoPlayer } from '../components/video/CustomVideoPlayer';
 import {
   fetchComments,
   fetchRelatedRecommendations,
+  fetchVideoRenameStatus,
   fetchVideoStats,
+  fetchVideoUploaderMeta,
   postComment,
   postVideoStats,
+  requestVideoRename,
+  toggleCreatorFollow,
 } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { useShell } from '../context/ShellContext';
@@ -18,6 +22,7 @@ import { PageHero } from '../components/layout/PageHero';
 import { buildVideoId, sendTelemetry } from '../lib/telemetry';
 
 const VAULT_FOLDERS = ['free', 'basic', 'premium', 'ultimate', 'elite'];
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
 
 function videoQuery(folder, name, subfolder, vault) {
   const q = new URLSearchParams();
@@ -43,6 +48,13 @@ export function VideoPage() {
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState('');
   const [related, setRelated] = useState([]);
+  const [uploaderMeta, setUploaderMeta] = useState(null);
+  const [followPending, setFollowPending] = useState(false);
+  const [renameStatus, setRenameStatus] = useState({ state: 'none', requestId: '', requestedName: '', finalizedName: '' });
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameText, setRenameText] = useState('');
+  const [renamePending, setRenamePending] = useState(false);
+  const [renameMessage, setRenameMessage] = useState('');
 
   const cleanTitle = useMemo(() => (name ? seoCleanTitle(name, folder) : ''), [name, folder]);
   const videoKey = useMemo(() => {
@@ -61,6 +73,7 @@ export function VideoPage() {
     if (vault) s += '&vault=' + encodeURIComponent(vault);
     return s;
   }, [folder, name, subfolder, vault]);
+  const isImageMedia = useMemo(() => IMAGE_EXT_RE.test(String(name || '')), [name]);
 
   const previewSrc = useMemo(() => {
     if (!folder || !name) return '';
@@ -113,6 +126,34 @@ export function VideoPage() {
           subfolder: f.subfolder || '',
           name: f.name,
         });
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [folder, name, subfolder, vault]);
+
+  useEffect(() => {
+    if (!folder || !name) return;
+    let cancelled = false;
+    fetchVideoUploaderMeta({ folder, name, subfolder }).then(({ ok, data }) => {
+      if (!cancelled && ok) setUploaderMeta(data || null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [folder, name, subfolder]);
+
+  useEffect(() => {
+    if (!folder || !name) return;
+    let cancelled = false;
+    fetchVideoRenameStatus({ folder, name, subfolder, vault }).then(({ ok, data }) => {
+      if (cancelled || !ok || !data) return;
+      setRenameStatus({
+        state: String(data.state || 'none'),
+        requestId: String(data.requestId || ''),
+        requestedName: String(data.requestedName || ''),
+        finalizedName: String(data.finalizedName || ''),
       });
     });
     return () => {
@@ -219,6 +260,33 @@ export function VideoPage() {
   }
 
   const showUnlock = !authLoading && (!isAuthed || (tier || 0) < 2);
+  const creator = uploaderMeta?.uploader
+    ? {
+        kind: 'user',
+        userKey: uploaderMeta.uploader.userKey || '',
+        name: uploaderMeta.uploader.displayName || uploaderMeta.uploader.username || 'Creator',
+        handle: uploaderMeta.uploader.username || 'creator',
+        avatarUrl: uploaderMeta.uploader.avatarUrl || '',
+        followersCount: Number(uploaderMeta.uploader.followersCount || 0),
+        isFollowing: !!uploaderMeta.isFollowing,
+      }
+    : {
+        kind: 'official',
+        userKey: '',
+        name: 'PornWrld',
+        handle: 'pornwrld',
+        avatarUrl: '/site-icon.png',
+        followersCount: null,
+        isFollowing: false,
+      };
+  const canFollowCreator = creator.kind === 'user' && !!creator.userKey;
+  const renameDisabled = renameStatus.state === 'pending' || renameStatus.state === 'finalized';
+  const renameButtonLabel =
+    renameStatus.state === 'pending'
+      ? 'Rename request pending'
+      : renameStatus.state === 'finalized'
+        ? 'Name is finalized'
+        : 'Is this name incorrect? Rename it';
 
   return (
     <div className="page-content video-page">
@@ -256,19 +324,103 @@ export function VideoPage() {
       </header>
 
       <div className="video-page-player-wrap" id="video-page-player-wrap">
-        <CustomVideoPlayer
-          mediaSrc={mediaSrc}
-          previewSrc={previewSrc}
-          folder={folder}
-          name={name}
-          subfolder={subfolder}
-          onFirstPlay={onFirstPlay}
-          onProgress={onProgress}
-        />
+        {isImageMedia ? (
+          <div className="video-page-image-wrap">
+            <img
+              src={mediaSrc}
+              alt={cleanTitle}
+              className="video-page-image"
+              loading="eager"
+              decoding="async"
+            />
+          </div>
+        ) : (
+          <CustomVideoPlayer
+            mediaSrc={mediaSrc}
+            previewSrc={previewSrc}
+            folder={folder}
+            name={name}
+            subfolder={subfolder}
+            onFirstPlay={onFirstPlay}
+            onProgress={onProgress}
+          />
+        )}
       </div>
 
       <div className="video-page-info" id="video-page-info">
-        <h1 className="video-page-title">{cleanTitle}</h1>
+        <div className="video-page-title-row">
+          <h1 className="video-page-title">{cleanTitle}</h1>
+          <button
+            type="button"
+            className="video-page-rename-btn"
+            disabled={renameDisabled}
+            onClick={() => {
+              if (!isAuthed) {
+                openAuth('login');
+                return;
+              }
+              setRenameOpen((v) => !v);
+              setRenameMessage('');
+            }}
+          >
+            {renameButtonLabel}
+          </button>
+        </div>
+        {renameOpen && !renameDisabled && (
+          <div className="video-page-rename-panel">
+            <label htmlFor="video-page-rename-input">Suggest a better name</label>
+            <div className="video-page-rename-row">
+              <input
+                id="video-page-rename-input"
+                type="text"
+                maxLength={140}
+                value={renameText}
+                placeholder="Enter improved title"
+                onChange={(e) => setRenameText(e.target.value)}
+              />
+              <button
+                type="button"
+                disabled={renamePending || !renameText.trim()}
+                onClick={async () => {
+                  if (!isAuthed) {
+                    openAuth('login');
+                    return;
+                  }
+                  setRenamePending(true);
+                  setRenameMessage('');
+                  try {
+                    const res = await requestVideoRename({
+                      folder,
+                      name,
+                      subfolder,
+                      vault,
+                      requestedName: renameText.trim(),
+                    });
+                    if (!res.ok) {
+                      setRenameMessage(res.data?.error || 'Failed to submit rename request.');
+                      return;
+                    }
+                    setRenameStatus((prev) => ({ ...prev, state: 'pending', requestId: res.data?.requestId || prev.requestId }));
+                    setRenameOpen(false);
+                    setRenameText('');
+                    setRenameMessage('Rename request submitted for review.');
+                  } finally {
+                    setRenamePending(false);
+                  }
+                }}
+              >
+                {renamePending ? 'Submitting...' : 'Submit'}
+              </button>
+            </div>
+          </div>
+        )}
+        {renameStatus.state === 'pending' && (
+          <p className="video-page-rename-note">A rename request is currently pending review.</p>
+        )}
+        {renameStatus.state === 'finalized' && (
+          <p className="video-page-rename-note">This video name has been finalized and cannot be changed again.</p>
+        )}
+        {renameMessage ? <p className="video-page-rename-note">{renameMessage}</p> : null}
         <div className="video-page-meta">
           <button
             type="button"
@@ -279,6 +431,58 @@ export function VideoPage() {
             {folder + (subfolder ? ' — ' + subfolder : '')}
           </button>
           <span className="video-page-views">{(stats?.views ?? 0).toLocaleString()} views</span>
+        </div>
+        <div className="video-page-channel-row">
+          <div className="video-page-channel-main">
+            <img
+              src={creator.avatarUrl || '/site-icon.png'}
+              alt={creator.name}
+              className="video-page-channel-avatar"
+              loading="lazy"
+              onError={(e) => {
+                e.currentTarget.src = '/site-icon.png';
+              }}
+            />
+            <div className="video-page-channel-info">
+              <strong>{creator.name}</strong>
+              <span>
+                {creator.kind === 'user'
+                  ? `@${creator.handle} · ${creator.followersCount.toLocaleString()} followers`
+                  : 'Official channel'}
+              </span>
+            </div>
+          </div>
+          {canFollowCreator ? (
+            <button
+              type="button"
+              className="video-page-follow-btn"
+              disabled={followPending}
+              onClick={async () => {
+                if (!isAuthed) return openAuth('login');
+                setFollowPending(true);
+                try {
+                  const nextFollow = !creator.isFollowing;
+                  const res = await toggleCreatorFollow(creator.userKey, nextFollow);
+                  if (res.ok) {
+                    setUploaderMeta((prev) => ({
+                      ...(prev || {}),
+                      isFollowing: !!res.data?.following,
+                      uploader: {
+                        ...(prev?.uploader || {}),
+                        followersCount: Number(res.data?.followersCount || prev?.uploader?.followersCount || 0),
+                      },
+                    }));
+                  }
+                } finally {
+                  setFollowPending(false);
+                }
+              }}
+            >
+              {creator.isFollowing ? 'Following' : 'Follow'}
+            </button>
+          ) : (
+            <span className="video-page-official-badge">Official</span>
+          )}
         </div>
         <div className="video-page-actions" id="video-page-actions">
           <div className="video-page-reactions-group">

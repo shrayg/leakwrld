@@ -13,20 +13,36 @@ import {
   postShortsLike,
   postShortsView,
 } from '../api/client';
+import { FOLDER_TO_CLEAN, folderDisplayName } from '../lib/cleanUrls';
 import { seoCleanTitle } from '../lib/seoTitle';
 import { buildVideoId, sendTelemetry } from '../lib/telemetry';
 
-const SHORTS_CATEGORIES = ['Omegle', 'IRL Dick Flashing', 'TikTok', 'Snapchat', 'Feet', 'Live Slips'];
+const SHORTS_CATEGORIES = Object.keys(FOLDER_TO_CLEAN);
+const SHORTS_TAB_THUMBS = {
+  'NSFW Straight': '/assets/thumbnails/omegle.jpg',
+  'Alt and Goth': '/assets/thumbnails/tiktok.jpg',
+  Petitie: '/assets/thumbnails/snapchat.jpg',
+  'Teen (18+ only)': '/assets/thumbnails/liveslips.png',
+  MILF: '/assets/thumbnails/feet.jpg',
+  Asian: '/assets/thumbnails/snapchat.jpg',
+  Ebony: '/assets/thumbnails/tiktok.jpg',
+  Feet: '/assets/thumbnails/feet.jpg',
+  Hentai: '/assets/thumbnails/liveslips.png',
+  Yuri: '/assets/thumbnails/liveslips.png',
+  Yaoi: '/assets/thumbnails/feet.jpg',
+  'Nip Slips': '/assets/thumbnails/liveslips.png',
+  Omegle: '/assets/thumbnails/omegle.jpg',
+  'OF Leaks': '/assets/thumbnails/onlyfans.jpg',
+};
 
 /** Thumbnails match homepage / categories cards (same “folder” icons as before) */
 const TABS = [
   { label: 'Everything', cats: 'ALL', thumb: '/assets/thumbnails/shorts.png' },
-  { label: 'Omegle', cats: 'Omegle', thumb: '/assets/thumbnails/omegle.jpg' },
-  { label: 'Dick Flashing', cats: 'Dick Flashing', thumb: '/assets/thumbnails/irldickflashing.jpg' },
-  { label: 'TikTok', cats: 'TikTok', thumb: '/assets/thumbnails/tiktok.jpg' },
-  { label: 'Snapchat', cats: 'Snapchat', thumb: '/assets/thumbnails/snapchat.jpg' },
-  { label: 'Nip Slips', cats: 'Streamer Slips', thumb: '/assets/thumbnails/liveslips.png' },
-  { label: 'Feet', cats: 'Feet', thumb: '/assets/thumbnails/feet.jpg' },
+  ...SHORTS_CATEGORIES.map((folder) => ({
+    label: folderDisplayName(folder),
+    cats: folder,
+    thumb: SHORTS_TAB_THUMBS[folder] || '/assets/thumbnails/shorts.png',
+  })),
 ];
 
 const MOBILE_PRELOAD_OFFSETS = [-2, -1, 1, 2];
@@ -50,17 +66,9 @@ function formatCount(n) {
   return String(n || 0);
 }
 
-function mapTabToCategory(tab) {
-  if (tab === 'ALL') return null;
-  if (tab === 'Dick Flashing') return 'IRL Dick Flashing';
-  if (tab === 'Streamer Slips') return 'Live Slips';
-  return tab;
-}
-
 function filterByTab(master, tab) {
   if (!master.length) return [];
-  const cat = mapTabToCategory(tab);
-  const subset = !cat ? master : master.filter((v) => v.category === cat);
+  const subset = tab === 'ALL' ? master : master.filter((v) => v.category === tab);
   return shuffle(subset);
 }
 
@@ -901,7 +909,7 @@ export function ShortsPage() {
                       <div className="shorts-feed-gradient" aria-hidden />
                       <div className="shorts-feed-meta">
                         <p className="shorts-feed-title">{displayTitle}</p>
-                        {video.category ? <p className="shorts-feed-tag">{video.category}</p> : null}
+                        {video.category ? <p className="shorts-feed-tag">{folderDisplayName(video.category)}</p> : null}
                       </div>
 
                       <div className="shorts-feed-rail" aria-label="Video actions">
@@ -1045,7 +1053,7 @@ export function ShortsPage() {
                   <div className="shorts-controls-title-group">
                     <p className="shorts-controls-title">Shorts</p>
                     <p className="shorts-controls-subtitle">
-                      {tab === 'ALL' ? 'All categories' : tab} {searchQuery.trim() ? '· Search on' : ''} ·{' '}
+                      {tab === 'ALL' ? 'All categories' : folderDisplayName(tab)} {searchQuery.trim() ? '· Search on' : ''} ·{' '}
                       {allVideos.length} result{allVideos.length === 1 ? '' : 's'}
                     </p>
                   </div>

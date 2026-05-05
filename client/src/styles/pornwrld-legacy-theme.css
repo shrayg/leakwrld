@@ -1138,6 +1138,28 @@
   border-color: rgba(243, 198, 105, 0.35);
 }
 
+.site-theme-pornwrld .video-page-creator-card {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--pornwrld-radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.site-theme-pornwrld .video-page-creator-info {
+  display: grid;
+  gap: 2px;
+}
+
+.site-theme-pornwrld .video-page-creator-info span {
+  color: var(--pornwrld-muted);
+  font-size: 12px;
+}
+
 .site-theme-pornwrld .homepage.pornwrld-home .seo-about {
   margin-top: clamp(12px, 2vw, 22px);
   margin-bottom: 0;
@@ -1604,6 +1626,27 @@
 
 .site-theme-pornwrld .folder-page {
   padding: clamp(16px, 3vw, 40px);
+}
+
+.site-theme-pornwrld .folder-page--partner .folder-partner-panel {
+  max-width: 28rem;
+  margin: clamp(24px, 5vw, 48px) auto 0;
+  padding: clamp(20px, 4vw, 32px);
+  text-align: center;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.site-theme-pornwrld .folder-page--partner .folder-partner-text {
+  margin: 0 0 1.25rem;
+  font-size: clamp(14px, 1.4vw, 16px);
+  line-height: 1.6;
+  color: var(--pornwrld-muted, #999);
+}
+
+.site-theme-pornwrld .folder-page--partner .folder-partner-cta {
+  display: inline-flex;
 }
 
 /* Shared inner-page hero — Categories, Search, Info, Auth, Blog, … */
@@ -2239,7 +2282,13 @@
 
 .site-theme-pornwrld .auth-message {
   margin: 8px 0 2px;
+  padding: 10px 12px;
   font-size: 13px;
+  line-height: 1.45;
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: var(--pornwrld-radius-card);
 }
 
 .site-theme-pornwrld .auth-form {
@@ -2515,10 +2564,13 @@
 }
 
 .site-theme-pornwrld .custom-requests-page .pornwrld-cr-card {
-  background: var(--pornwrld-surface-2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(120% 120% at 100% 0%, rgba(192, 132, 252, 0.12), transparent 52%),
+    radial-gradient(100% 90% at 0% 100%, rgba(168, 85, 247, 0.1), transparent 50%),
+    var(--pornwrld-surface-2);
+  border: 1px solid rgba(192, 132, 252, 0.3);
   border-radius: var(--pornwrld-radius-card);
-  box-shadow: none;
+  box-shadow: 0 10px 32px rgba(106, 40, 185, 0.18);
   padding: clamp(22px, 3.2vw, 34px);
   max-width: 900px;
   margin: 0 auto;
@@ -2561,9 +2613,9 @@
 }
 
 .site-theme-pornwrld .custom-requests-page .cr-step-number {
-  background: var(--pornwrld-gold-dim);
-  color: var(--pornwrld-gold);
-  border: 1px solid rgba(243, 198, 105, 0.35);
+  background: rgba(168, 85, 247, 0.16);
+  color: #e9d5ff;
+  border: 1px solid rgba(192, 132, 252, 0.45);
   font-weight: 700;
 }
 
@@ -2582,8 +2634,8 @@
 .site-theme-pornwrld .custom-requests-page .cr-turnaround {
   margin: 0 0 18px;
   padding: 10px 12px;
-  border: 1px solid rgba(243, 198, 105, 0.26);
-  background: color-mix(in srgb, var(--pornwrld-gold) 8%, rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(192, 132, 252, 0.34);
+  background: color-mix(in srgb, rgb(168, 85, 247) 14%, rgba(255, 255, 255, 0.02));
   color: rgba(255, 245, 251, 0.9);
   font-size: 14px;
 }
@@ -2594,19 +2646,19 @@
 }
 
 .site-theme-pornwrld .pornwrld-cr-btn {
-  background: linear-gradient(180deg, #f6d486 0%, #f3c669 100%);
-  color: #17181a;
+  background: linear-gradient(180deg, #d8b4fe 0%, #a855f7 100%);
+  color: #160a25;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: none;
   border-radius: var(--pornwrld-radius-card);
-  box-shadow: 0 4px 20px rgba(243, 198, 105, 0.2);
+  box-shadow: 0 6px 22px rgba(141, 51, 209, 0.35);
 }
 
 .site-theme-pornwrld .pornwrld-cr-btn:hover {
   filter: brightness(1.05);
   transform: translateY(-1px);
-  box-shadow: 0 6px 24px rgba(243, 198, 105, 0.28);
+  box-shadow: 0 8px 28px rgba(168, 85, 247, 0.42);
 }
 
 .site-theme-pornwrld .pornwrld-cr-footnote {
@@ -2617,7 +2669,7 @@
 }
 
 .site-theme-pornwrld .pornwrld-cr-footnote a {
-  color: var(--pornwrld-gold);
+  color: #d8b4fe;
   font-weight: 600;
 }
 

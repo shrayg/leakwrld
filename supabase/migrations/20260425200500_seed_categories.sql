@@ -12,7 +12,6 @@ values
   ('yaoi', 'Yaoi'),
   ('nip-slips', 'Nip Slips'),
   ('omegle', 'Omegle'),
-  ('of-leaks', 'OF Leaks'),
-  ('premium-leaks', 'Premium Leaks')
+  ('of-leaks', 'OF Leaks')
 on conflict (slug) do update
 set label = excluded.label;

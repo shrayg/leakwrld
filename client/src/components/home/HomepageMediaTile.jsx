@@ -41,6 +41,9 @@ export function videoHrefFromFile(f) {
 }
 
 export function HomepageMediaTile({ file, badgeType }) {
+  const isVideo = String(file?.type || 'video') !== 'image';
+  const isGif = /\.gif$/i.test(String(file?.name || ''));
+  const mediaKind = isVideo ? 'VID' : isGif ? 'GIF' : 'IMG';
   const title = seoCleanTitle(file.name || '', file.folder || '');
   const primary = resolveThumbUrlForFile(file);
   const [thumbSrc, setThumbSrc] = useState(primary);
@@ -82,7 +85,7 @@ export function HomepageMediaTile({ file, badgeType }) {
     >
       <div className="media-thumb-wrapper">
         {badgeHtml}
-        {file.duration ? <span className="video-duration">{formatDuration(file.duration)}</span> : null}
+        {isVideo && file.duration ? <span className="video-duration">{formatDuration(file.duration)}</span> : null}
         <img
           className="media-thumb"
           width={320}
@@ -95,13 +98,14 @@ export function HomepageMediaTile({ file, badgeType }) {
             setThumbSrc((s) => (s === DEFAULT_PREVIEW_THUMB ? s : DEFAULT_PREVIEW_THUMB));
           }}
         />
-        <div className="play-icon" />
+        {isVideo ? <div className="play-icon" /> : null}
       </div>
       <div className="media-info">
         <h3 className="media-title">{title}</h3>
         {showStatsRow ? (
           <div className="media-stats-row">
             {file.folder ? <span className="media-stat-tag media-stat-category">{file.folder}</span> : null}
+            <span className="media-stat-tag media-stat-kind">{mediaKind}</span>
             {typeof file.views === 'number' ? (
               <span className="media-stat-tag media-stat-views">{file.views.toLocaleString()} views</span>
             ) : null}

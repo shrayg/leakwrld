@@ -409,10 +409,37 @@
 
 .site-theme-pornwrld.checkout-page-shell .checkout-page-hero.pornwrld-page-hero{
   margin-bottom:clamp(12px,3vw,20px);
+  max-width:760px;
+  display:grid;
+  justify-items:center;
+  text-align:center;
+  row-gap:2px;
+  margin-left:auto;
+  margin-right:auto;
 }
 
-.site-theme-pornwrld.checkout-page-shell .checkout-page-hero .pornwrld-page-lede{
-  max-width:36em;margin-left:auto;margin-right:auto;
+.site-theme-pornwrld.checkout-page-shell .checkout-page-hero > h1,
+.site-theme-pornwrld.checkout-page-shell .checkout-page-hero > h2{
+  width:100%;
+  text-align:center;
+}
+
+.site-theme-pornwrld.checkout-page-shell .checkout-page-hero > p{
+  width:min(34em, 100%);
+  max-width:34em;
+  margin-left:auto;
+  margin-right:auto;
+  text-align:center;
+  text-wrap:balance;
+}
+
+@media (max-width: 680px){
+  .site-theme-pornwrld.checkout-page-shell .checkout-page-hero{
+    max-width:100%;
+  }
+  .site-theme-pornwrld.checkout-page-shell .checkout-page-hero > p{
+    width:min(34em, calc(100% - 18px));
+  }
 }
 
 .checkout-kpis{
@@ -482,6 +509,61 @@
 }
 .checkout-page-root .site-footer-upgraded{
   margin-top:16px;
+}
+
+.checkout-support-section{
+  width:100%;
+  max-width:680px;
+  margin:0 auto 20px;
+  padding:16px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+  background:rgba(18,18,26,.62);
+  text-align:center;
+}
+
+.checkout-support-title{
+  margin:0 0 6px;
+  font-size:1rem;
+  font-weight:800;
+  color:#fff;
+  letter-spacing:.02em;
+}
+
+.checkout-support-text{
+  margin:0 0 12px;
+  font-size:.88rem;
+  color:var(--pornwrld-muted,#939496);
+}
+
+.checkout-support-links{
+  display:flex;
+  justify-content:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.checkout-support-link{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:120px;
+  padding:9px 14px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.05);
+  color:#f4f5f8;
+  font-size:.9rem;
+  font-weight:700;
+  text-decoration:none;
+  transition:border-color .2s,background .2s,color .2s,transform .15s;
+}
+
+.checkout-support-link:hover{
+  border-color:rgba(243,198,105,.45);
+  background:rgba(243,198,105,.12);
+  color:#fff;
+  transform:translateY(-1px);
 }
 
 .checkout-page-root .checkout-patreon-card--highlight{
@@ -1098,5 +1180,200 @@
 @media(max-width:560px){
   .checkout-tier-matrix--five{
     min-width:720px;
+  }
+}
+
+/* ---- Final checkout polish pass (alignment + tier palette) ---- */
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-intro{
+  text-align:center;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-heading{
+  margin-bottom:0;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five.cards{
+  align-items:stretch;
+  gap:18px 14px;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .card{
+  padding:26px 18px 22px;
+  border-radius:14px;
+}
+
+/* Keep the stable flex layout so pricing never overlaps CTAs. */
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .checkout-tier-card__inner{
+  display:flex !important;
+  flex-direction:column !important;
+  grid-template-rows:none !important;
+  gap:0 !important;
+  height:100%;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .tier-label{
+  min-height:20px;
+  margin:0 0 8px;
+  line-height:1.1;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .tier-name{
+  min-height:44px;
+  margin:0;
+  line-height:1.08;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .checkout-tier-card__spacer{
+  flex:1 1 auto;
+  min-height:0;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .card-price-zone{
+  min-height:clamp(156px,22vw,184px);
+  margin-top:8px;
+  display:flex !important;
+  flex-direction:column !important;
+  justify-content:flex-start;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .price{
+  margin:12px 0 4px;
+  line-height:1;
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:'tnum' 1;
+}
+
+/* Match paid number rhythm with free so rows align visually. */
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .price--free{
+  font-size:2.15rem !important;
+  margin:12px 0 4px !important;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .daily-price{
+  min-height:22px;
+  margin:0 0 2px;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .price-note{
+  min-height:20px;
+  margin:0;
+}
+
+/* All buttons same size. */
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .checkout-tier-card__cta{
+  margin-top:auto;
+  min-height:56px;
+  width:100%;
+  padding:14px 16px;
+  border-radius:13px;
+  border:1px solid rgba(255,255,255,.12);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  white-space:nowrap;
+  line-height:1.15;
+  font-size:1rem;
+  letter-spacing:.01em;
+  font-weight:800;
+  text-transform:none;
+}
+
+/* Button palette requested: Basic=blue, Premium=yellow, Ultimate=pink. */
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .btn-basic.checkout-tier-card__cta{
+  background:linear-gradient(135deg,#46a5ff 0%,#2388ff 52%,#3bb8ff 100%);
+  color:#07172b;
+  box-shadow:0 8px 24px rgba(46,138,255,.34);
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .btn-premium.checkout-tier-card__cta{
+  background:linear-gradient(135deg,#f6cf69 0%,#f3c669 48%,#ffd986 100%);
+  color:#2a1a05;
+  box-shadow:0 8px 24px rgba(243,198,105,.34);
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .btn-ultimate.checkout-tier-card__cta{
+  background:linear-gradient(135deg,#ff55c8 0%,#ff3cac 50%,#d94bff 100%);
+  color:#fff;
+  box-shadow:0 8px 24px rgba(255,76,178,.36);
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .btn-free.checkout-tier-card__cta{
+  background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03));
+  color:#c6c6d4 !important;
+  border-color:rgba(255,255,255,.16);
+}
+
+/* Tier chroma to match button mapping. */
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.basic{
+  border-color:rgba(70,165,255,.3);
+  background:linear-gradient(165deg,rgba(20,33,58,.5),rgba(23,24,26,.9));
+}
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.basic .tier-label{ color:#47b8ff; }
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.basic .tier-name{
+  background:linear-gradient(135deg,#62c4ff,#2f8fff);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.basic .price{ color:#e8f4ff; }
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.premium{
+  border-color:rgba(243,198,105,.3);
+  background:linear-gradient(165deg,rgba(64,48,20,.44),rgba(23,24,26,.9));
+}
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.premium .tier-label{ color:#f6cf69; }
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.premium .tier-name{
+  background:linear-gradient(135deg,#ffe18d,#f3c669);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.premium .price{
+  background:linear-gradient(135deg,#ffd87e,#f3c669);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.premium .daily-price{
+  color:var(--pornwrld-muted,#939496);
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.ultimate{
+  border-color:rgba(255,95,193,.32);
+  background:linear-gradient(165deg,rgba(72,26,68,.46),rgba(23,24,26,.9));
+}
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.ultimate .tier-label{ color:#ff82da; }
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.ultimate .tier-name{
+  background:linear-gradient(135deg,#ff8edd,#ff4fbc);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .card.ultimate .price{
+  background:linear-gradient(135deg,#ffa3e5,#ff5dbf);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+
+.checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-tier-matrix__row--head .checkout-tier-matrix__colhead{
+  min-height:48px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+
+@media (max-width:900px){
+  .checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .tier-name{
+    min-height:0;
+  }
+  .checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .card-price-zone{
+    min-height:auto;
+  }
+  .checkout-page-shell.site-theme-pornwrld .checkout-page-root .checkout-pricing-grid--five .checkout-tier-card__cta{
+    white-space:normal;
   }
 }

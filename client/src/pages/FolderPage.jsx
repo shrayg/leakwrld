@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { fetchList, fetchPreviewList, fetchRecommendations } from '../api/client';
 import { HomepageMediaTile } from '../components/home/HomepageMediaTile';
@@ -7,27 +6,11 @@ import { videoCardStableKey } from '../components/media/VideoCard';
 import { useAuth } from '../hooks/useAuth';
 import { cleanPathToFolder, folderDisplayName, folderToCleanPath, folderToCleanUrl } from '../lib/cleanUrls';
 import { dedupeFiles, formatDuration, sortFiles } from '../lib/folderMedia';
-import { seoCleanTitle } from '../lib/seoTitle';
 import { FOLDER_DOC_META } from '../data/folderDocMeta';
 import { PageHero } from '../components/layout/PageHero';
 import { buildVideoId, sendTelemetry } from '../lib/telemetry';
 
 const PAGE_SIZE = 15;
-function thumbUrl(item) {
-  if (item.thumb) return item.thumb;
-  if (item.folder && item.name) {
-    let u =
-      '/thumbnail?folder=' +
-      encodeURIComponent(item.folder) +
-      '&name=' +
-      encodeURIComponent(item.name) +
-      (item.subfolder ? '&subfolder=' + encodeURIComponent(item.subfolder) : '');
-    if (item.vault) u += '&vault=' + encodeURIComponent(item.vault);
-    return u;
-  }
-  return '/assets/images/face.png';
-}
-
 export function FolderPage({ seoFolder: propFolder }) {
   const [params] = useSearchParams();
   const location = useLocation();
@@ -52,7 +35,6 @@ export function FolderPage({ seoFolder: propFolder }) {
   const [gotoPageInput, setGotoPageInput] = useState('');
   const [subfolderFilter, setSubfolderFilter] = useState('all');
   const [videoSearch, setVideoSearch] = useState('');
-  const [lightbox, setLightbox] = useState(null);
   const [recoRankMap, setRecoRankMap] = useState({});
 
   const docMeta = FOLDER_DOC_META[folder];
@@ -111,8 +93,18 @@ export function FolderPage({ seoFolder: propFolder }) {
 
   useEffect(() => {
     if (authLoading) return;
+    if (folder === 'Omegle') {
+      setLoading(false);
+      setErr(null);
+      setAllFiles([]);
+      setItems([]);
+      setSubfoldersFromApi(null);
+      setPreviewMode(false);
+      setRecoRankMap({});
+      return;
+    }
     load();
-  }, [load, authLoading]);
+  }, [load, authLoading, folder]);
 
   useEffect(() => {
     if (!folder || !allFiles.length) return;
@@ -218,6 +210,27 @@ export function FolderPage({ seoFolder: propFolder }) {
     );
   }
 
+  if (folder === 'Omegle') {
+    return (
+      <div className="page-content folder-page folder-page--partner">
+        <div className="folder-header pornwrld-folder-head">
+          <h1 className="pornwrld-page-title">{displayHeading}</h1>
+        </div>
+        <div className="folder-partner-panel" role="region" aria-label="Partner site">
+          <p className="folder-partner-text">Omegle leaks are on our partner site.</p>
+          <a
+            href="https://pornyard.xyz"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pornwrld-inline-link-btn folder-partner-cta"
+          >
+            Visit Pornyard
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page-content folder-page">
       <div className="folder-header pornwrld-folder-head">
@@ -312,24 +325,9 @@ export function FolderPage({ seoFolder: propFolder }) {
       {!loading && items.length > 0 && (
         <>
           <div className="media-grid folder-media-grid">
-            {items.map((item, idx) =>
-              item.type === 'video' ? (
-                <HomepageMediaTile key={videoCardStableKey(item, idx)} file={item} badgeType="" />
-              ) : (
-                <button
-                  key={item.name + idx}
-                  type="button"
-                  className="media-item"
-                  style={{ cursor: 'pointer', border: 'none', background: 'transparent', padding: 0, textAlign: 'left' }}
-                  onClick={() => setLightbox({ item, index: idx })}
-                >
-                  <img className="media-thumb" src={thumbUrl(item)} alt="" loading="lazy" width={320} height={180} />
-                  <div className="media-info">
-                    <h3 className="media-title">{seoCleanTitle(item.name, folder)}</h3>
-                  </div>
-                </button>
-              )
-            )}
+            {items.map((item, idx) => (
+              <HomepageMediaTile key={videoCardStableKey(item, idx)} file={item} badgeType="" />
+            ))}
           </div>
 
           {!previewMode && totalPages > 1 && (
@@ -382,23 +380,6 @@ export function FolderPage({ seoFolder: propFolder }) {
         </p>
       </section>
 
-      {lightbox && lightbox.item && (
-        <div
-          className="lightbox active"
-          role="dialog"
-          style={{ zIndex: 9999 }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setLightbox(null);
-          }}
-        >
-          <button type="button" className="lightbox-close" onClick={() => setLightbox(null)}>
-            <X size={28} strokeWidth={2.4} aria-hidden="true" />
-          </button>
-          <div className="lightbox-content">
-            <img className="lightbox-media" src={lightbox.item.src} alt="" />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

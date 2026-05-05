@@ -15,7 +15,6 @@ export const FOLDER_TO_CLEAN = {
   'Nip Slips': '/nip-slips',
   Omegle: '/omegle',
   'OF Leaks': '/of-leaks',
-  'Premium Leaks': '/premium-leaks',
 };
 
 /** Public label for category pages (API `folder` stays canonical, e.g. Yuri). */
@@ -43,7 +42,6 @@ export const CLEAN_TO_FOLDER = {
   '/nip-slips': 'Nip Slips',
   '/omegle': 'Omegle',
   '/of-leaks': 'OF Leaks',
-  '/premium-leaks': 'Premium Leaks',
 };
 
 export function folderToCleanPath(folder) {

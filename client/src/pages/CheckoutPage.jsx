@@ -504,16 +504,19 @@ export function CheckoutPage() {
 
   const openCheckout = useCallback(
     (plan) => {
-      if (userAuthed === true) {
-        doOpenPatreonModal(plan);
-        return;
+      if (userAuthed === false) {
+        try {
+          sessionStorage.setItem('checkout_pending_plan', plan);
+        } catch {
+          /* ignore */
+        }
       }
-      if (userAuthed === false) redirectToLogin(plan);
+      doOpenPatreonModal(plan);
     },
-    [userAuthed, doOpenPatreonModal, redirectToLogin],
+    [userAuthed, doOpenPatreonModal],
   );
 
-  const checkoutBtnsDisabled = userAuthed === null;
+  const checkoutBtnsDisabled = false;
 
   return (
     <div className="checkout-page-shell site-theme-pornwrld">
@@ -564,15 +567,6 @@ export function CheckoutPage() {
             <div className="checkout-kpi">
               <span className="checkout-kpi__num">9k+</span>
               <span className="checkout-kpi__lbl">members</span>
-            </div>
-          </div>
-
-          <div className="image-slots" aria-label="Preview images">
-            <div className="image-slot">
-              <img src="/assets/images/checkout/image1.png" alt="Preview 1" loading="lazy" decoding="async" />
-            </div>
-            <div className="image-slot">
-              <img src="/assets/images/checkout/image2.jpg" alt="Preview 2" loading="lazy" decoding="async" />
             </div>
           </div>
 
@@ -640,6 +634,15 @@ export function CheckoutPage() {
             </div>
           </div>
 
+          <div className="image-slots" aria-label="Preview images">
+            <div className="image-slot">
+              <img src="/assets/images/checkout/image1.png" alt="Preview 1" loading="lazy" decoding="async" />
+            </div>
+            <div className="image-slot">
+              <img src="/assets/images/checkout/image2.jpg" alt="Preview 2" loading="lazy" decoding="async" />
+            </div>
+          </div>
+
           <section className="checkout-pricing-wrap" aria-labelledby="checkout-pricing-heading">
             <div className="checkout-pricing-intro">
               <h2 id="checkout-pricing-heading" className="checkout-pricing-heading">
@@ -695,7 +698,7 @@ export function CheckoutPage() {
                           data-checkout={key}
                           onClick={() => openCheckout(key)}
                         >
-                          {missingUrl ? 'Configure Patreon URL' : `Join ${p.label} on Patreon`}
+                          {missingUrl ? 'Configure Patreon URL' : `Get ${p.label} Access`}
                         </button>
                       </div>
                     </article>
@@ -765,7 +768,7 @@ export function CheckoutPage() {
           <div className="trust-signals">
             <div className="trust-item">
               <span className="trust-icon">&#128274;</span>
-              <strong>Billed on Patreon</strong>
+              <strong>Secure - Billed on Patreon</strong>
             </div>
             <div className="trust-item">
               <span className="trust-icon">&#128176;</span>
@@ -774,10 +777,6 @@ export function CheckoutPage() {
             <div className="trust-item">
               <span className="trust-icon">&#128101;</span>
               <strong>Join 9,000+ members</strong>
-            </div>
-            <div className="trust-item">
-              <span className="trust-icon">&#128172;</span>
-              <strong>Support via Discord &amp; Telegram only</strong>
             </div>
           </div>
 
@@ -799,6 +798,19 @@ export function CheckoutPage() {
               </div>
             ))}
           </div>
+
+          <section className="checkout-support-section" aria-label="Support links">
+            <h3 className="checkout-support-title">Support</h3>
+            <p className="checkout-support-text">Need help? Reach us on our official channels.</p>
+            <div className="checkout-support-links">
+              <a href={SUPPORT_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="checkout-support-link">
+                Telegram
+              </a>
+              <a href={SUPPORT_DISCORD_URL} target="_blank" rel="noopener noreferrer" className="checkout-support-link">
+                Discord
+              </a>
+            </div>
+          </section>
 
           <footer className="checkout-footer-note">
             Questions? Use our official{' '}
