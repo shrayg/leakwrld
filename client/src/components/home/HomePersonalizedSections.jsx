@@ -37,6 +37,8 @@ function mergeUniqueFiles(primary, extra, maxLen) {
 }
 
 export function HomePersonalizedSections() {
+  const location = useLocation();
+  const listReturnPath = `${location.pathname}${location.search}`;
   const [newest, setNewest] = useState([]);
   const [recommended, setRecommended] = useState([]);
 

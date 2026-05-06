@@ -12285,8 +12285,9 @@ const server = http.createServer(async (req, res) => {
       const isViteAssetPath = pathname.startsWith('/assets/') && !isCustomAssetNamespace;
       if (isViteAssetPath || pathname === '/whitney-fonts.css' || pathname.startsWith('/fonts/')) {
         const _rel = pathname.replace(/^\/+/, '');
-        const _assetPath = path.normalize(path.join(_clientDist, _rel));
-        if (_assetPath.startsWith(path.normalize(_clientDist + path.sep))) {
+        let _assetPath = path.normalize(path.join(_clientDist, _rel));
+        const _distRootNorm = path.normalize(_clientDist + path.sep);
+        if (_assetPath.startsWith(_distRootNorm)) {
           try {
             const _st = await fs.promises.stat(_assetPath);
             if (_st.isFile()) {
@@ -12296,6 +12297,36 @@ const server = http.createServer(async (req, res) => {
               return res.end(_methodUp === 'HEAD' ? Buffer.alloc(0) : _raw);
             }
           } catch (_) {}
+          // If a stale hashed Vite entry filename is requested, fall back to the latest built entry.
+          // This avoids a blank shell when index.html and /assets hashes drift temporarily across deploys.
+          if (_rel.startsWith('assets/index-') && (_rel.endsWith('.js') || _rel.endsWith('.css'))) {
+            try {
+              const _ext = path.extname(_rel);
+              const _assetsDir = path.join(_clientDist, 'assets');
+              const _files = await fs.promises.readdir(_assetsDir);
+              const _candidates = _files
+                .filter((name) => /^index-[^/\\]+\.(js|css)$/.test(name) && path.extname(name) === _ext)
+                .map((name) => path.join(_assetsDir, name));
+              let _fallbackPath = null;
+              let _fallbackMtime = 0;
+              for (const _candidate of _candidates) {
+                const _cst = await fs.promises.stat(_candidate);
+                if (_cst.isFile() && _cst.mtimeMs > _fallbackMtime) {
+                  _fallbackMtime = _cst.mtimeMs;
+                  _fallbackPath = _candidate;
+                }
+              }
+              if (_fallbackPath) {
+                const _raw = await fs.promises.readFile(_fallbackPath);
+                const _ct = getContentType(_fallbackPath);
+                res.writeHead(200, {
+                  'Content-Type': _ct,
+                  'Cache-Control': 'public, max-age=300, must-revalidate',
+                });
+                return res.end(_methodUp === 'HEAD' ? Buffer.alloc(0) : _raw);
+              }
+            } catch (_) {}
+          }
         }
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         return res.end('Not Found');
