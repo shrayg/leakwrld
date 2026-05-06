@@ -67,7 +67,7 @@ const TIER_COMPARE_ROWS = [
     free: '500+ previews',
     basic: '1,000+ videos',
     premium: '5,000+ videos',
-    ultimate: '5,000+ videos',
+    ultimate: '15,000+ videos',
   },
   {
     label: 'OnlyFans leaks vault',
