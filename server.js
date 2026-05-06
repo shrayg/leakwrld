@@ -12374,6 +12374,8 @@ const server = http.createServer(async (req, res) => {
         resolveEnvPath(process.env.TBW_IMAGES_ROOT, path.resolve(__dirname, 'images')) || path.resolve(__dirname, 'images');
       const thumbsRoot =
         resolveEnvPath(process.env.TBW_THUMBNAILS_ROOT, path.resolve(__dirname, 'thumbnails')) || path.resolve(__dirname, 'thumbnails');
+      const publicThumbsRoot = path.resolve(__dirname, 'client', 'public', 'assets', 'thumbnails');
+      const distThumbsRoot = path.resolve(__dirname, 'client', 'dist', 'assets', 'thumbnails');
       const brandingRoot =
         resolveEnvPath(
           process.env.TBW_BRANDING_ROOT,
@@ -12393,19 +12395,27 @@ const server = http.createServer(async (req, res) => {
       else if (pathname.startsWith(ASSET_PREFIX_BRANDING)) { externalRoot = brandingRoot; prefixLen = ASSET_PREFIX_BRANDING.length; }
 
       // 1) Serve from local disk first (dev/local).
+      // `/assets/thumbnails/*` may live under repo `/thumbnails` (legacy/generated) or
+      // under `client/public/assets/thumbnails`/`client/dist/assets/thumbnails` (category cards).
       try {
         const rel = decodeURIComponent(pathname.slice(prefixLen));
-        const externalRootResolved = path.resolve(externalRoot);
-        const abs = path.resolve(externalRootResolved, path.normalize(rel));
-        // Robust containment check (string `startsWith` is brittle across Windows casing/normalization).
-        const relToRoot = path.relative(externalRootResolved, abs);
-        if (relToRoot && !relToRoot.startsWith('..') && !path.isAbsolute(relToRoot)) {
-          const st = await fs.promises.stat(abs).catch(() => null);
-          if (st && st.isFile()) {
-            const raw = await fs.promises.readFile(abs);
-            const ct = getContentType(abs);
-            res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'public, max-age=31536000, immutable' });
-            return res.end(_methodUp === 'HEAD' ? Buffer.alloc(0) : raw);
+        const rootsToTry = [externalRoot];
+        if (pathname.startsWith(ASSET_PREFIX_THUMBS)) {
+          rootsToTry.push(publicThumbsRoot, distThumbsRoot);
+        }
+        for (const root of rootsToTry) {
+          const externalRootResolved = path.resolve(root);
+          const abs = path.resolve(externalRootResolved, path.normalize(rel));
+          // Robust containment check (string `startsWith` is brittle across Windows casing/normalization).
+          const relToRoot = path.relative(externalRootResolved, abs);
+          if ((relToRoot === '' || relToRoot) && !relToRoot.startsWith('..') && !path.isAbsolute(relToRoot)) {
+            const st = await fs.promises.stat(abs).catch(() => null);
+            if (st && st.isFile()) {
+              const raw = await fs.promises.readFile(abs);
+              const ct = getContentType(abs);
+              res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'public, max-age=31536000, immutable' });
+              return res.end(_methodUp === 'HEAD' ? Buffer.alloc(0) : raw);
+            }
           }
         }
       } catch (_) {}
