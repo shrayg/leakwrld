@@ -1,8 +1,19 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useShell } from '../../context/ShellContext';
 import { fetchReferralStatus } from '../../api/client';
 import { GoldPremiumFx } from './GoldPremiumFx';
+
+const REFERRAL_PROGRAM_TO = '/account?tab=referrals';
+
+function ChevronDown({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 /** Referral progress + CTAs — paired with leaderboard on the home row. */
 export function HeroReferralGoal() {
@@ -45,11 +56,19 @@ export function HeroReferralGoal() {
             Want <GoldPremiumFx>free premium</GoldPremiumFx> access?
           </h3>
           <p className="hero-referral-goal__lede">
-            Create an account to unlock your personal referral link. Each friend signup moves you toward Tier 1 perks and premium access.
+            Referrals do two things at once: they move you toward <strong className="hero-referral-goal__gold">premium access</strong>{' '}
+            (tier perks &amp; bonus previews) and let you <strong className="hero-referral-goal__gold">earn money</strong> through your
+            personal referral code.
           </p>
-          <p className="hero-referral-goal__midline">
-            Referral progress and payout tracking unlock after signup.
+          <p className="hero-referral-goal__earn-hint">
+            After you create an account, use <strong className="hero-referral-goal__gold">Get your referral link</strong> on this card — that’s
+            where your code lives. Earnings and payout rules are on your{' '}
+            <Link className="referral-inline-link" to={REFERRAL_PROGRAM_TO}>
+              Referral Program
+            </Link>{' '}
+            page.
           </p>
+          <p className="hero-referral-goal__midline">Referral progress and payout tracking unlock after signup.</p>
           <div className="hero-referral-goal__actions">
             <button type="button" className="referral-cta-primary" onClick={() => openAuth('signup')}>
               Create free account
@@ -58,31 +77,34 @@ export function HeroReferralGoal() {
               type="button"
               className="referral-more-btn"
               aria-expanded={moreOpen}
-              aria-controls="referral-more-panel"
-              id="referral-more-toggle"
+              aria-controls="referral-more-panel-guest"
+              id="referral-more-toggle-guest"
+              aria-label="Expand a short explanation of premium tiers and referrals"
               onClick={() => setMoreOpen((o) => !o)}
             >
-              <span className="referral-more-btn__label">More info</span>
-              <svg className="referral-more-btn__arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path
-                  d="M6 9l6 6 6-6"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <span className="referral-more-btn__label">How it works</span>
+              <ChevronDown className="referral-more-btn__arrow" />
             </button>
+            <Link
+              className="referral-more-btn referral-more-btn--program-link"
+              to={REFERRAL_PROGRAM_TO}
+              aria-label="Open Referral Program on your account"
+              id="referral-program-more-guest"
+            >
+              <span className="referral-more-btn__label">Referral program</span>
+              <ChevronDown className="referral-more-btn__arrow referral-more-btn__arrow--forward" />
+            </Link>
           </div>
           <div
             className={'referral-more-panel' + (moreOpen ? ' is-open' : '')}
-            id="referral-more-panel"
+            id="referral-more-panel-guest"
             role="region"
-            aria-labelledby="referral-more-toggle"
+            aria-labelledby="referral-more-toggle-guest"
             aria-hidden={!moreOpen}
           >
             <p>
-              Sign up, share your link, and each verified referral helps unlock premium tiers faster.
+              After you join, share your link: friends browse free while your signups count toward premium tiers. Leaderboards and paid
+              referral perks are spelled out on your Referral Program tab.
             </p>
           </div>
         </div>
@@ -99,7 +121,17 @@ export function HeroReferralGoal() {
           Want <GoldPremiumFx>free premium</GoldPremiumFx> access?
         </h3>
         <p className="hero-referral-goal__lede">
-          Share referral codes — friends get free browsing; each signup moves you toward premium perks and bonus previews.
+          Share your referral code for two wins: faster <strong className="hero-referral-goal__gold">premium access</strong> (tiers &amp;
+          bonus previews) and <strong className="hero-referral-goal__gold">earning money</strong> when your referrals qualify for program
+          payouts.
+        </p>
+        <p className="hero-referral-goal__earn-hint">
+          Use <strong className="hero-referral-goal__gold">Get your referral link</strong> above for your code. Payouts, tiers, and earning
+          rules live on your{' '}
+          <Link className="referral-inline-link" to={REFERRAL_PROGRAM_TO}>
+            Referral Program
+          </Link>{' '}
+          page.
         </p>
 
         <div className="referral-goal referral-goal--hero">
@@ -135,31 +167,34 @@ export function HeroReferralGoal() {
             type="button"
             className="referral-more-btn"
             aria-expanded={moreOpen}
-            aria-controls="referral-more-panel"
-            id="referral-more-toggle"
+            aria-controls="referral-more-panel-auth"
+            id="referral-more-toggle-auth"
+            aria-label="Expand a short explanation of premium tiers and referrals"
             onClick={() => setMoreOpen((o) => !o)}
           >
-            <span className="referral-more-btn__label">More info</span>
-            <svg className="referral-more-btn__arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path
-                d="M6 9l6 6 6-6"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <span className="referral-more-btn__label">How it works</span>
+            <ChevronDown className="referral-more-btn__arrow" />
           </button>
+          <Link
+            className="referral-more-btn referral-more-btn--program-link"
+            to={REFERRAL_PROGRAM_TO}
+            aria-label="Open Referral Program on your account"
+            id="referral-program-more-auth"
+          >
+            <span className="referral-more-btn__label">Referral program</span>
+            <ChevronDown className="referral-more-btn__arrow referral-more-btn__arrow--forward" />
+          </Link>
         </div>
         <div
           className={'referral-more-panel' + (moreOpen ? ' is-open' : '')}
-          id="referral-more-panel"
+          id="referral-more-panel-auth"
           role="region"
-          aria-labelledby="referral-more-toggle"
+          aria-labelledby="referral-more-toggle-auth"
           aria-hidden={!moreOpen}
         >
           <p>
-            Your personal link tracks signups. Hit the goal for tier rewards; top referrers each week may qualify for payouts — see the leaderboard.
+            Premium tiers unlock as verified signups land. Paid referral earnings, leaderboard prizes, and eligibility are documented on
+            your Account → Referral Program page — use the <strong>Referral program</strong> button to open it anytime.
           </p>
         </div>
       </div>

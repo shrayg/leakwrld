@@ -42,7 +42,7 @@ const PLANS = {
     blurb: '/mo',
     tierNum: 2,
     checkoutUrl: String(
-      import.meta.env.VITE_PATREON_CHECKOUT_PREMIUM_URL || DEFAULT_PATREON_CHECKOUT_URLS.premium,
+      import.meta.env.VITE_PATREON_CHECKOUT_ULTIMATE_URL || DEFAULT_PATREON_CHECKOUT_URLS.ultimate,
     ).trim(),
     cardClass: 'premium',
     btnClass: 'btn-premium',
@@ -53,7 +53,7 @@ const PLANS = {
     blurb: '/mo',
     tierNum: 3,
     checkoutUrl: String(
-      import.meta.env.VITE_PATREON_CHECKOUT_ULTIMATE_URL || DEFAULT_PATREON_CHECKOUT_URLS.ultimate,
+      import.meta.env.VITE_PATREON_CHECKOUT_PREMIUM_URL || DEFAULT_PATREON_CHECKOUT_URLS.premium,
     ).trim(),
     cardClass: 'ultimate',
     btnClass: 'btn-ultimate',
@@ -205,6 +205,9 @@ export function CheckoutPage() {
   const { openAuth } = useShell();
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
+  const checkoutRootRef = useRef(null);
+  const guideScrollTimerRef = useRef(0);
+  const lastGuideActivationAtRef = useRef(0);
   const [searchParams] = useSearchParams();
 
   const [userAuthed, setUserAuthed] = useState(null);
@@ -312,12 +315,40 @@ export function CheckoutPage() {
   }, []);
 
   const activatePatreonGuide = useCallback(() => {
+    const now = Date.now();
+    if (now - lastGuideActivationAtRef.current < 700) return;
+    lastGuideActivationAtRef.current = now;
     setPatreonGuideActive(true);
-    requestAnimationFrame(() => {
+    if (guideScrollTimerRef.current) {
+      window.clearTimeout(guideScrollTimerRef.current);
+    }
+    guideScrollTimerRef.current = window.setTimeout(() => {
       const el = patreonCardRef.current;
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
+      if (!el) return;
+      const scroller = checkoutRootRef.current;
+      if (scroller) {
+        const scrollerRect = scroller.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const targetTop =
+          scroller.scrollTop +
+          (elRect.top - scrollerRect.top) -
+          Math.max(80, Math.round((scroller.clientHeight - elRect.height) / 2));
+        scroller.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' });
+      }
+      requestAnimationFrame(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      });
+    }, 120);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (guideScrollTimerRef.current) {
+        window.clearTimeout(guideScrollTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     let pending = false;
@@ -521,6 +552,7 @@ export function CheckoutPage() {
   return (
     <div className="checkout-page-shell site-theme-pornwrld">
       <div
+        ref={checkoutRootRef}
         className="checkout-page-root"
         style={{
           position: 'fixed',
@@ -648,6 +680,7 @@ export function CheckoutPage() {
               <h2 id="checkout-pricing-heading" className="checkout-pricing-heading">
                 Choose your Patreon tier
               </h2>
+              <p className="checkout-pricing-reminder">Remember your email you checked out with</p>
             </div>
 
             <div className="checkout-tier-package">

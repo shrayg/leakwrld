@@ -3,7 +3,7 @@
 export const FOLDER_TO_CLEAN = {
   'NSFW Straight': '/nsfw-straight',
   'Alt and Goth': '/alt-and-goth',
-  Petitie: '/petitie',
+  Petite: '/petite',
   'Teen (18+ only)': '/teen-18-plus',
   MILF: '/milf',
   Asian: '/asian',
@@ -19,6 +19,7 @@ export const FOLDER_TO_CLEAN = {
 
 /** Public label for category pages (API `folder` stays canonical, e.g. Yuri). */
 const FOLDER_DISPLAY_NAME = {
+  Hentai: 'Hentai/Cosplay',
   Yuri: 'Lesbian',
 };
 
@@ -30,7 +31,7 @@ export function folderDisplayName(folder) {
 export const CLEAN_TO_FOLDER = {
   '/nsfw-straight': 'NSFW Straight',
   '/alt-and-goth': 'Alt and Goth',
-  '/petitie': 'Petitie',
+  '/petite': 'Petite',
   '/teen-18-plus': 'Teen (18+ only)',
   '/milf': 'MILF',
   '/asian': 'Asian',

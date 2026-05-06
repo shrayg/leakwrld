@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { fetchNewest } from '../api/client';
 import { HomepageMediaTile } from '../components/home/HomepageMediaTile';
 import { PageHero } from '../components/layout/PageHero';
@@ -7,6 +8,8 @@ import { videoCardStableKey } from '../components/media/VideoCard';
 const PAGE_SIZE = 32;
 
 export function NewReleasesPage() {
+  const location = useLocation();
+  const listReturnPath = `${location.pathname}${location.search}`;
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -60,7 +63,7 @@ export function NewReleasesPage() {
       {!loading && !error && files.length > 0 && (
         <div className="media-grid" id="new-releases-grid">
           {files.map((item, i) => (
-            <HomepageMediaTile key={videoCardStableKey(item, i)} file={item} badgeType="new" />
+            <HomepageMediaTile key={videoCardStableKey(item, i)} file={item} badgeType="new" listReturnPath={listReturnPath} />
           ))}
         </div>
       )}

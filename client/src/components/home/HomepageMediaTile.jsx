@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { seoCleanTitle } from '../../lib/seoTitle';
 import { formatDuration } from '../../lib/folderMedia';
 import { buildVideoId, sendTelemetry } from '../../lib/telemetry';
+import { listReturnNavState } from '../../lib/listReturnNav';
 
 /** Inline SVG poster when thumb fails or is missing (matches VideoCard fallback) */
 const DEFAULT_PREVIEW_THUMB =
@@ -40,7 +41,7 @@ export function videoHrefFromFile(f) {
   return '/video?' + q.toString();
 }
 
-export function HomepageMediaTile({ file, badgeType }) {
+export function HomepageMediaTile({ file, badgeType, listReturnPath }) {
   const isVideo = String(file?.type || 'video') !== 'image';
   const isGif = /\.gif$/i.test(String(file?.name || ''));
   const mediaKind = isVideo ? 'VID' : isGif ? 'GIF' : 'IMG';
@@ -70,6 +71,7 @@ export function HomepageMediaTile({ file, badgeType }) {
   return (
     <Link
       to={href}
+      state={listReturnNavState(listReturnPath)}
       className="media-item video-item media-item--rail"
       onClick={() => {
         sendTelemetry('click', {

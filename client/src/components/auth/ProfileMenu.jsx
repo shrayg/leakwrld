@@ -125,7 +125,7 @@ export function ProfileMenu() {
             id="profile-upgrade"
             onClick={() => {
               setMenuOpen(false);
-              navigate('/?welcome=1');
+              navigate('/checkout');
             }}
           >
             Upgrade

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { CustomVideoPlayer } from '../components/video/CustomVideoPlayer';
 import {
   cancelVideoRename,
@@ -16,13 +16,15 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import { useShell } from '../context/ShellContext';
 import { folderToCleanUrl } from '../lib/cleanUrls';
+import { PW_RETURN_LIST_PATH, listReturnNavState, resolveBackToListHref } from '../lib/listReturnNav';
 import { isTierLockedVideo } from '../constants/lockedVideos';
 import { seoCleanTitle } from '../lib/seoTitle';
 import { formatTimeAgo } from '../lib/time';
 import { PageHero } from '../components/layout/PageHero';
 import { buildVideoId, sendTelemetry } from '../lib/telemetry';
 
-const VAULT_FOLDERS = ['free', 'basic', 'premium', 'ultimate', 'elite'];
+/** Must match lib/r2VaultLayout VAULT_FOLDERS so stats/rename identity matches /api/list keys. */
+const VAULT_FOLDERS = ['free', 'previews', 'basic', 'premium', 'ultimate', 'elite'];
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
 
 function videoQuery(folder, name, subfolder, vault) {
@@ -38,6 +40,7 @@ export function VideoPage() {
   const [relatedCols, setRelatedCols] = useState(4);
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAuthed, tier, loading: authLoading } = useAuth();
   const { openAuth, openReferral } = useShell();
 
@@ -105,6 +108,12 @@ export function VideoPage() {
     const base = folderToCleanUrl(folder);
     return subfolder ? base + (base.includes('?') ? '&' : '?') + 'subfolder=' + encodeURIComponent(subfolder) : base;
   }, [folder, subfolder]);
+
+  const backToListHref = resolveBackToListHref(location.state, folderHref);
+  const forwardListState =
+    typeof location.state?.[PW_RETURN_LIST_PATH] === 'string'
+      ? listReturnNavState(location.state[PW_RETURN_LIST_PATH])
+      : undefined;
 
   useEffect(() => {
     if (!folder || !name || !cleanTitle) return;
@@ -311,7 +320,7 @@ export function VideoPage() {
   return (
     <div className="page-content video-page">
       <header className="video-page-toolbar" aria-label="Video navigation">
-        <Link to={folderHref} className="video-page-back-btn">
+        <Link to={backToListHref} className="video-page-back-btn">
           <svg
             className="video-page-back-btn__icon"
             viewBox="0 0 24 24"
@@ -473,7 +482,7 @@ export function VideoPage() {
             type="button"
             className="video-page-category"
             style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', font: 'inherit' }}
-            onClick={() => navigate(folderHref)}
+            onClick={() => navigate(backToListHref)}
           >
             {folder + (subfolder ? ' — ' + subfolder : '')}
           </button>
@@ -594,6 +603,7 @@ export function VideoPage() {
               <Link
                 key={(f.videoKey || '') + f.name + (f.subfolder || '') + (f.vault || '')}
                 to={href}
+                state={forwardListState}
                 className="video-page-related-card"
                 onClick={(e) => {
                   sendTelemetry('click', {
@@ -607,7 +617,7 @@ export function VideoPage() {
                   });
                   if (typeof window._pyPaywallCheck === 'function') {
                     e.preventDefault();
-                    window._pyPaywallCheck().then(() => navigate(href));
+                    window._pyPaywallCheck().then(() => navigate(href, { state: forwardListState }));
                   }
                 }}
               >

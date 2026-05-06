@@ -42,6 +42,14 @@ export function sortFiles(files, sortBy) {
     });
   } else if (sortBy === 'longest') {
     rest.sort((a, b) => (b.duration || 0) - (a.duration || 0));
+  } else if (sortBy === 'shortest') {
+    rest.sort((a, b) => {
+      const da = Number(a.duration);
+      const db = Number(b.duration);
+      const na = Number.isFinite(da) && da > 0 ? da : Number.MAX_SAFE_INTEGER;
+      const nb = Number.isFinite(db) && db > 0 ? db : Number.MAX_SAFE_INTEGER;
+      return na - nb;
+    });
   }
   return pinned.concat(rest);
 }

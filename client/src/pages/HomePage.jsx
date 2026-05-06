@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { fetchRandomVideos, fetchFolderCounts } from '../api/client';
 import { PornwrldHero } from '../components/home/PornwrldHero';
 import { HeroReferralGoal } from '../components/home/HeroReferralGoal';
@@ -32,6 +33,8 @@ function HomeReferralLeaderRow() {
 }
 
 export function HomePage() {
+  const location = useLocation();
+  const listReturnPath = `${location.pathname}${location.search}`;
   const [items, setItems] = useState([]);
   const [counts, setCounts] = useState(null);
   const [err, setErr] = useState(null);
@@ -76,11 +79,30 @@ export function HomePage() {
           limit: String(PAGE_SIZE),
           page: '0',
           sort: 'top_random',
-          topPercent: '5',
+          topPercent: '15',
         });
         if (cancelled) return;
         if (vRes.ok && vRes.data?.files) {
-          const files = Array.isArray(vRes.data.files) ? vRes.data.files : [];
+          let files = Array.isArray(vRes.data.files) ? vRes.data.files : [];
+          if (files.length > 0 && files.length < 12 && !cancelled) {
+            const pad = await fetchRandomVideos({
+              limit: String(PAGE_SIZE),
+              page: '0',
+              sort: 'random',
+            });
+            if (!cancelled && pad.ok && Array.isArray(pad.data?.files)) {
+              const seen = new Set(
+                files.map((f) => f.videoKey || f.videoId || `${f.folder || ''}/${f.subfolder || ''}/${f.name || ''}`),
+              );
+              for (const f of pad.data.files) {
+                if (files.length >= PAGE_SIZE) break;
+                const k = f.videoKey || f.videoId || `${f.folder || ''}/${f.subfolder || ''}/${f.name || ''}`;
+                if (!k || seen.has(k)) continue;
+                seen.add(k);
+                files.push(f);
+              }
+            }
+          }
           setItems(files);
           files.slice(0, 20).forEach((f, idx) => {
             sendTelemetry('impression', {
@@ -139,7 +161,7 @@ export function HomePage() {
               scrollClassName="pornwrld-video-rail-scroll"
             >
               {items.map((item, i) => (
-                <HomepageMediaTile key={(item.videoKey || item.name) + String(i)} file={item} badgeType="" />
+                <HomepageMediaTile key={(item.videoKey || item.name) + String(i)} file={item} badgeType="" listReturnPath={listReturnPath} />
               ))}
             </HorizontalScrollRail>
             {items.length === 0 ? (

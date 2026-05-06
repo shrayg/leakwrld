@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { fetchList, fetchPreviewList, fetchRecommendations } from '../api/client';
+import { fetchListWithRetry, fetchPreviewList, fetchRecommendations } from '../api/client';
 import { HomepageMediaTile } from '../components/home/HomepageMediaTile';
 import { videoCardStableKey } from '../components/media/VideoCard';
 import { useAuth } from '../hooks/useAuth';
@@ -11,13 +11,18 @@ import { PageHero } from '../components/layout/PageHero';
 import { buildVideoId, sendTelemetry } from '../lib/telemetry';
 import { useResponsiveGridPageSize } from '../hooks/useResponsiveGridPageSize';
 
+function readFolderListPage(sp) {
+  const n = parseInt(String(sp.get('page') || '1'), 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
 export function FolderPage({ seoFolder: propFolder }) {
-  const [params] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const { loading: authLoading } = useAuth();
 
-  const folderFromQuery = params.get('folder') || '';
-  const subfolderFromQuery = params.get('subfolder') || '';
+  const folderFromQuery = searchParams.get('folder') || '';
+  const subfolderFromQuery = searchParams.get('subfolder') || '';
   const folder = propFolder || folderFromQuery || cleanPathToFolder(location.pathname) || '';
 
   const displayHeading = subfolderFromQuery
@@ -31,14 +36,33 @@ export function FolderPage({ seoFolder: propFolder }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [sortKey, setSortKey] = useState('recent');
-  const [page, setPage] = useState(1);
+  const [page, setPageState] = useState(() => readFolderListPage(searchParams));
   const [gotoPageInput, setGotoPageInput] = useState('');
   const [subfolderFilter, setSubfolderFilter] = useState('all');
   const [videoSearch, setVideoSearch] = useState('');
   const [recoRankMap, setRecoRankMap] = useState({});
   const pageSize = useResponsiveGridPageSize(6);
+  const loadSeqRef = useRef(0);
+  const folderRouteKeyRef = useRef(null);
 
   const docMeta = FOLDER_DOC_META[folder];
+
+  useEffect(() => {
+    setPageState(readFolderListPage(searchParams));
+  }, [searchParams]);
+
+  useEffect(() => {
+    const key = `${folder}|${subfolderFromQuery}`;
+    if (folderRouteKeyRef.current != null && folderRouteKeyRef.current !== key) {
+      setSearchParams((prev) => {
+        const out = new URLSearchParams(prev);
+        out.delete('page');
+        return out;
+      }, { replace: true });
+      setPageState(1);
+    }
+    folderRouteKeyRef.current = key;
+  }, [folder, subfolderFromQuery, setSearchParams]);
 
   useEffect(() => {
     if (!folder) return;
@@ -55,13 +79,16 @@ export function FolderPage({ seoFolder: propFolder }) {
 
   const load = useCallback(async () => {
     if (!folder) return;
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setErr(null);
     try {
-      const { ok, data, status } = await fetchList(folder, subfolderFromQuery || undefined);
+      const { ok, data, status } = await fetchListWithRetry(folder, subfolderFromQuery || undefined);
+      if (seq !== loadSeqRef.current) return;
       if (!ok) {
         if (status === 403 || status === 401) {
           const prev = await fetchPreviewList(folder);
+          if (seq !== loadSeqRef.current) return;
           if (prev.ok && prev.data?.files?.length) {
             let pfiles = dedupeFiles(prev.data.files);
             pfiles = sortFiles(pfiles, 'recent');
@@ -72,7 +99,6 @@ export function FolderPage({ seoFolder: propFolder }) {
           } else {
             setErr('empty');
           }
-          setLoading(false);
           return;
         }
         throw new Error('list failed');
@@ -82,13 +108,12 @@ export function FolderPage({ seoFolder: propFolder }) {
       setAllFiles(deduped);
       setSubfoldersFromApi(data.subfolders && Array.isArray(data.subfolders) ? data.subfolders : null);
       setPreviewMode(false);
-      setPage(1);
       setSubfolderFilter('all');
       setErr(null);
     } catch (e) {
-      setErr(String(e));
+      if (seq === loadSeqRef.current) setErr(String(e));
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [folder, subfolderFromQuery]);
 
@@ -161,6 +186,27 @@ export function FolderPage({ seoFolder: propFolder }) {
     });
   }, [allFiles, sortKey, subfolderFilter, videoSearch, recoRankMap, folder]);
 
+  const listReturnPath = `${location.pathname}${location.search}`;
+
+  const commitFolderPage = useCallback(
+    (nextPage) => {
+      if (previewMode) {
+        setPageState(Math.max(1, nextPage));
+        return;
+      }
+      const tp = Math.max(1, Math.ceil(filteredFiles.length / pageSize));
+      const clamped = Math.max(1, Math.min(tp, nextPage));
+      setPageState(clamped);
+      setSearchParams((prev) => {
+        const out = new URLSearchParams(prev);
+        if (clamped <= 1) out.delete('page');
+        else out.set('page', String(clamped));
+        return out;
+      }, { replace: true });
+    },
+    [filteredFiles.length, pageSize, previewMode, setSearchParams],
+  );
+
   useEffect(() => {
     if (previewMode) {
       setItems(filteredFiles);
@@ -194,7 +240,7 @@ export function FolderPage({ seoFolder: propFolder }) {
     const n = parseInt(gotoPageInput, 10);
     if (!Number.isFinite(n)) return;
     const clamped = Math.max(1, Math.min(totalPages, n));
-    setPage(clamped);
+    commitFolderPage(clamped);
     setGotoPageInput('');
   }
 
@@ -246,7 +292,13 @@ export function FolderPage({ seoFolder: propFolder }) {
       <div className="folder-toolbar">
         <div className="folder-sort-bar" id="folder-sort-bar">
           <label>Sort by:</label>
-          {['recent', 'likes', 'longest'].map((k) => (
+          {[
+            { key: 'recent', label: 'Recent' },
+            { key: 'views', label: 'Most viewed' },
+            { key: 'likes', label: 'Most liked' },
+            { key: 'longest', label: 'Longest' },
+            { key: 'shortest', label: 'Shortest' },
+          ].map(({ key: k, label }) => (
             <button
               key={k}
               type="button"
@@ -254,10 +306,10 @@ export function FolderPage({ seoFolder: propFolder }) {
               data-sort={k}
               onClick={() => {
                 setSortKey(k);
-                setPage(1);
+                commitFolderPage(1);
               }}
             >
-              {k === 'recent' ? 'Recent' : k === 'likes' ? 'Most Liked' : 'Longest'}
+              {label}
             </button>
           ))}
         </div>
@@ -271,7 +323,7 @@ export function FolderPage({ seoFolder: propFolder }) {
             value={videoSearch}
             onChange={(e) => {
               setVideoSearch(e.target.value);
-              setPage(1);
+              commitFolderPage(1);
             }}
           />
         </div>
@@ -285,7 +337,7 @@ export function FolderPage({ seoFolder: propFolder }) {
             value={subfolderFilter}
             onChange={(e) => {
               setSubfolderFilter(e.target.value);
-              setPage(1);
+              commitFolderPage(1);
             }}
           >
             <option value="all">All</option>
@@ -327,13 +379,13 @@ export function FolderPage({ seoFolder: propFolder }) {
         <>
           <div className="media-grid folder-media-grid">
             {items.map((item, idx) => (
-              <HomepageMediaTile key={videoCardStableKey(item, idx)} file={item} badgeType="" />
+              <HomepageMediaTile key={videoCardStableKey(item, idx)} file={item} badgeType="" listReturnPath={listReturnPath} />
             ))}
           </div>
 
           {!previewMode && totalPages > 1 && (
             <div className="pagination-controls" id="folder-pagination">
-              <button type="button" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              <button type="button" disabled={page <= 1} onClick={() => commitFolderPage(page - 1)}>
                 Back
               </button>
               {pageButtons.map((pg) => (
@@ -341,7 +393,7 @@ export function FolderPage({ seoFolder: propFolder }) {
                   key={pg}
                   type="button"
                   className={pg === page ? 'active' : ''}
-                  onClick={() => setPage(pg)}
+                  onClick={() => commitFolderPage(pg)}
                 >
                   {pg}
                 </button>
@@ -349,7 +401,7 @@ export function FolderPage({ seoFolder: propFolder }) {
               <button
                 type="button"
                 disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => commitFolderPage(page + 1)}
               >
                 Next
               </button>

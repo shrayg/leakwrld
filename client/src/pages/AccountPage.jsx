@@ -5,6 +5,7 @@ import { AccountReferralPanel } from '../components/account/AccountReferralPanel
 import { disconnectProvider, fetchAccount, fetchConnectUrl, updateAccount, uploadUserAssets } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { useShell } from '../context/ShellContext';
+import { folderDisplayName } from '../lib/cleanUrls';
 import { UserAvatar } from '../components/ui/UserAvatar';
 import { PwNavTabRow } from '../components/ui/PwNavTabRow';
 
@@ -28,7 +29,7 @@ const CONTENT_TAB_LABELS = {
 const USERASSET_CATEGORIES = [
   'NSFW Straight',
   'Alt and Goth',
-  'Petitie',
+  'Petite',
   'Teen (18+ only)',
   'MILF',
   'Asian',
@@ -392,7 +393,11 @@ export function AccountPage() {
                   <label>
                     Category
                     <select value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)}>
-                      {USERASSET_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {USERASSET_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {folderDisplayName(c)}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   {uploadCategory === 'Omegle' ? (

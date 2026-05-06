@@ -3,22 +3,57 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { fetchRandomVideos } from '../../api/client';
 import { ProfileMenu } from '../auth/ProfileMenu';
 
+/** `folder` matches API/library folder names on `/video` and `/folder` for nav context. */
 const CATEGORY_ITEMS = [
-  { label: 'NSFW Straight', to: '/nsfw-straight' },
-  { label: 'Alt and Goth', to: '/alt-and-goth' },
-  { label: 'Petitie', to: '/petitie' },
-  { label: 'Teen (18+ only)', to: '/teen-18-plus' },
-  { label: 'MILF', to: '/milf' },
-  { label: 'Asian', to: '/asian' },
-  { label: 'Ebony', to: '/ebony' },
-  { label: 'Feet', to: '/feet' },
-  { label: 'Hentai', to: '/hentai' },
-  { label: 'Lesbian', to: '/yuri' },
-  { label: 'Yaoi', to: '/yaoi' },
-  { label: 'Nip Slips', to: '/nip-slips' },
-  { label: 'Omegle', to: '/omegle' },
-  { label: 'OnlyFans Leaks', to: '/of-leaks', premium: true },
+  { label: 'NSFW Straight', to: '/nsfw-straight', folder: 'NSFW Straight' },
+  { label: 'Alt and Goth', to: '/alt-and-goth', folder: 'Alt and Goth' },
+  { label: 'Petite', to: '/petite', folder: 'Petite' },
+  { label: 'Teen (18+ only)', to: '/teen-18-plus', folder: 'Teen (18+ only)' },
+  { label: 'MILF', to: '/milf', folder: 'MILF' },
+  { label: 'Asian', to: '/asian', folder: 'Asian' },
+  { label: 'Ebony', to: '/ebony', folder: 'Ebony' },
+  { label: 'Feet', to: '/feet', folder: 'Feet' },
+  { label: 'Hentai/Cosplay', to: '/hentai', folder: 'Hentai' },
+  { label: 'Lesbian', to: '/yuri', folder: 'Yuri' },
+  { label: 'Yaoi', to: '/yaoi', folder: 'Yaoi' },
+  { label: 'Nip Slips', to: '/nip-slips', folder: 'Nip Slips' },
+  { label: 'Omegle', to: '/omegle', folder: 'Omegle' },
+  { label: 'OnlyFans Leaks', to: '/of-leaks', premium: true, folder: 'OF Leaks' },
 ];
+
+const CATEGORY_FOLDER_SET = new Set(CATEGORY_ITEMS.map((c) => c.folder).filter(Boolean));
+const CATEGORY_PATH_SET = new Set(CATEGORY_ITEMS.map((c) => c.to));
+
+/**
+ * First segment of a two-part path that is a known single-route page (not /:categorySlug/:videoSlug).
+ * Anything else with two segments is treated as a clean category video URL.
+ */
+const SINGLE_SEGMENT_APP_ROUTES = new Set([
+  'shorts',
+  'search',
+  'categories',
+  'account',
+  'custom-requests',
+  'blog',
+  'about',
+  'faqs',
+  'privacy',
+  'terms',
+  'help',
+  'changelog',
+  'brand',
+  'folder',
+  'video',
+  'onlyfans',
+  'recommended',
+  'popular',
+  'newly-added',
+  'random-video',
+  'new-releases',
+  'checkout',
+  'admin',
+  'upload',
+]);
 
 const VIDEO_DROPDOWN = [
   { label: 'Recommended', to: '/recommended' },
@@ -37,24 +72,67 @@ const NAV_ITEMS = [
   { key: 'premium', label: 'Premium', to: '/checkout', premium: true },
 ];
 
-function isItemActive(pathname, item) {
-  if (item.to === '/') return pathname === '/' || pathname === '/index.html';
-  if (item.to) return pathname === item.to || pathname.startsWith(item.to + '/');
-  if (item.dropdown === 'videos') {
-    return (
-      pathname === '/recommended' ||
-      pathname === '/popular' ||
-      pathname === '/newly-added' ||
-      pathname === '/new-releases' ||
-      pathname === '/onlyfans'
-    );
+function normalizeNavPath(pathname) {
+  if (!pathname) return '/';
+  let p = pathname.replace(/\/+/g, '/');
+  if (p !== '/' && p.endsWith('/')) p = p.slice(0, -1);
+  if (p.endsWith('.html')) {
+    const base = p.slice(0, -5);
+    if (base === '' || base === '/index') return '/';
+    p = base || '/';
   }
-  if (item.dropdown === 'categories') return pathname === '/categories' || CATEGORY_ITEMS.some((c) => pathname === c.to);
-  return false;
+  return p || '/';
+}
+
+/** Which primary nav tab should show active + glide for this URL. */
+function resolveNavActiveKey(pathname, search) {
+  const p = normalizeNavPath(pathname);
+  const rawQs = typeof search === 'string' ? search : '';
+  const qs = rawQs.startsWith('?') ? rawQs.slice(1) : rawQs;
+  const params = new URLSearchParams(qs);
+
+  if (p === '/checkout') return 'premium';
+  if (p === '/shorts') return 'shorts';
+  if (p === '/custom-requests') return 'custom';
+  if (p === '/') return 'home';
+
+  const segments = p.split('/').filter(Boolean);
+
+  // /:categorySlug/:videoSlug — watching a video from category SEO URLs
+  if (segments.length === 2 && !SINGLE_SEGMENT_APP_ROUTES.has(segments[0])) {
+    return 'categories';
+  }
+
+  if (p === '/categories' || CATEGORY_PATH_SET.has(p)) return 'categories';
+
+  if (p === '/folder') {
+    const folder = params.get('folder') || '';
+    if (folder && CATEGORY_FOLDER_SET.has(folder)) return 'categories';
+    return 'videos';
+  }
+
+  if (p === '/video') {
+    const folder = params.get('folder') || '';
+    if (folder && CATEGORY_FOLDER_SET.has(folder)) return 'categories';
+    return 'videos';
+  }
+
+  if (
+    p === '/recommended' ||
+    p === '/popular' ||
+    p === '/newly-added' ||
+    p === '/new-releases' ||
+    p === '/random-video' ||
+    p === '/onlyfans'
+  ) {
+    return 'videos';
+  }
+
+  return null;
 }
 
 export function TopNavModern({ menuOpen = false, onToggleMenu }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const [openDropdown, setOpenDropdown] = useState(null);
   const [busyRandom, setBusyRandom] = useState(false);
@@ -62,20 +140,17 @@ export function TopNavModern({ menuOpen = false, onToggleMenu }) {
   const itemRefs = useRef({});
   const [glide, setGlide] = useState({ opacity: 0, x: 0, y: 0, w: 0, h: 0 });
 
-  const activeKey = useMemo(() => {
-    const active = NAV_ITEMS.find((it) => isItemActive(pathname, it));
-    return active?.key ?? null;
-  }, [pathname]);
+  const routeActiveKey = useMemo(() => resolveNavActiveKey(pathname, search), [pathname, search]);
 
   const visualActiveKey = useMemo(() => {
     if (openDropdown === 'videos') return 'videos';
     if (openDropdown === 'categories') return 'categories';
-    return 'home';
-  }, [openDropdown]);
+    return routeActiveKey;
+  }, [openDropdown, routeActiveKey]);
 
   useLayoutEffect(() => {
     const navNode = navRef.current;
-    if (!navNode || !visualActiveKey) {
+    if (!navNode || visualActiveKey == null || visualActiveKey === '') {
       setGlide((prev) => ({ ...prev, opacity: 0 }));
       return;
     }

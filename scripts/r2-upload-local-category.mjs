@@ -10,6 +10,8 @@
  *
  * Usage:
  *   node scripts/r2-upload-local-category.mjs --local="C:\path\to\nsfwstraight" --category=nsfw-straight
+ *   Flat folder (all videos/images -> one vault), keeps nested paths under the vault:
+ *   node scripts/r2-upload-local-category.mjs --local="C:\path\to\legal-teens" --category=teen-18-plus --flat-vault=free
  *   node scripts/r2-upload-local-category.mjs ... --dry-run
  *
  * Loads .env from project root (same keys as server.js).
@@ -144,6 +146,7 @@ function contentTypeFor(fileName) {
 function remoteSegmentForLocalDir(name) {
   const n = String(name || '').trim().toLowerCase();
   if (n === 'free') return 'free/';
+  if (n === 'previews') return 'previews/';
   if (n === 'tier1' || n === 'tier 1') return 'tier 1/';
   if (n === 'tier2' || n === 'tier 2') return 'tier 2/';
   if (n === 'tier3' || n === 'tier 3') return 'tier 3/';
@@ -151,6 +154,19 @@ function remoteSegmentForLocalDir(name) {
   const vaults = new Set(['basic', 'premium', 'ultimate', 'elite']);
   if (vaults.has(n)) return `${n}/`;
   return null;
+}
+
+/** For --flat-vault=: segment under category matching server /api/list (no trailing slash). */
+function vaultKeySegmentFromFlatArg(raw) {
+  const n = String(raw || '').trim().toLowerCase();
+  if (!n) return '';
+  if (n === 'tier1' || n === 'tier_1') return 'tier 1';
+  if (n === 'tier2' || n === 'tier_2') return 'tier 2';
+  if (n === 'tier3' || n === 'tier_3') return 'tier 3';
+  if (/^tier [123]$/.test(n)) return n;
+  const vaults = new Set(['free', 'previews', 'basic', 'premium', 'ultimate', 'elite']);
+  if (vaults.has(n)) return n;
+  return '';
 }
 
 function argVal(name) {
@@ -163,6 +179,8 @@ async function main() {
   const category = (argVal('--category') || 'nsfw-straight').replace(/^\/+|\/+$/g, '');
   const dryRun = process.argv.includes('--dry-run');
   const skipExisting = process.argv.includes('--skip-existing');
+  const flatVaultRaw = argVal('--flat-vault');
+  const flatVaultSeg = vaultKeySegmentFromFlatArg(flatVaultRaw);
   const concurrency = Math.max(
     1,
     Math.min(16, parseInt(argVal('--concurrency') || '6', 10) || 6),
@@ -188,6 +206,17 @@ async function main() {
   console.log('Base R2 prefix:', basePrefix + '/');
   console.log('Local:', resolvedLocal);
   console.log('Dry run:', dryRun);
+  if (flatVaultRaw && !flatVaultSeg) {
+    console.error(
+      'Invalid --flat-vault= value:',
+      flatVaultRaw,
+      '(use free, previews, basic, premium, ultimate, elite, or tier1|tier2|tier3)',
+    );
+    process.exit(1);
+  }
+  if (flatVaultSeg) {
+    console.log('Flat mode: all media under local root ->', flatVaultSeg + '/');
+  }
   console.log('');
 
   const client = new S3Client({
@@ -197,16 +226,9 @@ async function main() {
   });
 
   const jobs = [];
-  const top = fs.readdirSync(resolvedLocal, { withFileTypes: true });
-  for (const d of top) {
-    if (!d.isDirectory()) continue;
-    const seg = remoteSegmentForLocalDir(d.name);
-    if (!seg) {
-      console.warn('Skip unknown subfolder:', d.name);
-      continue;
-    }
-    const dirPath = path.join(resolvedLocal, d.name);
-    const stack = [dirPath];
+
+  if (flatVaultSeg) {
+    const stack = [resolvedLocal];
     while (stack.length) {
       const cur = stack.pop();
       let entries;
@@ -223,10 +245,44 @@ async function main() {
           continue;
         }
         if (!ent.isFile() || !isAllowedMediaFile(ent.name)) continue;
-        const rel = path.relative(path.join(resolvedLocal, d.name), full);
+        const rel = path.relative(resolvedLocal, full);
         const posixRel = rel.split(path.sep).join('/');
-        const key = `${basePrefix}/${seg}${posixRel}`.replace(/\/+/g, '/');
+        const key = `${basePrefix}/${flatVaultSeg}/${posixRel}`.replace(/\/+/g, '/');
         jobs.push({ full, key, name: ent.name });
+      }
+    }
+  } else {
+    const top = fs.readdirSync(resolvedLocal, { withFileTypes: true });
+    for (const d of top) {
+      if (!d.isDirectory()) continue;
+      const seg = remoteSegmentForLocalDir(d.name);
+      if (!seg) {
+        console.warn('Skip unknown subfolder:', d.name);
+        continue;
+      }
+      const dirPath = path.join(resolvedLocal, d.name);
+      const stack = [dirPath];
+      while (stack.length) {
+        const cur = stack.pop();
+        let entries;
+        try {
+          entries = fs.readdirSync(cur, { withFileTypes: true });
+        } catch (e) {
+          console.warn('Cannot read:', cur, e.message);
+          continue;
+        }
+        for (const ent of entries) {
+          const full = path.join(cur, ent.name);
+          if (ent.isDirectory()) {
+            stack.push(full);
+            continue;
+          }
+          if (!ent.isFile() || !isAllowedMediaFile(ent.name)) continue;
+          const rel = path.relative(path.join(resolvedLocal, d.name), full);
+          const posixRel = rel.split(path.sep).join('/');
+          const key = `${basePrefix}/${seg}${posixRel}`.replace(/\/+/g, '/');
+          jobs.push({ full, key, name: ent.name });
+        }
       }
     }
   }
@@ -284,6 +340,11 @@ async function main() {
 
   console.log('');
   console.log('Done. uploaded:', uploaded, 'skipped:', skipped, 'failed:', failed);
+  if (!dryRun && uploaded > 0 && !failed) {
+    console.log(
+      '\nTip: Restart the Node server (or wait for /api/list cache TTL) so category + Shorts pick up new objects immediately.',
+    );
+  }
   if (failed) process.exit(1);
 }
 

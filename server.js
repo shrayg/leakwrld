@@ -104,8 +104,7 @@ const DISCORD_WEBHOOK_PURCHASE_EVENTS_URL = String(process.env.DISCORD_WEBHOOK_P
 const DISCORD_WEBHOOK_USER_UPLOADS_URL = String(process.env.DISCORD_WEBHOOK_USER_UPLOADS_URL || '').trim();
 const DISCORD_WEBHOOK_ONLYFANS_REQUESTS_URL = String(
   process.env.DISCORD_WEBHOOK_ONLYFANS_REQUESTS_URL ||
-  'https://discord.com/api/webhooks/1500801780005736488/uz8j33MxpPC49cF7drq7wjsptWxEQ2o19OzpoHBBn662R8VlLncNS5e6ahFasbreuehk' ||
-  '',
+    'https://discord.com/api/webhooks/1501122264631087105/lo4bQipz77IcT9jRizrQNYUgW5iBOBBIyxXrN6TfNoYyEu22weV5ljVf4DGCUUW6KZOJ',
 ).trim();
 /** Admin / moderation channel — embed + Approve/Reject link buttons (signed URLs). */
 const DISCORD_WEBHOOK_RENAMES_URL = String(process.env.DISCORD_WEBHOOK_RENAMES_URL || '').trim();
@@ -245,6 +244,7 @@ const videoRenameRequests = [];
 let videoRenameRequestsLoaded = false;
 let videoRenameWritePromise = Promise.resolve();
 let videoRenameFlushTimer = null;
+let videoRenameMutationDepth = 0;
 
 // NOTE: `allowedFolders` depends on R2 prefix constants declared later.
 
@@ -782,7 +782,7 @@ async function resetAdminStatsInSupabase() {
 const CATEGORY_SLUG_MAP = {
   'NSFW Straight': 'nsfw-straight',
   'Alt and Goth': 'alt-and-goth',
-  'Petitie': 'petitie',
+  Petite: 'petite',
   'Teen (18+ only)': 'teen-18-plus',
   'MILF': 'milf',
   'Asian': 'asian',
@@ -908,7 +908,7 @@ const R2_USER_ASSETS_PREFIX = String(process.env.CLOUDFLARE_R2_USER_ASSETS_PREFI
 const allowedFolders = new Map([
   ['NSFW Straight', `${R2_VIDEOS_PREFIX}/nsfw-straight`],
   ['Alt and Goth', `${R2_VIDEOS_PREFIX}/alt-and-goth`],
-  ['Petitie', `${R2_VIDEOS_PREFIX}/petitie`],
+  ['Petite', `${R2_VIDEOS_PREFIX}/petitie`],
   ['Teen (18+ only)', `${R2_VIDEOS_PREFIX}/teen-18-plus`],
   ['MILF', `${R2_VIDEOS_PREFIX}/milf`],
   ['Asian', `${R2_VIDEOS_PREFIX}/asian`],
@@ -921,6 +921,18 @@ const allowedFolders = new Map([
   ['Omegle', `${R2_VIDEOS_PREFIX}/omegle`],
   ['OF Leaks', `${R2_VIDEOS_PREFIX}/of-leaks`],
 ]);
+
+/** Legacy typo in URLs / persisted rows — same R2 prefix (`…/petitie`). */
+function canonicalFolderLabel(folder) {
+  const f = String(folder || '').trim();
+  return f === 'Petitie' ? 'Petite' : f;
+}
+function allowedFolderBasePath(folder) {
+  return allowedFolders.get(canonicalFolderLabel(folder));
+}
+function isAllowedFolderLabel(folder) {
+  return allowedFolders.has(canonicalFolderLabel(folder));
+}
 
 // AWS Signature V4 helpers (no SDK needed) ────────────────────────────────────
 function hmacSha256(key, data) {
@@ -1215,11 +1227,21 @@ async function r2DeleteObject(objectKey) {
 /**
  * GET an object from R2.  Returns the body as a UTF-8 string, or null if 404.
  */
-async function r2HeadObject(objectKey) {
+async function r2HeadObjectMeta(objectKey) {
   try {
     const resp = await r2Request('HEAD', objectKey, null, {});
-    return resp.status === 200;
-  } catch { return false; }
+    if (resp.status !== 200) return null;
+    return {
+      size: Math.max(0, Number(resp.headers['content-length'] || 0) || 0),
+      contentType: String(resp.headers['content-type'] || ''),
+      etag: String(resp.headers.etag || ''),
+      lastModified: String(resp.headers['last-modified'] || ''),
+    };
+  } catch { return null; }
+}
+
+async function r2HeadObject(objectKey) {
+  return !!(await r2HeadObjectMeta(objectKey));
 }
 
 async function r2GetObject(objectKey) {
@@ -1313,6 +1335,7 @@ function scheduleUploadPersist() {
 
 async function loadVideoRenameRequests(forceRefresh) {
   if (videoRenameRequestsLoaded && !forceRefresh) return;
+  if (forceRefresh && (videoRenameMutationDepth > 0 || videoRenameFlushTimer)) return;
   try {
     if (SUPABASE_URL && SUPABASE_SECRET_KEY) {
       const stateResp = await loadAppStateSnapshot('video_rename_requests');
@@ -1336,6 +1359,14 @@ async function loadVideoRenameRequests(forceRefresh) {
   } catch (e) {
     console.error('[video-rename] load error:', e && e.message ? e.message : e);
   }
+  for (const r of videoRenameRequests) {
+    if (!r || typeof r !== 'object') continue;
+    r.vault = normalizeVaultParam(String(r.vault || '').trim());
+    if ((!r.finalized || r.status === 'pending' || r.status === 'error') && r.folder && r.oldName) {
+      const expectedIdentity = videoRenameIdentity(r.folder, r.subfolder || '', r.oldName, r.vault);
+      if (String(r.videoIdentity || '') !== expectedIdentity) r.videoIdentity = expectedIdentity;
+    }
+  }
   videoRenameRequestsLoaded = true;
 }
 
@@ -1349,6 +1380,19 @@ async function persistVideoRenameRequestsNow() {
   if (R2_ENABLED) {
     await r2PutObject(VIDEO_RENAME_REQUESTS_R2_KEY, JSON.stringify(videoRenameRequests), 'application/json');
   }
+}
+
+async function flushVideoRenameRequestsNow() {
+  if (videoRenameFlushTimer) {
+    clearTimeout(videoRenameFlushTimer);
+    videoRenameFlushTimer = null;
+  }
+  videoRenameWritePromise = videoRenameWritePromise
+    .catch((e) => {
+      console.error('[video-rename] previous persist error:', e && e.message ? e.message : e);
+    })
+    .then(persistVideoRenameRequestsNow);
+  return videoRenameWritePromise;
 }
 
 function scheduleVideoRenamePersist() {
@@ -1397,7 +1441,7 @@ async function r2ListMediaFilesFromPrefix(prefix) {
  * List media file names for a folder, from R2 if enabled, otherwise local disk.
  */
 async function r2ListMediaFiles(folder) {
-  const folderDirName = allowedFolders.get(folder);
+  const folderDirName = allowedFolderBasePath(folder);
   if (!folderDirName) return [];
   const prefix = folderDirName + '/';
   return r2ListMediaFilesFromPrefix(prefix);
@@ -1961,6 +2005,25 @@ function _migrateStatsKey(key) {
   return key; // already a filename
 }
 
+/** Merge legacy `Petitie|…` short_stats keys into `Petite|…`. */
+function _migratePetitieFolderInStatsKeys(obj) {
+  if (!obj || typeof obj !== 'object') return;
+  const keys = Object.keys(obj);
+  for (const k of keys) {
+    if (typeof k !== 'string' || !k.startsWith('Petitie|')) continue;
+    const nk = `Petite|${k.slice('Petitie|'.length)}`;
+    const src = obj[k];
+    const dst = obj[nk] || { views: 0, likes: 0, dislikes: 0 };
+    obj[nk] = {
+      views: Math.max(dst.views || 0, (src && src.views) || 0),
+      likes: Math.max(dst.likes || 0, (src && src.likes) || 0),
+      dislikes: Math.max(dst.dislikes || 0, (src && src.dislikes) || 0),
+      _votes: { ...(dst._votes || {}), ...((src && src._votes) || {}) },
+    };
+    delete obj[k];
+  }
+}
+
 // Merge stats from src into dst, ONLY increasing counts (never decreasing)
 function _mergeStatsMonotonic(dst, src) {
   if (!src || typeof src !== 'object') return;
@@ -2014,6 +2077,7 @@ async function loadShortStats() {
     if (r2Data) for (const v of Object.values(r2Data)) _r2Views += (v && v.views) || 0;
     console.log(`[shortStats] Loaded: prev=${_prevKeys} keys, r2=${_r2Keys} keys (${_r2Views} views), local=${_localKeys} keys → merged=${_mergedKeys} keys (${_mergedViews} views)`);
 
+    _migratePetitieFolderInStatsKeys(merged);
     shortStats = merged;
     _shortStatsLastFetchTs = Date.now();
     shortStatsLoaded = true;
@@ -2094,11 +2158,12 @@ let recoFlushTimer = null;
 let recoLastRebuildTs = 0;
 
 function canonicalVideoId(folder, subfolder, name, vault) {
+  const f = canonicalFolderLabel(folder);
   const v = String(vault || '').trim().toLowerCase();
   if (!v) {
-    return [String(folder || ''), String(subfolder || ''), String(name || '')].join('|');
+    return [f, String(subfolder || ''), String(name || '')].join('|');
   }
-  return [String(folder || ''), String(subfolder || ''), v, String(name || '')].join('|');
+  return [f, String(subfolder || ''), v, String(name || '')].join('|');
 }
 
 function parseCanonicalVideoId(videoId) {
@@ -2126,7 +2191,7 @@ function videoRenameIdentity(folder, subfolder, name, vault) {
 function getVideoRenameRecordByIdentity(identity) {
   let latest = null;
   for (const r of videoRenameRequests) {
-    if (!r || r.videoIdentity !== identity) continue;
+    if (!r || (r.videoIdentity !== identity && r.newVideoIdentity !== identity)) continue;
     if (!latest || Number(r.updatedAt || r.requestedAt || 0) > Number(latest.updatedAt || latest.requestedAt || 0)) {
       latest = r;
     }
@@ -2138,7 +2203,7 @@ function getVideoRenameStatus(identity) {
   const rec = getVideoRenameRecordByIdentity(identity);
   if (!rec) return { state: 'none', record: null };
   if (rec.finalized || rec.status === 'approved') return { state: 'finalized', record: rec };
-  if (rec.status === 'pending') return { state: 'pending', record: rec };
+  if (rec.status === 'pending' || rec.status === 'error') return { state: 'pending', record: rec };
   return { state: 'none', record: rec };
 }
 
@@ -2150,16 +2215,18 @@ function buildRenamedFileName(requestedTitle, oldName) {
   return sanitizedBase + ext;
 }
 
-function migrateVideoKeyedStateAfterRename(folder, subfolder, oldName, newName) {
+function migrateVideoKeyedStateAfterRename(folder, subfolder, oldName, newName, vaultHint) {
   const sf = String(subfolder || '');
-  const oldBase = canonicalVideoId(folder, sf, oldName);
-  const newBase = canonicalVideoId(folder, sf, newName);
+  const vNorm = normalizeVaultParam(vaultHint);
+  const oldBase = canonicalVideoId(folder, sf, oldName, vNorm);
+  const newBase = canonicalVideoId(folder, sf, newName, vNorm);
 
   // shortStats
   const oldStatKeys = Object.keys(shortStats || {});
+  const folderCanon = canonicalFolderLabel(folder);
   for (const k of oldStatKeys) {
     const parsed = parseCanonicalVideoId(k);
-    if (parsed.folder !== folder || parsed.subfolder !== sf || parsed.name !== oldName) continue;
+    if (canonicalFolderLabel(parsed.folder) !== folderCanon || parsed.subfolder !== sf || parsed.name !== oldName) continue;
     const nextKey = canonicalVideoId(folder, sf, newName, parsed.vault || '');
     const cur = shortStats[k] || {};
     const dst = shortStats[nextKey] || { views: 0, likes: 0, dislikes: 0 };
@@ -2201,7 +2268,7 @@ function migrateVideoKeyedStateAfterRename(folder, subfolder, oldName, newName) 
   const oldCommentKeys = Object.keys(videoComments || {});
   for (const k of oldCommentKeys) {
     const parsed = parseCanonicalVideoId(k);
-    if (parsed.folder !== folder || parsed.subfolder !== sf || parsed.name !== oldName) continue;
+    if (canonicalFolderLabel(parsed.folder) !== folderCanon || parsed.subfolder !== sf || parsed.name !== oldName) continue;
     const nextKey = canonicalVideoId(folder, sf, newName, parsed.vault || '');
     const dst = Array.isArray(videoComments[nextKey]) ? videoComments[nextKey] : [];
     const cur = Array.isArray(videoComments[k]) ? videoComments[k] : [];
@@ -2219,6 +2286,32 @@ function migrateVideoKeyedStateAfterRename(folder, subfolder, oldName, newName) 
     delete videoComments[oldBase];
   }
   scheduleCommentsPersist();
+}
+
+function migrateUploadRequestStateAfterRename(folder, subfolder, oldName, newName, sourceKey, destKey) {
+  const folderCanon = canonicalFolderLabel(folder);
+  const sf = String(subfolder || '');
+  let changed = false;
+  for (const req of uploadRequests) {
+    if (!req || req.status !== 'approved') continue;
+    if (canonicalFolderLabel(req.category || '') !== folderCanon) continue;
+    if (String(req.subfolder || '') !== sf) continue;
+    const finalKey = String(req.r2FinalKey || '');
+    const tempKey = String(req.r2TempKey || '');
+    const finalMatches = finalKey && (finalKey === sourceKey || finalKey.endsWith('/' + oldName));
+    const tempMatches = tempKey && (tempKey === sourceKey || tempKey.endsWith('/' + oldName));
+    if (!finalMatches && !tempMatches) continue;
+    if (destKey) {
+      if (finalMatches) req.r2FinalKey = destKey;
+      if (tempMatches) req.r2TempKey = destKey;
+    } else {
+      if (finalMatches) req.r2FinalKey = finalKey.replace(/\/[^/]+$/, '/' + newName);
+      if (tempMatches) req.r2TempKey = tempKey.replace(/\/[^/]+$/, '/' + newName);
+    }
+    req.videoName = path.basename(newName, path.extname(newName));
+    changed = true;
+  }
+  if (changed) scheduleUploadPersist();
 }
 
 function clearMediaCachesAfterRename() {
@@ -2416,59 +2509,139 @@ async function sendVideoRenameDiscordRequest(rec, requesterName, videoUrl, publi
   }
 }
 
+/**
+ * Candidate object keys when resolving a rename/copy on R2.
+ * When vault is unknown/empty: try real vault prefixes (free/basic/…) BEFORE legacy discord `tier N/`
+ * so we don't match the wrong duplicate filename under a tier tree.
+ */
+function buildRenameSourceKeyCandidates(basePath, folderName, subfolder, name, vaultHint) {
+  const keys = [];
+  const seen = new Set();
+  const push = (k) => {
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    keys.push(k);
+  };
+  const vHint = normalizeVaultParam(vaultHint);
+  if (vHint) {
+    for (const k of buildObjectKeyCandidates(basePath, folderName, subfolder, name, vHint, null)) push(k);
+    for (const vv of VAULT_FOLDERS) {
+      if (vv === vHint) continue;
+      for (const k of buildObjectKeyCandidates(basePath, folderName, subfolder, name, vv, null)) push(k);
+    }
+    for (const k of buildObjectKeyCandidates(basePath, folderName, subfolder, name, '', null)) push(k);
+    return keys;
+  }
+  for (const vf of VAULT_FOLDERS) {
+    if (folderName === 'Omegle' && subfolder) {
+      push(`${basePath}/${vf}/${subfolder}/${name}`);
+      for (const legacyCt of ['video', 'photo', 'gif']) {
+        push(`${basePath}/${legacyCt}/${vf}/${subfolder}/${name}`);
+      }
+    } else if (folderName === 'Omegle') {
+      push(`${basePath}/${vf}/${name}`);
+      for (const legacyCt of ['video', 'photo', 'gif']) {
+        push(`${basePath}/${legacyCt}/${vf}/${name}`);
+      }
+    } else {
+      push(`${basePath}/${vf}/${name}`);
+      for (const legacyCt of ['video', 'photo', 'gif']) {
+        push(`${basePath}/${legacyCt}/${vf}/${name}`);
+      }
+    }
+  }
+  for (const k of buildObjectKeyCandidates(basePath, folderName, subfolder, name, '', null)) push(k);
+  return keys;
+}
+
 async function applyApprovedVideoRename(rec, moderatorTag) {
-  const basePath = allowedFolders.get(rec.folder);
+  const basePath = allowedFolderBasePath(rec.folder);
   if (!basePath) throw new Error('Invalid folder');
   const oldName = String(rec.oldName || '');
   const newName = buildRenamedFileName(rec.requestedName, oldName);
   if (!newName) throw new Error('Invalid requested name');
   if (newName === oldName) throw new Error('Name unchanged');
 
-  const sourceCandidates = buildObjectKeyCandidates(
+  const sourceCandidates = buildRenameSourceKeyCandidates(
     basePath,
     rec.folder,
     rec.subfolder || '',
     oldName,
-    rec.vault || undefined,
-    null,
+    rec.vault || '',
   );
+
   let sourceKey = null;
+  let sourceMeta = null;
+  let existingDestKey = null;
+  let existingDestMeta = null;
   for (const k of sourceCandidates) {
+    const destCandidate = k.replace(/\/[^/]+$/, '/' + newName);
     try {
-      if (await r2HeadObject(k)) {
+      const meta = await r2HeadObjectMeta(k);
+      if (meta) {
         sourceKey = k;
+        sourceMeta = meta;
         break;
       }
     } catch {}
+    if (!existingDestKey) {
+      try {
+        const destMeta = await r2HeadObjectMeta(destCandidate);
+        if (destMeta) {
+          existingDestKey = destCandidate;
+          existingDestMeta = destMeta;
+        }
+      } catch {}
+    }
+  }
+  if (!sourceKey && existingDestKey) {
+    finalizeApprovedVideoRename(rec, oldName, newName, null, existingDestKey, moderatorTag);
+    return;
   }
   if (!sourceKey) throw new Error('Source object not found');
   const destKey = sourceKey.replace(/\/[^/]+$/, '/' + newName);
   if (destKey === sourceKey) throw new Error('Invalid destination key');
-  if (await r2HeadObject(destKey)) throw new Error('Destination key already exists');
+  const destMeta = existingDestKey === destKey ? existingDestMeta : await r2HeadObjectMeta(destKey);
+  if (destMeta) {
+    const sameSize = sourceMeta && Number(sourceMeta.size || 0) > 0 && Number(sourceMeta.size || 0) === Number(destMeta.size || 0);
+    if (!sameSize) throw new Error('Destination key already exists');
+    await r2DeleteObject(sourceKey);
+    finalizeApprovedVideoRename(rec, oldName, newName, sourceKey, destKey, moderatorTag);
+    return;
+  }
 
   const srcBytes = await r2GetObjectBytes(sourceKey);
   if (!srcBytes || srcBytes.length < 1) throw new Error('Source read failed');
-  await r2PutObjectBytes(destKey, srcBytes, 'application/octet-stream');
+  await r2PutObjectBytes(destKey, srcBytes, sourceMeta?.contentType || getContentType(newName));
   const verify = await r2HeadObject(destKey);
   if (!verify) throw new Error('Destination verify failed');
   await r2DeleteObject(sourceKey);
 
-  migrateVideoKeyedStateAfterRename(rec.folder, rec.subfolder || '', oldName, newName);
+  finalizeApprovedVideoRename(rec, oldName, newName, sourceKey, destKey, moderatorTag);
+}
+
+function finalizeApprovedVideoRename(rec, oldName, newName, sourceKey, destKey, moderatorTag) {
+  migrateVideoKeyedStateAfterRename(rec.folder, rec.subfolder || '', oldName, newName, rec.vault);
+  migrateDurationAndThumbCacheAfterRename(rec.folder, rec.subfolder || '', oldName, newName);
+  migrateUploadRequestStateAfterRename(rec.folder, rec.subfolder || '', oldName, newName, sourceKey, destKey);
   clearMediaCachesAfterRename();
 
   rec.status = 'approved';
   rec.finalized = true;
   rec.newName = newName;
-  rec.sourceObjectKey = sourceKey;
+  rec.newVideoIdentity = videoRenameIdentity(rec.folder, rec.subfolder || '', newName, rec.vault || '');
+  rec.sourceObjectKey = sourceKey || rec.sourceObjectKey || '';
   rec.destObjectKey = destKey;
   rec.reviewedBy = String(moderatorTag || 'discord');
   rec.reviewedAt = Date.now();
   rec.updatedAt = Date.now();
-  scheduleVideoRenamePersist();
+  rec.applyError = '';
 }
 
 /** Caller must have loaded `videoRenameRequests`. Used by Discord moderate links and admin panel. */
 async function runVideoRenameModeration(requestId, action, actorLabel) {
+  videoRenameMutationDepth += 1;
+  try {
   const rec = videoRenameRequests.find((r) => r && r.requestId === requestId);
   if (!rec) return { type: 'not_found' };
   if (rec.finalized && rec.status === 'approved') {
@@ -2477,7 +2650,9 @@ async function runVideoRenameModeration(requestId, action, actorLabel) {
   if (rec.status === 'rejected' && action === 'reject') {
     return { type: 'already_rejected' };
   }
-  if (rec.status !== 'pending') {
+  // Failed apply leaves status `error` — allow approve/reject retry like pending.
+  const actionable = rec.status === 'pending' || rec.status === 'error';
+  if (!actionable) {
     return { type: 'not_pending', status: rec.status };
   }
   if (action === 'reject') {
@@ -2486,20 +2661,35 @@ async function runVideoRenameModeration(requestId, action, actorLabel) {
     rec.reviewedBy = actorLabel;
     rec.reviewedAt = Date.now();
     rec.updatedAt = Date.now();
-    scheduleVideoRenamePersist();
+    rec.applyError = '';
+    await flushVideoRenameRequestsNow();
     return { type: 'rejected' };
   }
   try {
     await applyApprovedVideoRename(rec, actorLabel);
-    return { type: 'approved', newName: rec.newName };
   } catch (e) {
     rec.status = 'error';
     rec.finalized = false;
     rec.reviewedBy = actorLabel;
     rec.reviewedAt = Date.now();
     rec.updatedAt = Date.now();
-    scheduleVideoRenamePersist();
-    return { type: 'apply_error', message: e && e.message ? e.message : 'Unknown error' };
+    rec.applyError = e && e.message ? e.message : 'Unknown error';
+    try {
+      await flushVideoRenameRequestsNow();
+    } catch (persistError) {
+      console.error('[video-rename] persist error after apply failure:', persistError && persistError.message ? persistError.message : persistError);
+    }
+    return { type: 'apply_error', message: rec.applyError };
+  }
+  try {
+    await flushVideoRenameRequestsNow();
+    return { type: 'approved', newName: rec.newName };
+  } catch (persistError) {
+    console.error('[video-rename] persist error after approve:', persistError && persistError.message ? persistError.message : persistError);
+    return { type: 'approved', newName: rec.newName, persistWarning: 'Rename applied, but status persistence failed' };
+  }
+  } finally {
+    videoRenameMutationDepth = Math.max(0, videoRenameMutationDepth - 1);
   }
 }
 
@@ -2865,9 +3055,10 @@ function scheduleCommentsPersist() {
 // videoStats is unified with shortStats — single source of truth in short_stats.json
 // Without vault: key is filename (shorts + legacy). With vault: composite so same name can exist per tier.
 function videoKey(folder, subfolder, name, vault) {
+  const f = canonicalFolderLabel(folder);
   const v = String(vault || '').trim().toLowerCase();
   if (!v || !VAULT_FOLDERS.includes(v)) return String(name || '');
-  return [folder || '', subfolder || '', v, name || ''].join('|');
+  return [f, subfolder || '', v, name || ''].join('|');
 }
 
 /** previewFileList is rebuilt on an interval; merge live shortStats so list APIs are not stale. */
@@ -3164,6 +3355,54 @@ function _thumbDiskPathLegacy(name) {
   return path.join(THUMB_DIR, encodeURIComponent(name) + '.jpg');
 }
 
+/** Move duration + in-memory thumbnails to the new filename (same folder/subfolder/vault variants). */
+function migrateDurationAndThumbCacheAfterRename(folder, subfolder, oldName, newName) {
+  const f = canonicalFolderLabel(folder);
+  const sf = String(subfolder || '');
+  const vaultVariants = [undefined, ...VAULT_FOLDERS];
+  let changedDur = false;
+  for (const v of vaultVariants) {
+    const oldK = _thumbCacheKey(f, sf, oldName, v);
+    const newK = _thumbCacheKey(f, sf, newName, v);
+    if (oldK === newK || !oldK || !newK) continue;
+
+    if (videoDurations[oldK] !== undefined) {
+      const cur = Number(videoDurations[oldK] || 0);
+      const prev = Number(videoDurations[newK] || 0);
+      videoDurations[newK] = Math.max(cur, prev);
+      delete videoDurations[oldK];
+      changedDur = true;
+    }
+
+    if (thumbnailCache[oldK]) {
+      const buf = thumbnailCache[oldK];
+      const io = _thumbAccessOrder.indexOf(oldK);
+      if (io !== -1) _thumbAccessOrder.splice(io, 1);
+      delete thumbnailCache[oldK];
+      if (!thumbnailCache[newK]) _thumbCacheSet(newK, buf, true);
+      else {
+        _thumbAccessOrder.push(newK);
+        thumbnailCache[newK] = buf;
+      }
+    }
+  }
+
+  try {
+    const oldPath = _thumbDiskPath(f, sf, oldName);
+    const newPath = _thumbDiskPath(f, sf, newName);
+    if (oldPath !== newPath && fs.existsSync(oldPath)) {
+      try {
+        fs.renameSync(oldPath, newPath);
+      } catch {
+        fs.copyFileSync(oldPath, newPath);
+        try { fs.unlinkSync(oldPath); } catch {}
+      }
+    }
+  } catch {}
+
+  if (changedDur) _scheduleDurationSave();
+}
+
 // Build a thumbnail URL for API responses — presigned R2 URL if cached, else fallback to /thumbnail endpoint
 function _thumbUrl(folder, subfolder, name, vault) {
   let url = '/thumbnail?folder=' + encodeURIComponent(folder) + '&name=' + encodeURIComponent(name);
@@ -3391,7 +3630,7 @@ function schedulePrioritizedThumbWarm(files, tier, opts = {}) {
     const warmOne = async (item) => {
       const ck = _thumbCacheKey(item.folder, item.subfolder || '', item.name, item.vault);
       if (_thumbInFlight[ck]) return;
-      const bp = allowedFolders.get(item.folder);
+      const bp = allowedFolderBasePath(item.folder);
       if (!bp) return;
       try {
         let vUrl = null;
@@ -6081,7 +6320,8 @@ function normalizeVaultParam(v) {
 }
 
 function mediaLookupKey(folder, subfolder, vault, name) {
-  return `${folder}|${subfolder || ''}|${normalizeVaultParam(vault)}|${name}`;
+  const f = canonicalFolderLabel(folder);
+  return `${f}|${subfolder || ''}|${normalizeVaultParam(vault)}|${name}`;
 }
 
 /** Tier-scoped key for `_mediaKeyCache` so a higher tier cannot poison resolution for lower tiers. */
@@ -6163,7 +6403,7 @@ async function listMediaFilesForFolder(folder) {
   // Use R2 when configured, fall back to local disk
   if (R2_ENABLED) return r2ListMediaFiles(folder);
 
-  const folderDirName = allowedFolders.get(folder);
+  const folderDirName = allowedFolderBasePath(folder);
   if (!folderDirName) return [];
   const folderPath = path.join(MEDIA_ROOT, folderDirName);
   let entries;
@@ -6335,6 +6575,19 @@ const server = http.createServer(async (req, res) => {
       const target = `https://${reqHost.replace(/^www\./, '')}${req.url}`;
       res.writeHead(301, { Location: target });
       return res.end();
+    }
+
+    // Legacy misspelled category slug `/petitie` → `/petite` (R2 prefix unchanged: `petitie`)
+    {
+      const p = requestUrl.pathname;
+      if (p === '/petitie' || p.startsWith('/petitie/')) {
+        const tail = p.slice('/petitie'.length);
+        res.writeHead(301, {
+          Location: '/petite' + tail + (requestUrl.search || ''),
+          'Cache-Control': 'public, max-age=86400',
+        });
+        return res.end();
+      }
     }
 
     // Track last-seen for active-user stats (skip for static files to avoid blocking cold-start)
@@ -7113,7 +7366,7 @@ const server = http.createServer(async (req, res) => {
         if (action === 'approve') {
           const finalName = (videoName || uploadReq.videoName).slice(0, 40);
           const tier = assignedTier === 2 ? 2 : 1;
-          const basePath = allowedFolders.get(uploadReq.category);
+          const basePath = allowedFolderBasePath(uploadReq.category);
           if (!basePath) return sendJson(res, 400, { error: 'Invalid category on request' });
 
           const vaultFolder = tier >= 2 ? 'premium' : 'basic';
@@ -7363,9 +7616,11 @@ const server = http.createServer(async (req, res) => {
         await loadVideoRenameRequests(true);
         const site = String(SITE_ORIGIN || '').replace(/\/$/, '');
         const key = renameModerateSigningKey();
-        const pending = videoRenameRequests.filter((r) => r && r.status === 'pending' && !r.finalized);
+        const pending = videoRenameRequests.filter(
+          (r) => r && !r.finalized && (r.status === 'pending' || r.status === 'error'),
+        );
         const recent = videoRenameRequests
-          .filter((r) => r && r.status !== 'pending')
+          .filter((r) => r && r.status !== 'pending' && r.status !== 'error')
           .sort((a, b) => (b.updatedAt || b.requestedAt || 0) - (a.updatedAt || a.requestedAt || 0))
           .slice(0, 40);
         const mapRow = (r) => {
@@ -7383,6 +7638,7 @@ const server = http.createServer(async (req, res) => {
             newName: r.newName || '',
             reviewedAt: r.reviewedAt || 0,
             reviewedBy: r.reviewedBy || '',
+            applyError: r.applyError || '',
           };
           if (key && site && r.requestId && r.status === 'pending') {
             try {
@@ -9389,23 +9645,30 @@ const server = http.createServer(async (req, res) => {
       const { record: u } = authed;
 
       const folder = requestUrl.searchParams.get('folder') || '';
+      const folderCanon = canonicalFolderLabel(folder);
       const subfolder = requestUrl.searchParams.get('subfolder') || '';
-      const basePath = allowedFolders.get(folder);
+      const basePath = allowedFolderBasePath(folder);
       if (!basePath) return sendJson(res, 400, { error: 'Invalid folder' });
 
       const tier = u ? getEffectiveTierForUser(u) : 0;
       const vaultFolders = accessibleVaultFolders(tier);
 
       // Track category hit for admin
-      adminCategoryHits[folder] = (adminCategoryHits[folder] || 0) + 1;
-      logAdminEventToSupabase('category_hit', { category: String(folder).slice(0, 64) }).catch(() => {});
+      adminCategoryHits[folderCanon] = (adminCategoryHits[folderCanon] || 0) + 1;
+      logAdminEventToSupabase('category_hit', { category: String(folderCanon).slice(0, 64) }).catch(() => {});
       scheduleAdminPersist();
 
-      // ── Cache: reuse R2 listing for 2 minutes per tier+folder+subfolder ──
+      // ── Cache: warm listings for tier+folder+subfolder. Empty results use a short TTL so transient R2
+      //    failures / cold starts are not frozen for 10 minutes ("No files found" flakiness).
+      const LIST_CACHE_TTL_FULL_MS = 600000; // 10 min when we actually have files
+      const LIST_CACHE_TTL_EMPTY_MS = 45000; // 45s when listing was empty — retry soon
       if (!global._listCache) global._listCache = {};
-      const _listCacheKey = `${tier}:${folder}:${subfolder}`;
+      const _listCacheKey = `${tier}:${folderCanon}:${subfolder}`;
       const _listCached = global._listCache[_listCacheKey];
-      if (_listCached && (Date.now() - _listCached.ts < 600000)) { // 10 min cache
+      const _listCacheAge = _listCached ? Date.now() - _listCached.ts : Infinity;
+      const _cachedLen = _listCached && Array.isArray(_listCached.files) ? _listCached.files.length : 0;
+      const _listCacheTtl = _cachedLen > 0 ? LIST_CACHE_TTL_FULL_MS : LIST_CACHE_TTL_EMPTY_MS;
+      if (_listCached && _listCacheAge < _listCacheTtl) {
         // Refresh stats in cached results (views/likes change frequently)
         const freshFiles = _listCached.files.map(f => {
           if (!f.videoKey) return f;
@@ -9716,6 +9979,7 @@ const server = http.createServer(async (req, res) => {
 
     // GET /api/shorts/stats — returns all short stats (strip internal _votes data)
     if (requestUrl.pathname === '/api/shorts/stats') {
+      await ensureShortStatsFresh();
       const safeStats = {};
       for (const [k, v] of Object.entries(shortStats)) {
         safeStats[k] = { views: v.views || 0, likes: v.likes || 0, dislikes: v.dislikes || 0 };
@@ -10433,6 +10697,16 @@ const server = http.createServer(async (req, res) => {
         out.push(row);
         if (out.length >= limit) break;
       }
+      // Single-category or skewed libraries can stall below `limit`; fill from remaining ranked rows.
+      if (out.length < limit) {
+        const picked = new Set(out.map((r) => r.videoId));
+        for (const row of scored) {
+          if (picked.has(row.videoId)) continue;
+          out.push(row);
+          picked.add(row.videoId);
+          if (out.length >= limit) break;
+        }
+      }
       return out;
     }
 
@@ -10441,8 +10715,9 @@ const server = http.createServer(async (req, res) => {
       await ensureShortStatsFresh();
       await ensurePreviewCacheReady();
       const identity = ensureIdentity(req, res);
-      const limit = Math.min(30, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '12', 10) || 12));
       const surface = (requestUrl.searchParams.get('surface') || 'home').toLowerCase();
+      const maxLimit = surface === 'shorts' ? 150 : 30;
+      const limit = Math.min(maxLimit, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '12', 10) || 12));
       const contextVideoId = requestUrl.searchParams.get('contextVideoId') || '';
       const contextFolder = requestUrl.searchParams.get('contextFolder') || '';
       let allFiles = enrichPreviewFilesWithLiveStats(previewFileList.slice());
@@ -10518,7 +10793,7 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname === '/api/newest') {
       await ensureShortStatsFresh();
       await ensurePreviewCacheReady();
-      const limit = Math.min(30, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '12', 10) || 12));
+      const limit = Math.min(300, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '12', 10) || 12));
       let allFiles = enrichPreviewFilesWithLiveStats(previewFileList.slice());
       // Sort by lastModified desc (newest first)
       allFiles.sort((a, b) => (b.lastModified || 0) - (a.lastModified || 0));
@@ -10539,7 +10814,7 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname === '/api/random-videos') {
       const method = (req.method || 'GET').toUpperCase();
       if (method !== 'GET' && method !== 'HEAD') return sendJson(res, 405, { error: 'Method Not Allowed' });
-      const limit = Math.min(50, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '30', 10) || 30));
+      const limit = Math.min(240, Math.max(1, parseInt(requestUrl.searchParams.get('limit') || '30', 10) || 30));
       const page = Math.max(0, parseInt(requestUrl.searchParams.get('page') || '0', 10) || 0);
       const sort = (requestUrl.searchParams.get('sort') || 'views').toLowerCase();
       const topPercent = Math.min(50, Math.max(1, parseFloat(requestUrl.searchParams.get('topPercent') || '5') || 5));
@@ -10554,7 +10829,11 @@ const server = http.createServer(async (req, res) => {
         allFiles.sort((a, b) => (b.views || 0) - (a.views || 0));
       } else if (sort === 'top_random') {
         allFiles.sort((a, b) => (b.views || 0) - (a.views || 0));
-        const cutoff = Math.max(1, Math.ceil(allFiles.length * (topPercent / 100)));
+        const n = allFiles.length;
+        // Percent-of-library alone yields tiny pools when n is small (e.g. 5% of 40 → 2).
+        // Always keep a pool at least as large as the requested page size (capped by n).
+        const pctCutoff = Math.max(1, Math.ceil(n * (topPercent / 100)));
+        const cutoff = Math.min(n, Math.max(pctCutoff, limit));
         const topPool = allFiles.slice(0, cutoff);
         for (let i = topPool.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
@@ -10797,6 +11076,7 @@ const server = http.createServer(async (req, res) => {
     // API: bust R2 list cache (admin only via query secret or authed admin)
     if (requestUrl.pathname === '/api/cache-bust') {
       Object.keys(_r2ListCache).forEach(k => delete _r2ListCache[k]);
+      if (global._listCache) Object.keys(global._listCache).forEach(k => delete global._listCache[k]);
       if (global._staticFileCache) Object.keys(global._staticFileCache).forEach(k => delete global._staticFileCache[k]);
       if (global._videoListCache) Object.keys(global._videoListCache).forEach(k => delete global._videoListCache[k]);
       Object.keys(previewUrlMap).forEach(k => delete previewUrlMap[k]);
@@ -10862,8 +11142,10 @@ const server = http.createServer(async (req, res) => {
       const method = (req.method || 'GET').toUpperCase();
       if (method !== 'GET' && method !== 'HEAD') return sendJson(res, 405, { error: 'Method Not Allowed' });
       const folder = requestUrl.searchParams.get('folder') || '';
-      const basePath = allowedFolders.get(folder);
+      const basePath = allowedFolderBasePath(folder);
       if (!basePath) return sendJson(res, 400, { error: 'Invalid folder' });
+      await ensureShortStatsFresh();
+      await ensureCommentsFresh();
 
       // Allow cache bust via ?fresh=1
       const prefix = basePath + '/previews/';
@@ -10989,7 +11271,7 @@ const server = http.createServer(async (req, res) => {
       let videoUrl = null;
 
       if (folder && R2_ENABLED) {
-        const basePath = allowedFolders.get(folder);
+        const basePath = allowedFolderBasePath(folder);
         // Direct preview-path fallback for categories that store list cards in previews/.
         if (!videoUrl && basePath) {
           const previewObjectKey = basePath + '/previews/' + name;
@@ -11103,7 +11385,7 @@ const server = http.createServer(async (req, res) => {
       const name = requestUrl.searchParams.get('name') || '';
       if (!folder || !name) return sendText(res, 400, 'Missing params');
 
-      const basePath = allowedFolders.get(folder);
+      const basePath = allowedFolderBasePath(folder);
       if (!basePath || !isAllowedMediaFile(name)) return sendText(res, 404, 'Not Found');
       if (R2_ENABLED) {
         const objectKey = basePath + '/previews/' + name;
@@ -11131,7 +11413,7 @@ const server = http.createServer(async (req, res) => {
       const name = requestUrl.searchParams.get('name') || '';
       const vaultQ = requestUrl.searchParams.get('vault') || '';
 
-      const basePath = allowedFolders.get(folder);
+      const basePath = allowedFolderBasePath(folder);
       if (!basePath) return sendText(res, 400, 'Invalid folder');
       if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) return sendText(res, 400, 'Invalid file');
       if (!isAllowedMediaFile(name)) return sendText(res, 403, 'Forbidden');
@@ -11264,7 +11546,7 @@ const server = http.createServer(async (req, res) => {
       const folder = String(requestUrl.searchParams.get('folder') || '').trim();
       const name = String(requestUrl.searchParams.get('name') || '').trim();
       const subfolder = String(requestUrl.searchParams.get('subfolder') || '').trim();
-      const vault = String(requestUrl.searchParams.get('vault') || '').trim();
+      const vault = normalizeVaultParam(String(requestUrl.searchParams.get('vault') || '').trim());
       if (!folder || !name) return sendJson(res, 400, { error: 'Missing folder/name' });
       await loadVideoRenameRequests();
       const identity = videoRenameIdentity(folder, subfolder, name, vault);
@@ -11285,19 +11567,20 @@ const server = http.createServer(async (req, res) => {
       const folder = String(body.folder || '').trim();
       const name = String(body.name || '').trim();
       const subfolder = String(body.subfolder || '').trim();
-      const vault = String(body.vault || '').trim();
+      const vault = normalizeVaultParam(String(body.vault || '').trim());
       if (!folder || !name) return sendJson(res, 400, { error: 'Missing folder/name' });
       await loadVideoRenameRequests();
       const identity = videoRenameIdentity(folder, subfolder, name, vault);
       const rec = getVideoRenameRecordByIdentity(identity);
       if (!rec) return sendJson(res, 404, { error: 'Rename request not found' });
-      if (rec.status !== 'pending' || rec.finalized) return sendJson(res, 409, { error: 'Rename request is not pending' });
+      const cancellable = (rec.status === 'pending' || rec.status === 'error') && !rec.finalized;
+      if (!cancellable) return sendJson(res, 409, { error: 'Rename request is not pending' });
       rec.status = 'cancelled';
       rec.finalized = false;
       rec.reviewedBy = 'user-cancel';
       rec.reviewedAt = Date.now();
       rec.updatedAt = Date.now();
-      scheduleVideoRenamePersist();
+      await flushVideoRenameRequestsNow();
       return sendJson(res, 200, { ok: true, state: 'none' });
     }
 
@@ -11311,10 +11594,10 @@ const server = http.createServer(async (req, res) => {
       const folder = String(body.folder || '').trim();
       const name = String(body.name || '').trim();
       const subfolder = String(body.subfolder || '').trim();
-      const vault = String(body.vault || '').trim();
+      const vault = normalizeVaultParam(String(body.vault || '').trim());
       const requestedName = trimText(body.requestedName, 140);
       if (!folder || !name || !requestedName) return sendJson(res, 400, { error: 'Missing required fields' });
-      if (!allowedFolders.has(folder)) return sendJson(res, 400, { error: 'Invalid folder' });
+      if (!isAllowedFolderLabel(folder)) return sendJson(res, 400, { error: 'Invalid folder' });
       if (folder === 'Omegle' && subfolder && !OMEGLE_SUBFOLDERS.includes(subfolder)) {
         return sendJson(res, 400, { error: 'Invalid Omegle subfolder' });
       }
@@ -11352,7 +11635,12 @@ const server = http.createServer(async (req, res) => {
         newName: '',
       };
       videoRenameRequests.push(rec);
-      scheduleVideoRenamePersist();
+      try {
+        await flushVideoRenameRequestsNow();
+      } catch (e) {
+        console.error('[video-rename] persist error after request:', e && e.message ? e.message : e);
+        return sendJson(res, 500, { error: 'Failed to save rename request' });
+      }
 
       const q = new URLSearchParams();
       q.set('folder', folder);
@@ -11386,42 +11674,33 @@ const server = http.createServer(async (req, res) => {
       const requestId = m[1];
       const action = m[2];
       await loadVideoRenameRequests();
-      const rec = videoRenameRequests.find((r) => r && r.requestId === requestId);
-      if (!rec) return sendJson(res, 200, { type: 4, data: { content: 'Request not found.', flags: 64 } });
-      if (rec.finalized || rec.status === 'approved') {
-        return sendJson(res, 200, { type: 4, data: { content: 'Already approved/finalized.', flags: 64 } });
+      const actor = String(payload?.member?.user?.username || payload?.user?.username || 'discord-moderator');
+      const out = await runVideoRenameModeration(requestId, action, actor);
+      if (out.type === 'not_found') {
+        return sendJson(res, 200, { type: 4, data: { content: 'Request not found.', flags: 64 } });
       }
-      if (rec.status === 'rejected' && action === 'reject') {
+      if (out.type === 'already_approved') {
+        return sendJson(res, 200, { type: 4, data: { content: `Already approved/finalized.${out.newName ? ` File: ${out.newName}` : ''}`, flags: 64 } });
+      }
+      if (out.type === 'already_rejected') {
         return sendJson(res, 200, { type: 4, data: { content: 'Already rejected.', flags: 64 } });
       }
-      const actor = String(payload?.member?.user?.username || payload?.user?.username || 'discord-moderator');
-      if (action === 'reject') {
-        rec.status = 'rejected';
-        rec.finalized = false;
-        rec.reviewedBy = actor;
-        rec.reviewedAt = Date.now();
-        rec.updatedAt = Date.now();
-        scheduleVideoRenamePersist();
+      if (out.type === 'not_pending') {
+        return sendJson(res, 200, { type: 4, data: { content: `Not pending (status: ${out.status || 'unknown'}).`, flags: 64 } });
+      }
+      if (out.type === 'rejected') {
         return sendJson(res, 200, { type: 4, data: { content: `Rejected rename request ${requestId}.`, flags: 64 } });
       }
-      try {
-        await applyApprovedVideoRename(rec, actor);
+      if (out.type === 'approved') {
+        return sendJson(res, 200, { type: 4, data: { content: `Approved and renamed to ${out.newName || 'OK'}.`, flags: 64 } });
+      }
+      if (out.type === 'apply_error') {
         return sendJson(res, 200, {
           type: 4,
-          data: { content: `Approved and renamed to ${rec.newName}.`, flags: 64 },
-        });
-      } catch (e) {
-        rec.status = 'error';
-        rec.finalized = false;
-        rec.reviewedBy = actor;
-        rec.reviewedAt = Date.now();
-        rec.updatedAt = Date.now();
-        scheduleVideoRenamePersist();
-        return sendJson(res, 200, {
-          type: 4,
-          data: { content: `Rename failed: ${e && e.message ? e.message : 'unknown error'}`, flags: 64 },
+          data: { content: `Rename failed: ${out.message || 'unknown error'}`, flags: 64 },
         });
       }
+      return sendJson(res, 200, { type: 4, data: { content: 'Unsupported action.', flags: 64 } });
     }
 
     // ── Userassets uploader metadata for video page ─────────────────────────
@@ -11505,7 +11784,7 @@ const server = http.createServer(async (req, res) => {
       const subfolderPart = parts.find((p) => p.name === 'subfolder');
       const category = categoryPart ? String(categoryPart.data.toString('utf8') || '').trim() : '';
       const subfolder = subfolderPart ? String(subfolderPart.data.toString('utf8') || '').trim() : '';
-      if (!allowedFolders.has(category)) return sendJson(res, 400, { error: 'Invalid category' });
+      if (!isAllowedFolderLabel(category)) return sendJson(res, 400, { error: 'Invalid category' });
       if (category === 'Omegle' && subfolder && !OMEGLE_SUBFOLDERS.includes(subfolder)) {
         return sendJson(res, 400, { error: 'Invalid Omegle subfolder' });
       }
@@ -11678,7 +11957,7 @@ const server = http.createServer(async (req, res) => {
       const subfolder = subfolderPart ? subfolderPart.data.toString('utf8').trim() : '';
 
       if (!videoName) return sendJson(res, 400, { error: 'Video name required' });
-      if (!allowedFolders.has(category)) return sendJson(res, 400, { error: 'Invalid category' });
+      if (!isAllowedFolderLabel(category)) return sendJson(res, 400, { error: 'Invalid category' });
       if (category === 'Omegle' && subfolder && !OMEGLE_SUBFOLDERS.includes(subfolder)) {
         return sendJson(res, 400, { error: 'Invalid subfolder' });
       }

@@ -619,6 +619,14 @@
   margin:0 0 10px;
 }
 
+.checkout-pricing-reminder{
+  margin:2px 0 0;
+  font-size:clamp(12px,1.25vw,14px);
+  font-weight:700;
+  color:#ff5b5b;
+  letter-spacing:.01em;
+}
+
 .checkout-pricing-lede{
   margin:0;
   font-size:clamp(13px,1.4vw,15px);

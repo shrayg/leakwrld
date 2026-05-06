@@ -689,8 +689,10 @@ async function loadRenameRequests(){
         tb.innerHTML=pend.map(function(rec){
           const rid=escHtml(rec.requestId||'');
           const sub=rec.subfolder?'<span style="color:var(--text3)"> / '+escHtml(rec.subfolder)+'</span>':'';
+          const failTitle=rec.applyError||'Last approve failed. Retry after deploy/fix.';
+          const failBadge=rec.status==='error'?' <span class="badge b-orange" title="'+escHtml(failTitle).replace(/"/g,'&quot;')+'">Retry</span>':'';
           return'<tr data-request-id="'+rid+'">'+
-            '<td>'+fmtDate(rec.requestedAt)+'</td>'+
+            '<td>'+fmtDate(rec.requestedAt)+failBadge+'</td>'+
             '<td>'+escHtml(rec.folder||'')+sub+'</td>'+
             '<td><span style="font-size:.78rem">'+escHtml(rec.oldName||'')+'</span> \u2192 <strong>'+escHtml(rec.requestedName||'')+'</strong></td>'+
             '<td>'+displayUsername(rec.requestedByName||rec.requestedBy||'')+'</td>'+

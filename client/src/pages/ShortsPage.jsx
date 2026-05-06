@@ -19,19 +19,19 @@ import { buildVideoId, sendTelemetry } from '../lib/telemetry';
 
 const SHORTS_CATEGORIES = Object.keys(FOLDER_TO_CLEAN);
 const SHORTS_TAB_THUMBS = {
-  'NSFW Straight': '/assets/thumbnails/omegle.jpg',
-  'Alt and Goth': '/assets/thumbnails/tiktok.png',
-  Petitie: '/assets/thumbnails/snapchat.jpg',
-  'Teen (18+ only)': '/assets/thumbnails/liveslips.png',
-  MILF: '/assets/thumbnails/feet.png',
-  Asian: '/assets/thumbnails/snapchat.jpg',
-  Ebony: '/assets/thumbnails/tiktok.png',
+  'NSFW Straight': '/assets/thumbnails/nsfw-straight.png',
+  'Alt and Goth': '/assets/thumbnails/alt-and-goth.png',
+  Petite: '/assets/thumbnails/petite.png',
+  'Teen (18+ only)': '/assets/thumbnails/teen-18-plus.png',
+  MILF: '/assets/thumbnails/milf.png',
+  Asian: '/assets/thumbnails/asian.png',
+  Ebony: '/assets/thumbnails/ebony.png',
   Feet: '/assets/thumbnails/feet.png',
-  Hentai: '/assets/thumbnails/liveslips.png',
-  Yuri: '/assets/thumbnails/liveslips.png',
-  Yaoi: '/assets/thumbnails/feet.png',
-  'Nip Slips': '/assets/thumbnails/liveslips.png',
-  Omegle: '/assets/thumbnails/omegle.jpg',
+  Hentai: '/assets/thumbnails/hentai.png',
+  Yuri: '/assets/thumbnails/yuri.png',
+  Yaoi: '/assets/thumbnails/yaoi.png',
+  'Nip Slips': '/assets/thumbnails/nip-slips.png',
+  Omegle: '/assets/thumbnails/omegle.png',
   'OF Leaks': '/assets/thumbnails/onlyfans.png',
 };
 
@@ -47,6 +47,12 @@ const TABS = [
 
 const MOBILE_PRELOAD_OFFSETS = [-2, -1, 1, 2];
 
+function canonicalCategory(category) {
+  const c = String(category || '').trim();
+  if (c === 'Petitie') return 'Petite';
+  return c;
+}
+
 function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -57,7 +63,56 @@ function shuffle(arr) {
 }
 
 function videoKey(video) {
-  return video.name || '';
+  return video?.videoKey || video?.name || '';
+}
+
+function videoIdentity(video) {
+  if (!video) return '';
+  return (
+    video.videoId ||
+    video.videoKey ||
+    [
+      canonicalCategory(video.folder || video.category || ''),
+      video.subfolder || '',
+      video.vault || '',
+      video.name || video.src || video.fallbackSrc || '',
+    ].join('|')
+  );
+}
+
+function videoSrc(video) {
+  return video?.src || video?.fallbackSrc || '';
+}
+
+function normalizeShortVideo(video, fallbackCategory) {
+  if (!video) return null;
+  const category = canonicalCategory(video.folder || video.category || fallbackCategory || 'Mixed');
+  return {
+    ...video,
+    folder: canonicalCategory(video.folder || category),
+    category,
+  };
+}
+
+function mergeVideoLists(...lists) {
+  const out = [];
+  const seen = new Set();
+  for (const list of lists) {
+    for (const raw of Array.isArray(list) ? list : []) {
+      const video = normalizeShortVideo(raw);
+      if (!video) continue;
+      const id = videoIdentity(video);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(video);
+    }
+  }
+  return out;
+}
+
+function isSameVideoKey(video, key) {
+  const k = String(key || '');
+  return videoKey(video) === k || String(video?.name || '') === k || String(video?.videoId || '') === k;
 }
 
 function formatCount(n) {
@@ -72,65 +127,66 @@ function filterByTab(master, tab) {
   return shuffle(subset);
 }
 
-function filterByControls(master, tab, rawQuery) {
-  if (!master.length) return [];
-  const q = String(rawQuery || '').trim().toLowerCase();
-  const byTab = filterByTab(master, tab);
-  if (!q) return byTab;
-  return byTab.filter((v) => {
-    const title = seoCleanTitle(v.name || '', v.folder || v.category || '').toLowerCase();
-    const name = String(v.name || '').toLowerCase();
-    const category = String(v.category || '').toLowerCase();
-    return title.includes(q) || name.includes(q) || category.includes(q);
-  });
+async function loadFolderVideos(folder, useAuthList) {
+  async function videosFromResponse(res) {
+    if (!res.ok) return [];
+    const d = res.data || {};
+    if (Array.isArray(d.subfolders) && d.subfolders.length && (!Array.isArray(d.files) || d.files.length === 0)) {
+      const subs = await Promise.all(
+        d.subfolders.map(async (sub) => {
+          const r2 = await fetchList(folder, sub);
+          if (!r2.ok) return [];
+          const files = Array.isArray(r2.data?.files) ? r2.data.files : [];
+          return files.filter((v) => v.type === 'video').map((v) => normalizeShortVideo(v, folder));
+        }),
+      );
+      return subs.flat();
+    }
+    const files = Array.isArray(d.files) ? d.files : [];
+    return files.filter((v) => v.type === 'video').map((v) => normalizeShortVideo(v, folder));
+  }
+
+  const res = await (useAuthList ? fetchList(folder) : fetchPreviewList(folder));
+  let videos = await videosFromResponse(res);
+  if (!useAuthList && videos.length === 0) {
+    videos = await videosFromResponse(await fetchList(folder));
+  }
+  return videos;
 }
 
-async function loadFolderVideos(folder, useAuthList) {
-  const res = await (useAuthList ? fetchList(folder) : fetchPreviewList(folder));
-  if (!res.ok) return [];
-  const d = res.data || {};
-  if (d.type === 'subfolders' && Array.isArray(d.subfolders) && d.subfolders.length) {
-    const subs = await Promise.all(
-      d.subfolders.map(async (sub) => {
-        const r2 = await fetchList(folder, sub);
-        if (!r2.ok) return [];
-        const files = Array.isArray(r2.data?.files) ? r2.data.files : [];
-        return files.filter((v) => v.type === 'video').map((v) => ({ ...v, category: folder }));
-      }),
-    );
-    return subs.flat();
-  }
-  const files = Array.isArray(d.files) ? d.files : [];
-  return files.filter((v) => v.type === 'video').map((v) => ({ ...v, category: folder }));
+async function loadAllFolderVideos(folders, useAuthList) {
+  const parts = await Promise.all(folders.map((f) => loadFolderVideos(f, useAuthList).catch(() => [])));
+  return parts.flat();
 }
 
 async function loadVideosInner(me) {
+  let recommended = [];
   try {
     const rec = await fetchRecommendations(120, { surface: 'shorts' });
     if (rec.ok && Array.isArray(rec.data?.files) && rec.data.files.length > 0) {
-      return rec.data.files.map((v) => ({ ...v, category: v.folder || v.category || 'Mixed' }));
+      recommended = rec.data.files.map((v) => normalizeShortVideo(v, v.folder || v.category || 'Mixed'));
     }
   } catch {}
   const hasTier = me?.authed && me.tier >= 1;
   const folders = SHORTS_CATEGORIES;
-  let videos = [];
+  let categoryVideos = [];
 
   if (hasTier) {
-    const parts = await Promise.all(folders.map((f) => loadFolderVideos(f, true)));
-    videos = parts.flat();
+    categoryVideos = await loadAllFolderVideos(folders, true);
   }
 
-  if (videos.length === 0) {
-    const parts = await Promise.all(folders.map((f) => loadFolderVideos(f, false)));
-    videos = parts.flat();
+  if (categoryVideos.length === 0) {
+    categoryVideos = await loadAllFolderVideos(folders, false);
   }
+
+  let videos = mergeVideoLists(recommended, categoryVideos);
 
   if (videos.length === 0) {
     const rv = await fetchRandomVideos({ limit: '50', sort: 'random' });
     if (rv.ok && rv.data?.files) {
       videos = rv.data.files
         .filter((f) => f.type === 'video' || (f.name && /\.(mp4|webm|mov)$/i.test(f.name)))
-        .map((v) => ({ ...v, category: v.folder || 'Mixed' }));
+        .map((v) => normalizeShortVideo(v, v.folder || 'Mixed'));
     }
   }
 
@@ -155,7 +211,6 @@ export function ShortsPage() {
   const [masterVideos, setMasterVideos] = useState([]);
   const [allVideos, setAllVideos] = useState([]);
   const [tab, setTab] = useState('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
   const [currentIndex, setCurrentIndex] = useState(0);
   const currentIndexRef = useRef(0);
   currentIndexRef.current = currentIndex;
@@ -204,6 +259,40 @@ export function ShortsPage() {
   }, []);
 
   useEffect(() => {
+    const root = document.documentElement;
+    let resizeObserver = null;
+    let frame = 0;
+
+    function updateShortsTopOffset() {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const nav = document.querySelector('.top-nav');
+        const navBottom = nav ? Math.ceil(nav.getBoundingClientRect().bottom) : 0;
+        root.style.setProperty('--shorts-top-offset', `${Math.max(0, navBottom)}px`);
+      });
+    }
+
+    updateShortsTopOffset();
+    window.setTimeout(updateShortsTopOffset, 80);
+    window.addEventListener('resize', updateShortsTopOffset);
+    window.visualViewport?.addEventListener('resize', updateShortsTopOffset);
+
+    const nav = document.querySelector('.top-nav');
+    if (nav && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(updateShortsTopOffset);
+      resizeObserver.observe(nav);
+    }
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', updateShortsTopOffset);
+      window.visualViewport?.removeEventListener('resize', updateShortsTopOffset);
+      resizeObserver?.disconnect();
+      root.style.removeProperty('--shorts-top-offset');
+    };
+  }, []);
+
+  useEffect(() => {
     function onKey(e) {
       if (e.key !== 'Escape') return;
       // Shorts filters: only the menu button opens/closes — Escape does not dismiss the panel.
@@ -221,9 +310,17 @@ export function ShortsPage() {
     if (cat && TABS.some((t) => t.cats === cat)) {
       setTab(cat);
     }
-    const q = searchParams.get('q') || '';
-    setSearchQuery(q);
-  }, [searchParams]);
+    if (searchParams.has('q')) {
+      setSearchParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          p.delete('q');
+          return p;
+        },
+        { replace: true },
+      );
+    }
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -264,9 +361,9 @@ export function ShortsPage() {
       setAllVideos([]);
       return;
     }
-    setAllVideos(filterByControls(masterVideos, tab, searchQuery));
+    setAllVideos(filterByTab(masterVideos, tab));
     setCurrentIndex(0);
-  }, [tab, masterVideos, searchQuery]);
+  }, [tab, masterVideos]);
 
   useEffect(() => {
     if (!allVideos.length) {
@@ -276,7 +373,7 @@ export function ShortsPage() {
     const v = searchParams.get('v');
     if (v) {
       const decoded = decodeURIComponent(v);
-      const idx = allVideos.findIndex((x) => videoKey(x) === decoded);
+      const idx = allVideos.findIndex((x) => isSameVideoKey(x, decoded));
       if (idx >= 0) setCurrentIndex(idx);
     }
     urlSyncReady.current = true;
@@ -295,7 +392,7 @@ export function ShortsPage() {
   const statsForCurrent = useMemo(() => {
     if (!video) return { views: 0, likes: 0 };
     const k = videoKey(video);
-    return allStats[k] || { views: 0, likes: 0 };
+    return allStats[k] || allStats[video.name] || { views: 0, likes: 0 };
   }, [video, allStats]);
 
   const shareUrl = useMemo(() => {
@@ -312,13 +409,12 @@ export function ShortsPage() {
         p.set('v', k);
         if (tab !== 'ALL') p.set('cat', tab);
         else p.delete('cat');
-        if (searchQuery.trim()) p.set('q', searchQuery.trim());
-        else p.delete('q');
+        p.delete('q');
         return p;
       },
       { replace: true },
     );
-  }, [video, tab, searchQuery, setSearchParams]);
+  }, [video, tab, setSearchParams]);
 
   useEffect(() => {
     if (!video || !urlSyncReady.current) return;
@@ -355,6 +451,7 @@ export function ShortsPage() {
   useEffect(() => {
     const el = videoRef.current;
     if (!el || !video) return;
+    setSeek(0);
     el.play().catch(() => {});
   }, [video]);
 
@@ -369,8 +466,15 @@ export function ShortsPage() {
   useEffect(() => {
     const supportsDom = typeof document !== 'undefined';
     if (!supportsDom) return undefined;
-    const isMobileViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches;
-    if (!isMobileViewport || !allVideos.length) return undefined;
+    const mqNarrow =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(max-width: 1024px)').matches;
+    const mqCoarse =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(pointer: coarse)').matches;
+    if (!(mqNarrow || mqCoarse) || !allVideos.length) return undefined;
 
     function ensurePreloader(slot) {
       if (neighborPreloadRef.current.has(slot)) return neighborPreloadRef.current.get(slot);
@@ -401,9 +505,10 @@ export function ShortsPage() {
       const slot = String(offset);
       const el = ensurePreloader(slot);
       activeSlots.add(slot);
-      if (item?.src) {
-        if (el.src !== item.src) {
-          el.src = item.src;
+      const src = videoSrc(item);
+      if (src) {
+        if (el.src !== src) {
+          el.src = src;
           el.load();
           warmDecode(el);
         }
@@ -694,8 +799,8 @@ export function ShortsPage() {
       const dy = state.lastY - state.startY;
       const dt = Math.max(1, performance.now() - state.startTs);
       const velocity = dy / dt;
-      const threshold = 72;
-      const fastFlick = Math.abs(velocity) > 0.42 && Math.abs(dy) > 30;
+      const threshold = 56;
+      const fastFlick = Math.abs(velocity) > 0.38 && Math.abs(dy) > 24;
       if (dy <= -threshold || (fastFlick && dy < 0)) {
         commitSlide(1);
         return;
@@ -734,6 +839,7 @@ export function ShortsPage() {
     if (!video) return;
     const k = videoKey(video);
     const was = likedSet.has(k);
+    const prevLiked = likedSet;
     const next = new Set(likedSet);
     if (was) next.delete(k);
     else next.add(k);
@@ -748,6 +854,8 @@ export function ShortsPage() {
           likes: r.data.likes ?? 0,
         },
       }));
+    } else {
+      setLikedSet(prevLiked);
     }
   }
 
@@ -805,24 +913,8 @@ export function ShortsPage() {
     urlSyncReady.current = false;
   }
 
-  function onSearchInput(nextValue) {
-    setSearchQuery(nextValue);
-    setSearchParams(
-      (prev) => {
-        const p = new URLSearchParams(prev);
-        p.delete('v');
-        if (nextValue.trim()) p.set('q', nextValue.trim());
-        else p.delete('q');
-        return p;
-      },
-      { replace: true },
-    );
-    urlSyncReady.current = false;
-  }
-
   function clearFilters() {
     setTab('ALL');
-    setSearchQuery('');
     setCurrentIndex(0);
     setSearchParams(
       (prev) => {
@@ -876,6 +968,7 @@ export function ShortsPage() {
                     {prevVideo ? (
                       <div className="shorts-slide shorts-slide--peek shorts-slide--prev">
                         <video
+                          key={videoIdentity(prevVideo)}
                           ref={prevPeekVideoRef}
                           className="shorts-video shorts-video--cover"
                           playsInline
@@ -883,7 +976,7 @@ export function ShortsPage() {
                           loop
                           preload="auto"
                           poster={prevVideo.thumb}
-                          src={prevVideo.src}
+                          src={videoSrc(prevVideo)}
                         />
                       </div>
                     ) : null}
@@ -892,12 +985,20 @@ export function ShortsPage() {
                       <video
                         ref={videoRef}
                         className={'shorts-video ' + (videoFitMode === 'contain' ? 'shorts-video--contain' : 'shorts-video--cover')}
-                        src={video.src}
+                        src={videoSrc(video)}
                         playsInline
                         loop
                         preload="auto"
                         muted={!userWantsSound}
                         poster={video.thumb}
+                        onError={(e) => {
+                          const fallback = video?.fallbackSrc || '';
+                          const fallbackUrl = fallback ? new URL(fallback, window.location.origin).href : '';
+                          if (!fallbackUrl || e.currentTarget.src === fallbackUrl) return;
+                          e.currentTarget.src = fallbackUrl;
+                          e.currentTarget.load();
+                          e.currentTarget.play().catch(() => {});
+                        }}
                         onClick={() => {
                           setUserWantsSound(true);
                           const el = videoRef.current;
@@ -1011,6 +1112,7 @@ export function ShortsPage() {
                     {nextVideo ? (
                       <div className="shorts-slide shorts-slide--peek shorts-slide--next">
                         <video
+                          key={videoIdentity(nextVideo)}
                           ref={nextPeekVideoRef}
                           className="shorts-video shorts-video--cover"
                           playsInline
@@ -1018,7 +1120,7 @@ export function ShortsPage() {
                           loop
                           preload="auto"
                           poster={nextVideo.thumb}
-                          src={nextVideo.src}
+                          src={videoSrc(nextVideo)}
                         />
                       </div>
                     ) : null}
@@ -1053,38 +1155,29 @@ export function ShortsPage() {
                   <div className="shorts-controls-title-group">
                     <p className="shorts-controls-title">Shorts</p>
                     <p className="shorts-controls-subtitle">
-                      {tab === 'ALL' ? 'All categories' : folderDisplayName(tab)} {searchQuery.trim() ? '· Search on' : ''} ·{' '}
+                      {tab === 'ALL' ? 'All categories' : folderDisplayName(tab)} -{' '}
                       {allVideos.length} result{allVideos.length === 1 ? '' : 's'}
                     </p>
                   </div>
                   <div className="shorts-controls-actions">
                     {me && me.tier < 2 && (
-                      <Link to="/checkout" className="inline-flex min-h-[30px] w-max max-w-full items-center justify-center rounded-lg border border-[rgba(243,198,105,0.4)] bg-[linear-gradient(180deg,#f6d486_0%,#f3c669_100%)] px-2.5 text-[9px] font-extrabold uppercase tracking-[0.07em] text-[#17181a] no-underline shadow-[0_2px_12px_rgba(243,198,105,0.22)] transition hover:brightness-105">
-                        Get Full Access
+                      <Link to="/checkout" className="shorts-full-access-btn">
+                        Full Access
                       </Link>
                     )}
                   </div>
                   <div className="shorts-top-right-controls">
                     <button
                       type="button"
-                      className="inline-flex h-9 min-h-9 min-w-[62px] items-center justify-center rounded-[10px] border border-[rgba(243,198,105,0.55)] bg-[linear-gradient(180deg,#1a1a1f_0%,#0c0c10_55%,#08080b_100%)] px-3 text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#f3c669] shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_0_0_1px_rgba(243,198,105,0.12),0_8px_22px_rgba(0,0,0,0.55)] transition hover:border-[rgba(243,198,105,0.75)] hover:bg-[linear-gradient(180deg,#222228_0%,#12121a_55%,#0c0c12_100%)] hover:text-white active:scale-95"
+                      className="shorts-filters-reset"
                       onClick={clearFilters}
+                      disabled={tab === 'ALL'}
                       aria-label="Reset filters"
                       title="Reset"
                     >
                       Reset
                     </button>
                   </div>
-                </div>
-                <div className="shorts-controls-search">
-                  <input
-                    type="search"
-                    className="shorts-controls-search-input"
-                    placeholder="Search title or category"
-                    value={searchQuery}
-                    onChange={(e) => onSearchInput(e.target.value)}
-                    aria-label="Search shorts"
-                  />
                 </div>
                 <div className="shorts-tabs" id="shorts-tabs" role="tablist" aria-label="Category">
                   {TABS.map((t) => (

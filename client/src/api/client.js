@@ -111,6 +111,38 @@ export async function fetchRandomVideos(params) {
   return apiJsonWithRetry('/api/random-videos?' + q.toString(), { retries: 2, retryDelayMs: 300 });
 }
 
+/** Page size must stay aligned with server cap (`/api/random-videos` limit max). */
+export const RANDOM_VIDEOS_PAGE_LIMIT = 240;
+
+/**
+ * Full catalog ranked by views via repeated `/api/random-videos?page=&sort=views`.
+ * Stops after empty/shrink chunk or maxPages (avoid hammering slow networks).
+ */
+export async function fetchAllViewsRankedVideos(opts = {}) {
+  const pageLimit = Math.min(
+    RANDOM_VIDEOS_PAGE_LIMIT,
+    Math.max(1, Number(opts.pageLimit) || RANDOM_VIDEOS_PAGE_LIMIT),
+  );
+  const maxPages = Math.min(80, Math.max(1, Number(opts.maxPages) || 48));
+  const merged = [];
+  let page = 0;
+  let totalPages = 1;
+  while (page < totalPages && page < maxPages) {
+    const res = await fetchRandomVideos({
+      limit: String(pageLimit),
+      page: String(page),
+      sort: 'views',
+    });
+    if (!res.ok) return res;
+    const chunk = Array.isArray(res.data?.files) ? res.data.files : [];
+    totalPages = Math.max(1, Number(res.data?.totalPages) || 1);
+    merged.push(...chunk);
+    if (chunk.length < pageLimit) break;
+    page += 1;
+  }
+  return { ok: true, data: { files: merged } };
+}
+
 export async function fetchFolderCounts() {
   return apiJson('/api/folder-counts');
 }
@@ -159,6 +191,28 @@ export async function fetchList(folder, subfolder) {
   const q = new URLSearchParams({ folder });
   if (subfolder) q.set('subfolder', subfolder);
   return apiJson('/api/list?' + q.toString());
+}
+
+/**
+ * Category folder listing — retries brief empty results and transient 5xx (cold R2 / flaky lists).
+ */
+export async function fetchListWithRetry(folder, subfolder) {
+  let last;
+  for (let i = 0; i < 3; i++) {
+    last = await fetchList(folder, subfolder);
+    if (last.ok) {
+      const n = Array.isArray(last.data?.files) ? last.data.files.length : 0;
+      if (n > 0 || i === 2) return last;
+      await sleep(380 + i * 240);
+      continue;
+    }
+    if (last.status >= 500 && i < 2) {
+      await sleep(320 + i * 200);
+      continue;
+    }
+    return last;
+  }
+  return last;
 }
 
 export async function fetchVideoStats(key) {

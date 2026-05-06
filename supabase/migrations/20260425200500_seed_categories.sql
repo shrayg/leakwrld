@@ -2,7 +2,7 @@ insert into public.categories (slug, label)
 values
   ('nsfw-straight', 'NSFW Straight'),
   ('alt-and-goth', 'Alt and Goth'),
-  ('petitie', 'Petitie'),
+  ('petite', 'Petite'),
   ('teen-18-plus', 'Teen (18+ only)'),
   ('milf', 'MILF'),
   ('asian', 'Asian'),

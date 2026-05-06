@@ -1,26 +1,35 @@
 import { useEffect, useState } from 'react';
 import { fetchLiveActivity } from '../../api/client';
 
+const WATCHING_BASE = 127;
+const FAKE_TODAY_MIN = 173;
+const FAKE_TODAY_MAX = 312;
+
+function pickFakeVideosAddedToday() {
+  const span = FAKE_TODAY_MAX - FAKE_TODAY_MIN + 1;
+  return FAKE_TODAY_MIN + Math.floor(Math.random() * span);
+}
+
 export function LiveActivityStrip() {
-  const [watching, setWatching] = useState('—');
-  const [today, setToday] = useState('—');
+  const [watching, setWatching] = useState(() => WATCHING_BASE.toLocaleString());
+  const [today] = useState(() => pickFakeVideosAddedToday().toLocaleString());
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const res = await fetchLiveActivity();
-      if (cancelled) return;
-      if (res.ok && res.data) {
-        const w = Number(res.data.watchingNow || 0);
-        const t = Number(res.data.videosAddedToday || 0);
-        setWatching(w.toLocaleString());
-        setToday(t.toLocaleString());
+      try {
+        const res = await fetchLiveActivity();
+        if (cancelled) return;
+        const raw =
+          res.ok && res.data != null ? Number(res.data.watchingNow ?? NaN) : NaN;
+        const active = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+        setWatching((WATCHING_BASE + active).toLocaleString());
+      } catch {
+        if (!cancelled) setWatching(WATCHING_BASE.toLocaleString());
       }
     }
-    load().catch(() => {});
-    const id = setInterval(() => {
-      load().catch(() => {});
-    }, 30000);
+    load();
+    const id = setInterval(() => load().catch(() => {}), 30000);
     return () => {
       cancelled = true;
       clearInterval(id);

@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { fetchRandomVideos, fetchVideoLibrary } from '../api/client';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { fetchAllViewsRankedVideos, fetchVideoLibrary } from '../api/client';
 import { useShell } from '../context/ShellContext';
 import { HomepageMediaTile } from '../components/home/HomepageMediaTile';
 import { videoCardStableKey } from '../components/media/VideoCard';
 import { PageHero } from '../components/layout/PageHero';
 
 const PAGE_SIZE = 50;
+
+function readSearchPageFromParams(sp) {
+  const n = parseInt(String(sp.get('page') || '1'), 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
 
 /** Maps UI sort buttons to /api/videos sort + order (matches script.js search page). */
 function sortParams(uiSort) {
@@ -19,6 +24,8 @@ function sortParams(uiSort) {
 export function SearchPage() {
   const { openReferral, openAuth } = useShell();
   const navigate = useNavigate();
+  const location = useLocation();
+  const listReturnPath = `${location.pathname}${location.search}`;
   const [searchParams, setSearchParams] = useSearchParams();
   const qParam = searchParams.get('q') || '';
   const mode = (searchParams.get('mode') || '').toLowerCase();
@@ -26,7 +33,7 @@ export function SearchPage() {
 
   const [query, setQuery] = useState(qParam);
   const [sortUi, setSortUi] = useState('recent');
-  const [page, setPage] = useState(1);
+  const [page, setPageState] = useState(() => readSearchPageFromParams(searchParams));
   const [total, setTotal] = useState(0);
   const [files, setFiles] = useState([]);
   const [gotoPageInput, setGotoPageInput] = useState('');
@@ -42,11 +49,15 @@ export function SearchPage() {
     setQuery(qParam);
   }, [qParam]);
 
+  useEffect(() => {
+    setPageState(readSearchPageFromParams(searchParams));
+  }, [searchParams]);
+
   const runSearch = useCallback(async () => {
     if (isPopularMode) {
       setLoading(true);
       setErrorKind(null);
-      const res = await fetchRandomVideos({ limit: '32', page: '0', sort: 'top_random', topPercent: '5' });
+      const res = await fetchAllViewsRankedVideos({ maxPages: 32 });
       setLoading(false);
       if (!res.ok) {
         setErrorKind('other');
@@ -124,11 +135,31 @@ export function SearchPage() {
     if (isPopularMode) return;
     const q = query.trim();
     if (q.length < 2) return;
-    setSearchParams({ q });
-    setPage(1);
+    setSearchParams((prev) => {
+      const out = new URLSearchParams(prev);
+      out.set('q', q);
+      out.delete('page');
+      return out;
+    }, { replace: true });
+    setPageState(1);
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
+
+  const commitSearchPage = useCallback(
+    (nextPage) => {
+      const tp = Math.ceil(total / PAGE_SIZE) || 1;
+      const clamped = Math.max(1, Math.min(tp, nextPage));
+      setPageState(clamped);
+      setSearchParams((prev) => {
+        const out = new URLSearchParams(prev);
+        if (clamped <= 1) out.delete('page');
+        else out.set('page', String(clamped));
+        return out;
+      }, { replace: true });
+    },
+    [total, setSearchParams],
+  );
 
   const pageButtons = useMemo(() => {
     if (totalPages <= 1) return [];
@@ -148,7 +179,7 @@ export function SearchPage() {
     const n = parseInt(gotoPageInput, 10);
     if (!Number.isFinite(n)) return;
     const clamped = Math.max(1, Math.min(totalPages, n));
-    setPage(clamped);
+    commitSearchPage(clamped);
     setGotoPageInput('');
   }
 
@@ -180,7 +211,7 @@ export function SearchPage() {
           }
           subtitle={
             isPopularMode
-              ? 'Top-performing videos (top 5%) shuffled each load.'
+              ? 'Full library sorted by view count — use pagination below.'
               : query.trim().length >= 2
                 ? undefined
                 : 'Search titles across every category'
@@ -217,7 +248,12 @@ export function SearchPage() {
             className={'sort-btn' + (sortUi === 'recent' ? ' active' : '')}
             onClick={() => {
               setSortUi('recent');
-              setPage(1);
+              setSearchParams((prev) => {
+                const out = new URLSearchParams(prev);
+                out.delete('page');
+                return out;
+              }, { replace: true });
+              setPageState(1);
             }}
           >
             Recent
@@ -227,7 +263,12 @@ export function SearchPage() {
             className={'sort-btn' + (sortUi === 'rating' ? ' active' : '')}
             onClick={() => {
               setSortUi('rating');
-              setPage(1);
+              setSearchParams((prev) => {
+                const out = new URLSearchParams(prev);
+                out.delete('page');
+                return out;
+              }, { replace: true });
+              setPageState(1);
             }}
           >
             Top Rated
@@ -237,7 +278,12 @@ export function SearchPage() {
             className={'sort-btn' + (sortUi === 'longest' ? ' active' : '')}
             onClick={() => {
               setSortUi('longest');
-              setPage(1);
+              setSearchParams((prev) => {
+                const out = new URLSearchParams(prev);
+                out.delete('page');
+                return out;
+              }, { replace: true });
+              setPageState(1);
             }}
           >
             Longest
@@ -284,14 +330,14 @@ export function SearchPage() {
       {!errorKind && (
         <div className="media-grid" id="search-results-grid">
           {files.map((item, i) => (
-            <HomepageMediaTile key={videoCardStableKey(item, i)} file={item} badgeType="" />
+            <HomepageMediaTile key={videoCardStableKey(item, i)} file={item} badgeType="" listReturnPath={listReturnPath} />
           ))}
         </div>
       )}
 
       {!loading && !errorKind && files.length > 0 && totalPages > 1 && (
         <div className="pagination" id="search-pagination">
-          <button type="button" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+          <button type="button" disabled={page <= 1} onClick={() => commitSearchPage(page - 1)}>
             Back
           </button>
           {pageButtons.map((p) => (
@@ -299,7 +345,7 @@ export function SearchPage() {
               key={p}
               type="button"
               className={p === page ? 'active' : ''}
-              onClick={() => setPage(p)}
+              onClick={() => commitSearchPage(p)}
             >
               {p}
             </button>
@@ -307,7 +353,7 @@ export function SearchPage() {
           <button
             type="button"
             disabled={page >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            onClick={() => commitSearchPage(page + 1)}
           >
             Next
           </button>

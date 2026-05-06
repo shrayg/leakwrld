@@ -86,7 +86,8 @@ export default function App() {
           <Route path="/video.html" element={<VideoPage />} />
           <Route path="/nsfw-straight" element={<FolderPage seoFolder="NSFW Straight" />} />
           <Route path="/alt-and-goth" element={<FolderPage seoFolder="Alt and Goth" />} />
-          <Route path="/petitie" element={<FolderPage seoFolder="Petitie" />} />
+          <Route path="/petite" element={<FolderPage seoFolder="Petite" />} />
+          <Route path="/petitie" element={<Navigate to="/petite" replace />} />
           <Route path="/teen-18-plus" element={<FolderPage seoFolder="Teen (18+ only)" />} />
           <Route path="/milf" element={<FolderPage seoFolder="MILF" />} />
           <Route path="/asian" element={<FolderPage seoFolder="Asian" />} />
