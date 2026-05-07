@@ -7,12 +7,8 @@ import { OFFICIAL_DISCORD_INVITE_URL, OFFICIAL_TELEGRAM_URL } from '../../consta
 
 function getLinks(isAuthed) {
   return [
-    { to: '/', label: 'Home' },
-    { to: '/shorts', label: 'Shorts' },
-    { to: '/search', label: 'Videos' },
+    { to: '/categories', label: 'Creators' },
     { to: '/categories', label: 'Categories' },
-    { to: '/custom-requests', label: 'Custom Requests' },
-    { to: '/checkout', label: 'Premium' },
     ...(isAuthed ? [] : [{ to: '#', label: 'Login / Sign Up', authTab: 'login' }]),
     ...(isAuthed
       ? []
