@@ -18,24 +18,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    watch: {
-      ignored: [
-        '**/data/**',
-        '**/thumbnails/**',
-        '**/_data/**',
-      ],
-    },
     proxy: {
       '/api': { target: 'http://127.0.0.1:3002', changeOrigin: true },
-      '/auth': { target: 'http://127.0.0.1:3002', changeOrigin: true },
-      '/media': { target: 'http://127.0.0.1:3002', changeOrigin: true },
-      '/thumbnail': { target: 'http://127.0.0.1:3002', changeOrigin: true },
-      '/preview-media': { target: 'http://127.0.0.1:3002', changeOrigin: true },
-      '/assets/images': { target: 'http://127.0.0.1:3002', changeOrigin: true },
-      '/assets/thumbnails': { target: 'http://127.0.0.1:3002', changeOrigin: true },
-      '/assets/onlyfans': { target: 'http://127.0.0.1:3002', changeOrigin: true },
-      '/thumbnails': { target: 'http://127.0.0.1:3002', changeOrigin: true },
-      '/images': { target: 'http://127.0.0.1:3002', changeOrigin: true },
     },
   },
   resolve: {

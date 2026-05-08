@@ -1,179 +1,116 @@
+import { ArrowRight, Clock3, Crown, ShieldCheck, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { fetchRandomVideos, fetchFolderCounts } from '../api/client';
-import { PornwrldHero } from '../components/home/PornwrldHero';
-import { HeroReferralGoal } from '../components/home/HeroReferralGoal';
-import { HomeFolderGrid } from '../components/home/HomeFolderGrid';
-import { HorizontalScrollRail } from '../components/home/HorizontalScrollRail';
-import { HomepageMediaTile } from '../components/home/HomepageMediaTile';
-import { HomePersonalizedSections } from '../components/home/HomePersonalizedSections';
-import { HomeReferralTeaser, HOME_TOP_REFERRERS_ID } from '../components/home/HomeReferralTeaser';
-import { HomeTrendingSection } from '../components/home/HomeTrendingSection';
-import { LeaderboardDock } from '../components/shell/LeaderboardDock';
-import { useAuth } from '../hooks/useAuth';
-import { buildVideoId, sendTelemetry } from '../lib/telemetry';
-
-const PAGE_SIZE = 24;
-
-function HomeReferralLeaderRow() {
-  const { isAuthed, loading } = useAuth();
-  if (loading) {
-    return <div id={HOME_TOP_REFERRERS_ID} className="home-referral-lb-row home-referral-lb-row--loading" aria-hidden="true" />;
-  }
-  return (
-    <div id={HOME_TOP_REFERRERS_ID} className="home-referral-lb-row">
-      <div className="home-referral-lb-col home-referral-lb-col--leaderboard">
-        <LeaderboardDock inline />
-      </div>
-      <div className="home-referral-lb-col home-referral-lb-col--referral">
-        <HeroReferralGoal />
-      </div>
-    </div>
-  );
-}
+import { apiGet } from '../api';
+import { CREATORS, SHORTS } from '../data/catalog';
+import { CreatorCard, ShortCard } from '../components/CreatorCard';
 
 export function HomePage() {
-  const location = useLocation();
-  const listReturnPath = `${location.pathname}${location.search}`;
-  const [items, setItems] = useState([]);
-  const [counts, setCounts] = useState(null);
-  const [err, setErr] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [creators, setCreators] = useState(CREATORS);
+  const [shorts, setShorts] = useState(SHORTS);
+  const [queue, setQueue] = useState({ online: 0, capacity: 100, queued: false, position: 0 });
 
   useEffect(() => {
-    document.title = 'Pornwrld';
-    return () => {
-      document.title = 'Pornwrld';
-    };
+    document.title = 'Leak World';
+    apiGet('/api/creators', { creators: CREATORS }).then((data) => setCreators(data.creators || CREATORS));
+    apiGet('/api/shorts', { shorts: SHORTS }).then((data) => setShorts(data.shorts || SHORTS));
+    apiGet('/api/queue/status', queue).then(setQueue);
   }, []);
 
-  useEffect(() => {
-    const startedAt = Date.now();
-    return () => {
-      sendTelemetry('page_session', {
-        page: '/',
-        surface: 'home',
-        duration: Date.now() - startedAt,
-      });
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchFolderCounts().then((cRes) => {
-      if (cancelled || !cRes.ok || !cRes.data?.counts) return;
-      setCounts(cRes.data.counts);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setErr(null);
-      try {
-        const vRes = await fetchRandomVideos({
-          limit: String(PAGE_SIZE),
-          page: '0',
-          sort: 'top_random',
-          topPercent: '15',
-        });
-        if (cancelled) return;
-        if (vRes.ok && vRes.data?.files) {
-          let files = Array.isArray(vRes.data.files) ? vRes.data.files : [];
-          if (files.length > 0 && files.length < 12 && !cancelled) {
-            const pad = await fetchRandomVideos({
-              limit: String(PAGE_SIZE),
-              page: '0',
-              sort: 'random',
-            });
-            if (!cancelled && pad.ok && Array.isArray(pad.data?.files)) {
-              const seen = new Set(
-                files.map((f) => f.videoKey || f.videoId || `${f.folder || ''}/${f.subfolder || ''}/${f.name || ''}`),
-              );
-              for (const f of pad.data.files) {
-                if (files.length >= PAGE_SIZE) break;
-                const k = f.videoKey || f.videoId || `${f.folder || ''}/${f.subfolder || ''}/${f.name || ''}`;
-                if (!k || seen.has(k)) continue;
-                seen.add(k);
-                files.push(f);
-              }
-            }
-          }
-          setItems(files);
-          files.slice(0, 20).forEach((f, idx) => {
-            sendTelemetry('impression', {
-              surface: 'home_popular',
-              slot: idx,
-              rank: idx + 1,
-              videoId: f.videoId || buildVideoId(f.folder, f.subfolder || '', f.name, f.vault),
-              folder: f.folder,
-              subfolder: f.subfolder || '',
-              name: f.name,
-            });
-          });
-        } else if (vRes.ok && Array.isArray(vRes.data)) {
-          setItems(vRes.data);
-        } else {
-          setErr('Could not load videos');
-          setItems([]);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setErr(String(e));
-          setItems([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const topCreators = creators.slice(0, 8);
+  const featuredShorts = shorts.slice(0, 6);
 
   return (
-    <div className="page-content homepage pornwrld-home">
-      <div className="home-hero-fade-stack">
-        <PornwrldHero />
-        <HomeReferralTeaser />
-      </div>
-      <HomeFolderGrid counts={counts} />
-      <HomeTrendingSection />
-      <HomeReferralLeaderRow />
+    <div className="space-y-8">
+      <section className="lw-hero">
+        <div className="lw-hero-media" aria-hidden="true">
+          <div className="lw-hero-window">
+            {topCreators.slice(0, 6).map((creator, index) => (
+              <div key={creator.slug} className={`lw-hero-tile accent-${creator.accent}`} style={{ animationDelay: `${index * 90}ms` }}>
+                <span>#{creator.rank}</span>
+                <b>{creator.name}</b>
+              </div>
+            ))}
+          </div>
+        </div>
 
-      <HomePersonalizedSections />
-
-      <section className="homepage-videos-section" aria-labelledby="discover-videos-heading">
-        {loading && <p className="page-loading">Loading…</p>}
-        {err && <p className="page-error">{err}</p>}
-
-        {!loading && !err && (
-          <>
-            <HorizontalScrollRail
-              title="Popular videos"
-              titleId="discover-videos-heading"
-              allHref="/search?mode=popular"
-              allLabel="ALL"
-              scrollClassName="pornwrld-video-rail-scroll"
-            >
-              {items.map((item, i) => (
-                <HomepageMediaTile key={(item.videoKey || item.name) + String(i)} file={item} badgeType="" listReturnPath={listReturnPath} />
-              ))}
-            </HorizontalScrollRail>
-            {items.length === 0 ? (
-              <p className="homepage-empty-state">
-                No preview videos loaded yet. If you run the site locally, ensure storage (R2) is enabled and the library
-                is indexed — otherwise the popular list stays empty.
-              </p>
-            ) : null}
-          </>
-        )}
+        <div className="lw-hero-copy">
+          <span className="lw-eyebrow">Top 100 creators rebuilt for Postgres</span>
+          <h1>Leak World</h1>
+          <p>
+            A clean creator-first rebuild with free previews, premium-ready media slots, login, signup, and a queue
+            system foundation for high traffic.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/categories" className="lw-btn primary">
+              Browse creators
+              <ArrowRight size={16} />
+            </Link>
+            <Link to="/shorts" className="lw-btn ghost">
+              Watch shorts
+            </Link>
+          </div>
+        </div>
       </section>
 
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="lw-stat">
+          <Users size={18} />
+          <b>{creators.length}</b>
+          <span>Creators loaded</span>
+        </div>
+        <div className="lw-stat">
+          <ShieldCheck size={18} />
+          <b>Postgres</b>
+          <span>Auth and content database</span>
+        </div>
+        <div className="lw-stat">
+          <Clock3 size={18} />
+          <b>{queue.online}/{queue.capacity}</b>
+          <span>{queue.queued ? `Queue position ${queue.position}` : 'Queue clear'}</span>
+        </div>
+        <div className="lw-stat">
+          <Crown size={18} />
+          <b>3 tiers</b>
+          <span>Payments ready later</span>
+        </div>
+      </section>
+
+      <section className="lw-section">
+        <div className="lw-section-head">
+          <div>
+            <span className="lw-eyebrow">Featured</span>
+            <h2>Top creator cards</h2>
+          </div>
+          <Link to="/categories" className="lw-link">
+            View all
+            <ArrowRight size={15} />
+          </Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {topCreators.map((creator) => (
+            <CreatorCard key={creator.slug} creator={creator} />
+          ))}
+        </div>
+      </section>
+
+      <section className="lw-section">
+        <div className="lw-section-head">
+          <div>
+            <span className="lw-eyebrow">Shorts</span>
+            <h2>Free and premium previews</h2>
+          </div>
+          <Link to="/shorts" className="lw-link">
+            Open shorts
+            <ArrowRight size={15} />
+          </Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {featuredShorts.map((item, index) => (
+            <ShortCard key={item.id} item={item} index={index} />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

@@ -1,58 +1,68 @@
-import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { PageHero } from '../components/layout/PageHero';
-import { LEAK_WORLD_CREATORS } from '../lib/leakWorldCreators';
+import { Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { apiGet } from '../api';
+import { CATEGORIES, CREATORS } from '../data/catalog';
+import { CreatorCard } from '../components/CreatorCard';
 
 export function CategoriesPage() {
-  const navigate = useNavigate();
+  const [creators, setCreators] = useState(CREATORS);
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('');
 
   useEffect(() => {
-    document.title = 'Creators — Leak World';
-    document.body.classList.add('is-categories-page');
-    return () => {
-      document.body.classList.remove('is-categories-page');
-      document.title = 'Leak World';
-    };
+    document.title = 'Categories - Leak World';
   }, []);
 
-  return (
-    <main className="page-content categories-page">
-      <div className="categories-page-back-wrap">
-        <button
-          type="button"
-          className="categories-page-back-btn"
-          onClick={() => {
-            if (window.history.length > 1) navigate(-1);
-            else navigate('/');
-          }}
-        >
-          Back
-        </button>
-      </div>
-      <PageHero
-        title="Leak World Creators"
-        subtitle="Top 100 creator categories. Video browsing has been removed from this experience."
-      />
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (query.trim()) params.set('q', query.trim());
+    if (category) params.set('category', category);
+    apiGet(`/api/creators?${params.toString()}`, { creators: CREATORS }).then((data) => {
+      setCreators(data.creators || CREATORS);
+    });
+  }, [query, category]);
 
-      <section className="categories-page-section" aria-labelledby="categories-grid-heading">
-        <h2 id="categories-grid-heading" className="categories-page-visually-hidden">
-          Browse libraries
-        </h2>
-        <div className="media-grid folder-media-grid categories-page-grid">
-          {LEAK_WORLD_CREATORS.map((creator) => (
-            <article key={creator.rank} className="media-item video-item categories-page-tile">
-              <div className="media-info">
-                <h3 className="media-title">
-                  {creator.rank}. {creator.name}
-                </h3>
-                <div className="media-stats-row">
-                  <span className="media-stat-tag media-stat-category">{creator.marketRead}</span>
-                </div>
-              </div>
-            </article>
+  const visible = creators.filter((creator) => {
+    const matchesQuery = !query.trim() || creator.name.toLowerCase().includes(query.trim().toLowerCase());
+    const matchesCategory = !category || creator.category === category;
+    return matchesQuery && matchesCategory;
+  });
+
+  return (
+    <div className="space-y-6">
+      <section className="lw-page-head">
+        <span className="lw-eyebrow">Creator index</span>
+        <h1>Categories</h1>
+        <p>Top 100 creators grouped into a clean content model for free and paid access.</p>
+      </section>
+
+      <section className="lw-toolbar">
+        <label className="lw-search-field">
+          <Search size={16} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search the top 100" />
+        </label>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <button type="button" className={`lw-filter ${category === '' ? 'active' : ''}`} onClick={() => setCategory('')}>
+            All
+          </button>
+          {CATEGORIES.map((item) => (
+            <button
+              type="button"
+              key={item}
+              className={`lw-filter ${category === item ? 'active' : ''}`}
+              onClick={() => setCategory(item)}
+            >
+              {item}
+            </button>
           ))}
         </div>
       </section>
-    </main>
+
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {visible.map((creator) => (
+          <CreatorCard key={creator.slug} creator={creator} />
+        ))}
+      </section>
+    </div>
   );
 }

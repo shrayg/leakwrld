@@ -1,4 +1,0 @@
-/* Canonical theme entrypoint for Pornwrld styling.
- * During migration this imports the legacy theme file to avoid visual regressions.
- */
-@import "./pornwrld-legacy-theme.css";

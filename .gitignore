@@ -5,55 +5,11 @@
 
 # Runtime / logs
 *.log
-server.out.log
-server.err.log
 cookies.txt
-cookies_*.txt
-STRIPE_SETUP.md
-
-# Stray duplicate analytics / sessions (canonical paths use TBW_DATA_DIR / `data/`)
-_data/
-
-# Media folders (keep private / large files)
-Streamer Wins/
-Points Game/
-Dick Reactions/
-Tit Flashing/
-Ass Flashing/
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Generated thumbnail cache (repo root ffmpeg cache — not SPA public thumbnails)
-/thumbnails/
-
-# Temp / upload staging
-bunkr_tmp/
-
-# Credentials
-superteam-agent-credentials.md
-
-# Misc scripts / docs (not part of the site)
-bobby_files.py
-osu_maps_recommendation.py
-reddit-redgifs-growth-strategy.md
-Backlink_Action_Plan.docx
-bunkr_upload.sh
-bunkr_urls.txt
-
-# Binaries
-rclone
-rclone.exe
-rclone.1
-
-# Misc scripts / artifacts not part of the site
-admin_user.py
-REDDIT_ANALYSIS_REPORT.md
-CUserslardDesktopfeet_list.json
-b310c64bc9072650dab368ce25fd495f.txt
-script.js.bak
-script_header.tmp
 
 # Node
 node_modules/
@@ -61,12 +17,7 @@ node_modules/
 # Vite React build output
 client/dist/
 
-# Runtime local fallbacks (Supabase is canonical)
+# Local artifacts
 data/
 backups/
-
-# Workspace artifacts from migration/exploration
-.next/
-reference-pornwrld/
-design-extract-output/
-tsconfig.tsbuildinfo
+*.tmp
