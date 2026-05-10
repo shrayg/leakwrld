@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiPost } from '../api';
 import { useAuth } from '../components/AuthContext';
@@ -11,24 +11,38 @@ export function AuthPage({ mode }) {
   const { refresh } = useAuth();
   const [form, setForm] = useState({
     email: '',
+    phone: '',
     username: '',
     identifier: '',
     password: '',
+    confirmPassword: '',
     referralCode: refFromUrl,
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [cooldownSec, setCooldownSec] = useState(0);
+
+  useEffect(() => {
+    if (cooldownSec <= 0) return;
+    const t = setInterval(() => {
+      setCooldownSec((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [cooldownSec]);
 
   async function submit(e) {
     e.preventDefault();
+    if (cooldownSec > 0) return;
     setBusy(true);
     setError('');
     try {
       if (isSignup) {
         await apiPost('/api/auth/signup', {
           email: form.email.trim() || undefined,
+          phone: form.phone.trim() || undefined,
           username: form.username,
           password: form.password,
+          confirmPassword: form.confirmPassword,
           referralCode: form.referralCode.trim() || undefined,
         });
       } else {
@@ -41,10 +55,16 @@ export function AuthPage({ mode }) {
       navigate('/');
     } catch (err) {
       setError(err.message || 'Authentication failed');
+      const retry = Number(err.retryAfterSeconds);
+      if (retry > 0) {
+        setCooldownSec(Math.ceil(retry));
+      }
     } finally {
       setBusy(false);
     }
   }
+
+  const blocked = cooldownSec > 0;
 
   return (
     <div className="mx-auto grid max-w-5xl gap-4 lg:grid-cols-[1fr_420px]">
@@ -63,6 +83,17 @@ export function AuthPage({ mode }) {
         {isSignup ? (
           <>
             <label>
+              Username
+              <input
+                autoComplete="username"
+                value={form.username}
+                onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+                minLength={3}
+                maxLength={24}
+                required
+              />
+            </label>
+            <label>
               Email <span className="text-white/45">(optional)</span>
               <input
                 type="email"
@@ -73,14 +104,13 @@ export function AuthPage({ mode }) {
               />
             </label>
             <label>
-              Username
+              Phone <span className="text-white/45">(optional)</span>
               <input
-                autoComplete="username"
-                value={form.username}
-                onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-                minLength={3}
-                maxLength={24}
-                required
+                type="tel"
+                autoComplete="tel"
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                placeholder="digits only, 10–15"
               />
             </label>
             <label>
@@ -108,15 +138,39 @@ export function AuthPage({ mode }) {
           Password
           <input
             type="password"
+            autoComplete={isSignup ? 'new-password' : 'current-password'}
             value={form.password}
             onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
             minLength={8}
             required
           />
         </label>
+        {isSignup ? (
+          <label>
+            Confirm password
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={form.confirmPassword}
+              onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value }))}
+              minLength={8}
+              required
+            />
+          </label>
+        ) : null}
         {error ? <p className="lw-form-error">{error}</p> : null}
-        <button type="submit" className="lw-btn primary w-full justify-center" disabled={busy}>
-          {busy ? 'Working...' : isSignup ? 'Create account' : 'Login'}
+        <button
+          type="submit"
+          className="lw-btn primary w-full justify-center"
+          disabled={busy || blocked}
+        >
+          {busy
+            ? 'Working...'
+            : blocked
+              ? `Wait ${cooldownSec}s and try again`
+              : isSignup
+                ? 'Create account'
+                : 'Login'}
         </button>
         <p className="text-center text-sm text-white/55">
           {isSignup ? 'Already have an account?' : 'Need an account?'}{' '}

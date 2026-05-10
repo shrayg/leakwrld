@@ -73,6 +73,76 @@ function clientUserAgent(req) {
   return String(req.headers['user-agent'] || '').slice(0, 512);
 }
 
+/** After this many failed login/signup attempts per IP, enforce a short cooldown. */
+const AUTH_THROTTLE_STRIKES = 3;
+const AUTH_THROTTLE_COOLDOWN_MS = 5000;
+const loginThrottle = new Map();
+const signupThrottle = new Map();
+
+function authThrottleSecondsLeft(map, ip) {
+  const now = Date.now();
+  const e = map.get(ip);
+  if (!e?.lockedUntil) return 0;
+  if (now >= e.lockedUntil) {
+    map.delete(ip);
+    return 0;
+  }
+  return Math.ceil((e.lockedUntil - now) / 1000);
+}
+
+function authThrottleReject(res, map, ip) {
+  const sec = authThrottleSecondsLeft(map, ip);
+  if (sec > 0) {
+    sendJson(res, 429, {
+      error: `Too many attempts. Wait ${sec}s and try again.`,
+      retryAfterSeconds: sec,
+    });
+    return true;
+  }
+  return false;
+}
+
+/** Returns { locked, retryAfterSeconds? } — when locked, respond with 429 instead of the usual auth error. */
+function authThrottleRegisterFailure(map, ip) {
+  const now = Date.now();
+  let e = map.get(ip);
+  if (e?.lockedUntil && now < e.lockedUntil) {
+    return { locked: true, retryAfterSeconds: Math.ceil((e.lockedUntil - now) / 1000) };
+  }
+  if (!e || !e.lockedUntil || now >= e.lockedUntil) {
+    e = { strikes: 0, lockedUntil: 0 };
+  }
+  e.strikes += 1;
+  if (e.strikes >= AUTH_THROTTLE_STRIKES) {
+    e.lockedUntil = now + AUTH_THROTTLE_COOLDOWN_MS;
+    e.strikes = 0;
+    map.set(ip, e);
+    return { locked: true, retryAfterSeconds: Math.ceil(AUTH_THROTTLE_COOLDOWN_MS / 1000) };
+  }
+  map.set(ip, e);
+  return { locked: false };
+}
+
+function authThrottleClear(map, ip) {
+  map.delete(ip);
+}
+
+function normalizeOptionalPhone(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return { phone: null };
+  if (digits.length < 10 || digits.length > 15) {
+    return { error: 'Phone must be 10-15 digits if provided.' };
+  }
+  return { phone: digits };
+}
+
+function signupConflictMessage(err) {
+  const c = String(err.constraint || '');
+  if (c.includes('phone')) return 'That phone number is already registered.';
+  if (c.includes('email')) return 'That email is already registered.';
+  return 'That username is already taken.';
+}
+
 const pool = DATABASE_URL
   ? new Pool({
       connectionString: DATABASE_URL,
@@ -272,6 +342,7 @@ function normalizeUser(row) {
   return {
     id: row.id,
     email: row.email,
+    phone: row.phone || null,
     username: row.username,
     tier: row.tier || 'free',
     referralCode: row.referral_code,
@@ -319,7 +390,7 @@ async function currentUser(req) {
   const token = parseCookies(req)[SESSION_COOKIE];
   if (!token) return null;
   const found = await dbQuery(
-    `select u.id, u.email, u.username, u.tier, u.created_at,
+    `select u.id, u.email, u.phone, u.username, u.tier, u.created_at,
             u.referral_code, u.referral_signups_count, u.referred_by_user_id,
             u.watch_time_seconds, u.site_time_seconds, u.plan_label, u.last_active_at
      from sessions s
@@ -350,10 +421,14 @@ function validateSignup(body) {
   const emailRaw = String(body.email || '').trim().toLowerCase();
   const username = String(body.username || '').trim();
   const password = String(body.password || '');
+  const confirmPassword = String(body.confirmPassword ?? body.confirm_password ?? '');
   const email = emailRaw === '' ? null : emailRaw;
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Enter a valid email or leave it blank.';
   if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return 'Username must be 3-24 characters.';
   if (password.length < 8) return 'Password must be at least 8 characters.';
+  if (confirmPassword !== password) return 'Passwords do not match.';
+  const phoneCheck = normalizeOptionalPhone(body.phone || body.phoneNumber || '');
+  if (phoneCheck.error) return phoneCheck.error;
   return null;
 }
 
@@ -385,8 +460,12 @@ async function routeApi(req, res, url) {
             .toLowerCase();
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
+    const phoneParsed = normalizeOptionalPhone(body.phone || body.phoneNumber || '');
+    const phoneFinal = phoneParsed.phone ?? null;
     const refNorm = normalizeReferralCode(body.referralCode || body.referral_code || '');
-    const ip = clientIp(req);
+    const ip = clientIp(req) || 'unknown';
+
+    if (authThrottleReject(res, signupThrottle, ip)) return;
 
     const client = await pool.connect();
     try {
@@ -397,6 +476,13 @@ async function routeApi(req, res, url) {
         const refRow = await client.query('select id from users where referral_code = $1', [refNorm]);
         if (!refRow.rows[0]) {
           await client.query('rollback');
+          const th = authThrottleRegisterFailure(signupThrottle, ip);
+          if (th.locked) {
+            return sendJson(res, 429, {
+              error: `Too many attempts. Wait ${th.retryAfterSeconds}s and try again.`,
+              retryAfterSeconds: th.retryAfterSeconds,
+            });
+          }
           return sendJson(res, 400, { error: 'Invalid referral code.' });
         }
         referrerId = refRow.rows[0].id;
@@ -408,13 +494,13 @@ async function routeApi(req, res, url) {
         try {
           inserted = await client.query(
             `insert into users (
-              email, username, password_hash, referral_code,
+              email, phone, username, password_hash, referral_code,
               referred_by_user_id, signup_ip, last_ip, last_active_at, auth_provider
-            ) values ($1,$2,$3,$4,$5,$6,$7, now(), 'local')
-            returning id, email, username, tier, created_at,
+            ) values ($1,$2,$3,$4,$5,$6,$7,$8, now(), 'local')
+            returning id, email, phone, username, tier, created_at,
               referral_code, referral_signups_count, referred_by_user_id,
               watch_time_seconds, site_time_seconds, plan_label, last_active_at`,
-            [emailFinal, username, passwordHash(password), code, referrerId, ip || null, ip || null],
+            [emailFinal, phoneFinal, username, passwordHash(password), code, referrerId, ip || null, ip || null],
           );
           break;
         } catch (err) {
@@ -426,7 +512,14 @@ async function routeApi(req, res, url) {
           }
           if (String(err.code) === '23505') {
             await client.query('rollback');
-            return sendJson(res, 409, { error: 'Email or username already exists.' });
+            const th = authThrottleRegisterFailure(signupThrottle, ip);
+            if (th.locked) {
+              return sendJson(res, 429, {
+                error: `Too many attempts. Wait ${th.retryAfterSeconds}s and try again.`,
+                retryAfterSeconds: th.retryAfterSeconds,
+              });
+            }
+            return sendJson(res, 409, { error: signupConflictMessage(err) });
           }
           throw err;
         }
@@ -434,6 +527,13 @@ async function routeApi(req, res, url) {
 
       if (!inserted || !inserted.rows[0]) {
         await client.query('rollback');
+        const th = authThrottleRegisterFailure(signupThrottle, ip);
+        if (th.locked) {
+          return sendJson(res, 429, {
+            error: `Too many attempts. Wait ${th.retryAfterSeconds}s and try again.`,
+            retryAfterSeconds: th.retryAfterSeconds,
+          });
+        }
         return sendJson(res, 500, { error: 'Could not allocate referral code.' });
       }
 
@@ -447,6 +547,7 @@ async function routeApi(req, res, url) {
       }
 
       await client.query('commit');
+      authThrottleClear(signupThrottle, ip);
       await createSession(res, newUser.id, req);
       return sendJson(res, 201, { user: normalizeUser(newUser) });
     } catch (err) {
@@ -463,8 +564,10 @@ async function routeApi(req, res, url) {
     const identifier = String(body.identifier || body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
     if (!identifier || !password) return sendJson(res, 400, { error: 'Email/username and password are required.' });
+    const ip = clientIp(req) || 'unknown';
+    if (authThrottleReject(res, loginThrottle, ip)) return;
     const found = await dbQuery(
-      `select id, email, username, password_hash, tier, created_at,
+      `select id, email, phone, username, password_hash, tier, created_at,
               referral_code, referral_signups_count, referred_by_user_id,
               watch_time_seconds, site_time_seconds, plan_label, last_active_at,
               banned_at
@@ -475,8 +578,16 @@ async function routeApi(req, res, url) {
     );
     const row = found.rows[0];
     if (!row || row.banned_at || !verifyPassword(password, row.password_hash)) {
+      const th = authThrottleRegisterFailure(loginThrottle, ip);
+      if (th.locked) {
+        return sendJson(res, 429, {
+          error: `Too many attempts. Wait ${th.retryAfterSeconds}s and try again.`,
+          retryAfterSeconds: th.retryAfterSeconds,
+        });
+      }
       return sendJson(res, 401, { error: 'Invalid credentials.' });
     }
+    authThrottleClear(loginThrottle, ip);
     await dbQuery(
       'update users set last_ip = $2, last_active_at = now(), updated_at = now() where id = $1',
       [row.id, clientIp(req) || null],

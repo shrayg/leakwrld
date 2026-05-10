@@ -29,7 +29,12 @@ export async function apiPost(path, body) {
     data = null;
   }
   if (!response.ok) {
-    throw new Error(data?.error || 'Request failed');
+    const err = new Error(data?.error || 'Request failed');
+    err.status = response.status;
+    if (data?.retryAfterSeconds != null) {
+      err.retryAfterSeconds = Number(data.retryAfterSeconds);
+    }
+    throw err;
   }
   return data;
 }

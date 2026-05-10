@@ -15,6 +15,7 @@ create extension if not exists pgcrypto;
 create table if not exists users (
   id uuid primary key default gen_random_uuid(),
   email text unique,
+  phone text,
   username text not null unique,
   password_hash text,
   auth_provider text not null default 'local' check (auth_provider in ('local', 'google', 'discord', 'other')),
@@ -34,6 +35,8 @@ create table if not exists users (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+create unique index if not exists users_phone_unique_idx on users (phone) where phone is not null;
 
 create index if not exists users_email_lower_idx on users (lower(email));
 create index if not exists users_username_lower_idx on users (lower(username));
