@@ -65,10 +65,10 @@ function rotatePassword() {
   return { password, hourEpoch };
 }
 
-async function postDiscordWebhook(password, nextRotationUtcIso) {
+async function postDiscordWebhook(password) {
   const url = String(process.env.ADMIN_DISCORD_WEBHOOK_URL || '').trim();
   if (!url) {
-    console.warn('[admin] ADMIN_DISCORD_WEBHOOK_URL not set — hourly password not posted to Discord');
+    console.warn('[admin] ADMIN_DISCORD_WEBHOOK_URL not set — admin password not posted to Discord');
     return;
   }
 
@@ -77,12 +77,11 @@ async function postDiscordWebhook(password, nextRotationUtcIso) {
     username: 'Leak World',
     embeds: [
       {
-        title: 'Admin password rotated',
+        title: 'Admin',
         color: 0xf268b8,
         fields: [
-          { name: 'Site / origin', value: `\`${origin}\``, inline: false },
-          { name: 'Password (current hour)', value: `\`${password}\``, inline: false },
-          { name: 'Next rotation (UTC)', value: nextRotationUtcIso, inline: false },
+          { name: 'Site', value: `\`${origin}\``, inline: false },
+          { name: 'Password', value: `\`${password}\``, inline: false },
         ],
       },
     ],
@@ -105,8 +104,7 @@ async function postDiscordWebhook(password, nextRotationUtcIso) {
 
 async function hourlyTick() {
   const { password } = rotatePassword();
-  const nextMs = Math.ceil(Date.now() / HOUR_MS) * HOUR_MS;
-  await postDiscordWebhook(password, new Date(nextMs).toISOString());
+  await postDiscordWebhook(password);
 }
 
 function msUntilNextUtcHourBoundary() {

@@ -89,20 +89,20 @@ export function AdminPage() {
       <div className="lw-admin-inner mx-auto max-w-lg">
         <h1 className="mb-1 text-2xl font-semibold text-white">Admin</h1>
         <p className="mb-8 text-sm text-white/55">
-          Password rotates every UTC hour and is posted to your Discord webhook when{' '}
-          <code className="text-[var(--color-primary-light)]">ADMIN_DISCORD_WEBHOOK_URL</code> is set.
+          Sign in with the password from your channel (when{' '}
+          <code className="text-[var(--color-primary-light)]">ADMIN_DISCORD_WEBHOOK_URL</code> is set in{' '}
+          <code className="text-[var(--color-primary-light)]">.env</code>).
         </p>
 
         {!session.ok ? (
           <form className="lw-form lw-admin-form" onSubmit={login}>
             <label>
-              Hourly password
+              Password
               <input
                 type="password"
                 autoComplete="off"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="From Discord"
                 required
               />
             </label>

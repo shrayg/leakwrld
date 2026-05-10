@@ -1101,7 +1101,7 @@ server.listen(PORT, HOST, () => {
   if (R2_WORKER_ORIGIN) console.log(`R2 media: proxied via Worker (${R2_WORKER_ORIGIN})`);
   else if (process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID) console.log('R2 media: rclone stream (dev)');
   else console.log('R2 media: disabled — set R2_WORKER_ORIGIN on VPS or rclone env locally');
-  console.log(`Admin /admin → hourly password${process.env.ADMIN_DISCORD_WEBHOOK_URL ? ' + Discord' : ' (set ADMIN_DISCORD_WEBHOOK_URL to notify)'}`);
+  console.log(`Admin /admin → password${process.env.ADMIN_DISCORD_WEBHOOK_URL ? ' + Discord' : ' (set ADMIN_DISCORD_WEBHOOK_URL to notify)'}`);
 });
 
 process.on('SIGTERM', async () => {

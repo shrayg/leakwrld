@@ -60,12 +60,12 @@ Copy **`.env`** in the repo root (gitignored — create from scratch or sync fro
 | `SESSION_SECRET` | Cookie / session signing |
 | `PORT`, `HOST` | Node HTTP bind (`HOST=127.0.0.1` typical behind nginx) |
 | `SECURE_COOKIES` | Set `1` only when the **browser** loads the site over **HTTPS** (required for `Secure` session cookies). Leave unset/`0` for `http://` or cookies are ignored and login appears broken. |
-| `ADMIN_DISCORD_WEBHOOK_URL` | Optional. **Secret** — do not commit. If set, the server posts the **rotating hourly `/admin` password** (and site label) here. **Regenerate the webhook** if the URL leaks. |
-| `PUBLIC_SITE_URL` | Shown in Discord admin alerts (e.g. `http://45.156.87.83` or your domain) so you can tell localhost vs production. |
+| `ADMIN_DISCORD_WEBHOOK_URL` | Optional. **Secret** — do not commit. If set, the server posts the **`/admin` password** (and site label) here. **Regenerate the webhook** if the URL leaks. |
+| `PUBLIC_SITE_URL` | Shown with the admin Discord message (e.g. `http://45.156.87.83` or your domain) so you can tell localhost vs production. |
 | `ADMIN_SESSION_SECRET` | Optional separate HMAC secret for the admin cookie; defaults to `SESSION_SECRET`. |
 | `ONLINE_CAPACITY`, `SKIP_QUEUE_PRICE_CENTS` | Queue endpoint |
 
-**`/admin`:** Hourly password + Discord (if webhook env is set). Uses cookie `lw_admin` (independent of member login). Anyone with the webhook URL can see passwords — treat Discord channel access as sensitive.
+**`/admin`:** Password login + optional Discord notification (webhook env). Uses cookie `lw_admin` (independent of member login). Anyone with the webhook URL can see passwords — treat Discord channel access as sensitive.
 
 **Recommended on VPS:** **`R2_WORKER_ORIGIN`** — same public **`https://…workers.dev`** URL as your Worker. Set in **`.env`**, **`systemctl restart leakwrld`** only — Node proxies **`/r2/*`** to Cloudflare (no `npm run build`, no R2 keys).  
 
