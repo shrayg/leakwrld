@@ -127,7 +127,8 @@ function normalizeManifestTier(tierRaw) {
 
 function mediaTypeFromKind(kind) {
   const k = String(kind || '').toLowerCase();
-  if (k === 'image') return 'photo';
+  if (k === 'short') return 'short';
+  if (k === 'image' || k === 'photo' || k === 'gif') return 'photo';
   return 'video';
 }
 
@@ -150,7 +151,14 @@ async function ensureManifestMediaRow(client, parsed, kind) {
        id, creator_slug, title, media_type, tier, duration_seconds, storage_path,
        views, likes, watch_seconds_total, watch_sessions, status
      ) values ($1,$2,$3,$4,$5,0,$6,0,0,0,0,'published')
-     on conflict (id) do nothing`,
+     on conflict (id) do update set
+       media_type = case
+         when excluded.media_type = 'short' then 'short'
+         else media_items.media_type
+       end,
+       tier = excluded.tier,
+       storage_path = excluded.storage_path,
+       updated_at = now()`,
     [id, parsed.creatorSlug, title, mediaType, tier, parsed.key],
   );
   return id;

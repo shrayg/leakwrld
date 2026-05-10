@@ -888,6 +888,7 @@ input {
 
 .lw-card {
   min-width: 0;
+  overflow: hidden;
   box-shadow: 0 18px 34px rgba(0, 0, 0, 0.22);
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
@@ -1135,6 +1136,10 @@ input {
   min-height: calc(100vh - 168px);
 }
 
+body.lw-shorts-active-body {
+  overflow: hidden;
+}
+
 .lw-shorts-player-shell {
   position: relative;
   width: min(100%, 520px);
@@ -1322,6 +1327,20 @@ input {
   border-color: rgba(242, 104, 184, 0.62);
   background: rgba(242, 104, 184, 0.22);
   color: white;
+}
+
+.lw-short-share-toast {
+  justify-self: end;
+  margin-right: 2px;
+  border: 1px solid rgba(100, 240, 166, 0.45);
+  border-radius: 999px;
+  background: rgba(12, 42, 28, 0.92);
+  color: #d4ffe9;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 6px 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
 }
 
 .lw-short-action:disabled {
@@ -1790,12 +1809,8 @@ input {
   display: block;
   color: inherit;
   text-decoration: none;
-  border-radius: 12px;
-  transition: transform 200ms ease, box-shadow 200ms ease;
-}
-
-.lw-card-link:hover {
-  transform: translateY(-2px);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .lw-card-link:focus-visible {
@@ -2127,6 +2142,48 @@ input {
 .lw-lightbox-meta {
   color: rgba(255, 255, 255, 0.7);
   font-size: 12px;
+}
+
+.lw-lightbox-like-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05));
+  color: rgba(255, 255, 255, 0.96);
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.34);
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.lw-lightbox-like-btn:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.42);
+}
+
+.lw-lightbox-like-btn:focus-visible {
+  outline: 2px solid rgba(255, 77, 166, 0.9);
+  outline-offset: 2px;
+}
+
+.lw-lightbox-like-icon {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.lw-lightbox-like-btn.is-liked {
+  border-color: rgba(255, 77, 166, 0.75);
+  background: linear-gradient(180deg, rgba(255, 77, 166, 0.34), rgba(255, 77, 166, 0.16));
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(255, 77, 166, 0.35);
+}
+
+.lw-lightbox-like-btn.is-liked .lw-lightbox-like-icon {
+  color: #ff4da6;
 }
 
 @media (max-width: 860px) {

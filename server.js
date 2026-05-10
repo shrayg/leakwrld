@@ -70,7 +70,7 @@ const TIER_DISPLAY_LABELS = {
   tier2: 'Tier 2',
   ultimate: 'Tier 3 / Ultimate',
   tier3: 'Tier 3',
-  admin: 'Admin',
+  admin: 'Tier 3 / Ultimate',
 };
 const ACCOUNT_TIER_ALIASES = {
   free: 'free',
@@ -492,23 +492,20 @@ async function ensureCatalogSeeded() {
         ],
       );
     }
-    for (const item of fallbackShorts) {
-      await client.query(
-        `insert into media_items
-          (id, creator_slug, title, media_type, tier, duration_seconds, views, likes, status)
-         values ($1,$2,$3,'short',$4,$5,$6,$7,'published')
-         on conflict (id) do nothing`,
-        [
-          item.id,
-          item.creatorSlug,
-          item.title,
-          item.tier,
-          durationToSeconds(item.duration),
-          item.views,
-          item.likes,
-        ],
-      );
-    }
+    /** Legacy catalog preview shorts were seeded with demo engagement in older builds.
+     *  Current Shorts are R2/manifest media, so keep placeholder `short-*` rows out of admin analytics. */
+    await client.query(
+      `update media_items
+       set status = 'hidden',
+         views = 0,
+         likes = 0,
+         watch_seconds_total = 0,
+         watch_sessions = 0,
+         updated_at = now()
+       where id like 'short-%'
+         and media_type = 'short'
+         and storage_path is null`,
+    );
     await client.query('commit');
   } catch (err) {
     await client.query('rollback');
@@ -1005,6 +1002,7 @@ async function routeApi(req, res, url) {
       return sendJson(res, 503, { error: 'Database not configured.', siteLabel: adminHourly.publicSiteLabel() });
     }
     try {
+      await ensureCatalogSeeded();
       const rangeParam = adminDashboard.parseDashboardRange(url.searchParams.get('range'));
       const data = await adminDashboard.getDashboard(dbQuery, rangeParam);
       return sendJson(res, 200, {
@@ -1049,6 +1047,7 @@ async function routeApi(req, res, url) {
     }
     if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
     try {
+      await ensureCatalogSeeded();
       const page = adminDashboard.clampPage(url.searchParams.get('page'));
       const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
       const qParam = url.searchParams.get('q') ?? '';

@@ -52,7 +52,7 @@ export const TIER_LABELS = {
   basic: 'Tier 1',
   premium: 'Tier 2',
   ultimate: 'Tier 3 / Ultimate',
-  admin: 'Admin',
+  admin: 'Tier 3 / Ultimate',
 };
 
 export const MANIFEST_TIER_ORDER = ['free', 'tier1', 'tier2', 'tier3'];

@@ -90,6 +90,7 @@ export function manifestMediaSessionStart({
 export function manifestMediaProgress({
   storageKey,
   creatorSlug,
+  kind,
   playbackSessionId,
   secondsDelta,
   durationSeconds = 0,
@@ -98,17 +99,19 @@ export function manifestMediaProgress({
     action: 'progress',
     storageKey,
     creatorSlug,
+    kind,
     playbackSessionId,
     secondsDelta,
     durationSeconds,
   });
 }
 
-export function manifestMediaLike({ storageKey, creatorSlug }) {
+export function manifestMediaLike({ storageKey, creatorSlug, kind }) {
   postMediaAnalytics({
     action: 'like',
     storageKey,
     creatorSlug,
+    kind,
   });
 }
 

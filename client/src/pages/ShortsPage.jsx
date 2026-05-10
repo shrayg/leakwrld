@@ -121,6 +121,17 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
   }, [isActive, item.key, isImage]);
 
   useEffect(() => {
+    if (!isImage || !isActive) return;
+    manifestMediaSessionStart({
+      storageKey: item.key,
+      creatorSlug: item.creatorSlug,
+      kind: 'short',
+      playbackSessionId: playbackId,
+      durationSeconds: 0,
+    });
+  }, [isImage, isActive, item.key, item.creatorSlug, playbackId]);
+
+  useEffect(() => {
     if (isImage) return;
     const video = videoRef.current;
     if (!video || !isActive) return;
@@ -134,6 +145,7 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
       manifestMediaProgress({
         storageKey: item.key,
         creatorSlug: item.creatorSlug,
+        kind: 'short',
         playbackSessionId: playbackId,
         secondsDelta: 0,
         durationSeconds,
@@ -144,7 +156,7 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
       manifestMediaSessionStart({
         storageKey: item.key,
         creatorSlug: item.creatorSlug,
-        kind: 'video',
+        kind: 'short',
         playbackSessionId: playbackId,
         durationSeconds: Math.floor(video.duration || item.durationSeconds || 0),
       });
@@ -158,6 +170,7 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
         manifestMediaProgress({
           storageKey: item.key,
           creatorSlug: item.creatorSlug,
+          kind: 'short',
           playbackSessionId: playbackId,
           secondsDelta: Math.min(120, delta),
           durationSeconds: Math.floor(video.duration || 0),
@@ -435,6 +448,8 @@ export function ShortsPage() {
   const pointerRef = useRef(null);
   const wheelLockRef = useRef(0);
   const requestSeq = useRef(0);
+  const playerShellRef = useRef(null);
+  const shareToastTimerRef = useRef(null);
   const feedSeedRef = useRef(
     typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
@@ -444,7 +459,13 @@ export function ShortsPage() {
   useEffect(() => {
     document.title = 'Shorts - Leak World';
     document.body.classList.add('lw-shorts-active-body');
-    return () => document.body.classList.remove('lw-shorts-active-body');
+    return () => {
+      document.body.classList.remove('lw-shorts-active-body');
+      if (shareToastTimerRef.current) {
+        window.clearTimeout(shareToastTimerRef.current);
+        shareToastTimerRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -577,6 +598,31 @@ export function ShortsPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [filterOpen, navOpen, navigateShort]);
 
+  useEffect(() => {
+    const onWheelLock = (e) => {
+      const shell = playerShellRef.current;
+      if (!shell) return;
+      const target = e.target instanceof Node ? e.target : null;
+      if (target && shell.contains(target)) return;
+      e.preventDefault();
+    };
+
+    const onKeyLock = (e) => {
+      const tag = String(e.target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+      if (e.key === ' ' || e.key === 'PageDown' || e.key === 'PageUp' || e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('wheel', onWheelLock, { passive: false });
+    window.addEventListener('keydown', onKeyLock);
+    return () => {
+      window.removeEventListener('wheel', onWheelLock);
+      window.removeEventListener('keydown', onKeyLock);
+    };
+  }, []);
+
   function toggleCreator(slug) {
     setSelectedCreators((prev) => {
       const next = new Set(prev || allCreatorSlugs);
@@ -606,7 +652,7 @@ export function ShortsPage() {
     storageSet(key, next);
     setReactions((state) => ({ ...state, [current.id]: next }));
     if (kind === 'like' && previous !== 'like') {
-      manifestMediaLike({ storageKey: current.key, creatorSlug: current.creatorSlug });
+      manifestMediaLike({ storageKey: current.key, creatorSlug: current.creatorSlug, kind: 'short' });
     }
     if (kind === 'dislike' && previous !== 'dislike') {
       recordEvent('short_dislike', {
@@ -627,6 +673,11 @@ export function ShortsPage() {
         await navigator.clipboard.writeText(url);
       }
       setShared(true);
+      if (shareToastTimerRef.current) window.clearTimeout(shareToastTimerRef.current);
+      shareToastTimerRef.current = window.setTimeout(() => {
+        setShared(false);
+        shareToastTimerRef.current = null;
+      }, 1600);
       recordEvent('short_share', {
         category: 'shorts',
         payload: { id: current.id, key: current.key, creatorSlug: current.creatorSlug },
@@ -681,7 +732,7 @@ export function ShortsPage() {
         openAuthModal={openAuthModal}
       />
 
-      <section className="lw-shorts-player-shell">
+      <section ref={playerShellRef} className="lw-shorts-player-shell">
         <div className="lw-shorts-topbar">
           <button type="button" className="lw-shorts-top-btn" aria-label="Open menu" onClick={() => setNavOpen(true)}>
             <Menu size={20} />
@@ -803,6 +854,7 @@ export function ShortsPage() {
               <button type="button" className={`lw-short-action ${shared ? 'active' : ''}`} aria-label="Share" onClick={shareCurrent}>
                 <Share2 size={20} />
               </button>
+              {shared ? <span className="lw-short-share-toast">Link copied</span> : null}
               <button type="button" className="lw-short-action" aria-label={muted ? 'Unmute' : 'Mute'} onClick={() => setMuted((v) => !v)}>
                 {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
               </button>

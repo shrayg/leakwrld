@@ -114,13 +114,13 @@ function LightboxFooter({ item, creatorSlug, index, total }) {
       </span>
       <button
         type="button"
-        className="flex items-center gap-1.5 rounded-lg border border-white/15 px-2 py-1 text-xs text-white/80 transition-colors hover:border-white/35 hover:text-white"
+        className={`lw-lightbox-like-btn ${liked ? 'is-liked' : ''}`}
         onClick={onLike}
         aria-pressed={liked}
         aria-label={liked ? 'Liked' : 'Like'}
       >
-        <Heart size={16} className={liked ? 'text-[var(--color-primary)]' : ''} fill={liked ? 'currentColor' : 'none'} />
-        Like
+        <Heart size={16} className="lw-lightbox-like-icon" fill={liked ? 'currentColor' : 'none'} />
+        {liked ? 'Liked' : 'Like'}
       </button>
     </div>
   );
@@ -290,6 +290,8 @@ export function CreatorDetailPage() {
   const [totals, setTotals] = useState(null);
   const [items, setItems] = useState([]);
   const [tier, setTier] = useState('free');
+  const [pageOffset, setPageOffset] = useState(0);
+  const [pageInfo, setPageInfo] = useState({ offset: 0, limit: PAGE_SIZE, returned: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
@@ -319,16 +321,28 @@ export function CreatorDetailPage() {
   }, [slug]);
 
   useEffect(() => {
+    setPageOffset(0);
+  }, [slug, tier, user?.tier]);
+
+  useEffect(() => {
     const id = ++requestId.current;
     setLoading(true);
-    const params = new URLSearchParams({ tier, limit: String(PAGE_SIZE), offset: '0' });
-    apiGet(`/api/creators/${slug}/media?${params}`, { items: [] }).then((data) => {
+    const params = new URLSearchParams({ tier, limit: String(PAGE_SIZE), offset: String(pageOffset) });
+    apiGet(`/api/creators/${slug}/media?${params}`, {
+      items: [],
+      page: { offset: pageOffset, limit: PAGE_SIZE, returned: 0, total: 0 },
+    }).then((data) => {
       if (id !== requestId.current) return;
       setItems(data.items || []);
+      setPageInfo(data.page || { offset: pageOffset, limit: PAGE_SIZE, returned: 0, total: 0 });
       if (data.totals) setTotals(data.totals);
       setLoading(false);
     });
-  }, [slug, tier, user?.tier]);
+  }, [slug, tier, user?.tier, pageOffset]);
+
+  useEffect(() => {
+    setLightboxIndex(-1);
+  }, [slug, tier, pageOffset]);
 
   useEffect(() => {
     if (!creator || creator.slug !== slug) return;
@@ -347,6 +361,15 @@ export function CreatorDetailPage() {
 
   const accountTier = user?.tier || 'free';
   const playableItems = useMemo(() => items.filter((it) => !it.locked && !isLockedTier(it.tier, accountTier)), [items, accountTier]);
+  const totalForTier = Number(totals?.byTier?.[tier]?.count || pageInfo.total || 0);
+  const resolvedLimit = Number(pageInfo.limit || PAGE_SIZE);
+  const resolvedOffset = Number(pageInfo.offset || 0);
+  const rangeStart = totalForTier > 0 ? resolvedOffset + 1 : 0;
+  const rangeEnd = totalForTier > 0 ? Math.min(totalForTier, resolvedOffset + items.length) : 0;
+  const totalPages = Math.max(1, Math.ceil(totalForTier / resolvedLimit));
+  const currentPage = Math.min(totalPages, Math.floor(resolvedOffset / resolvedLimit) + 1);
+  const canPrevPage = resolvedOffset > 0;
+  const canNextPage = resolvedOffset + Number(pageInfo.returned || items.length) < totalForTier;
 
   const openLightbox = useCallback(
     (item) => {
@@ -465,11 +488,35 @@ export function CreatorDetailPage() {
         </section>
       )}
 
-      {(totals?.byTier?.[tier]?.count || 0) > items.length ? (
-        <div className="lw-grid-empty">
-          Showing {items.length} of {formatCount(displayCount(totals.byTier[tier].count))} {TIER_LABELS[tier]} files.
-          Pagination is coming soon.
-        </div>
+      {totalForTier > 0 ? (
+        <section className="lw-toolbar">
+          <div className="text-[13px] text-white/70">
+            Showing {formatCount(rangeStart)}-{formatCount(rangeEnd)} of {formatCount(displayCount(totalForTier))} {TIER_LABELS[tier]} files.
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={`lw-filter ${canPrevPage ? '' : 'opacity-50'}`}
+              disabled={!canPrevPage || loading}
+              onClick={() => setPageOffset(Math.max(0, resolvedOffset - resolvedLimit))}
+            >
+              <ChevronLeft size={13} />
+              Prev
+            </button>
+            <span className="min-w-[86px] text-center text-[12px] text-white/65">
+              Page {formatCount(currentPage)} / {formatCount(totalPages)}
+            </span>
+            <button
+              type="button"
+              className={`lw-filter ${canNextPage ? '' : 'opacity-50'}`}
+              disabled={!canNextPage || loading}
+              onClick={() => setPageOffset(resolvedOffset + resolvedLimit)}
+            >
+              Next
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        </section>
       ) : null}
 
       {lightboxIndex >= 0 ? (

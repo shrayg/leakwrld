@@ -42,11 +42,15 @@ function loadMediaSummaryMap() {
 
 const mediaSummary = loadMediaSummaryMap();
 const creatorThumbOverrides = {
-  'sophie-rain': { thumbnailPosition: '50% 14%' },
-  'bhad-bhabie': { thumbnailPosition: '50% 16%' },
+  'sophie-rain': { thumbnailPosition: '50% 10%' },
+  'bhad-bhabie': { thumbnailPosition: '50% 10%' },
   'belle-delphine': { thumbnailPosition: '58% 28%' },
-  'lil-tay': { thumbnailPosition: '50% 20%' },
+  'lil-tay': { thumbnailPosition: '50% 12%' },
   'corinna-kopf': { thumbnailPosition: '50% 20%' },
+  'amber-ajami': { thumbnailPosition: '50% 10%' },
+  'bunni-emmie': { thumbnailPosition: '50% 8%' },
+  'lela-sohna': { thumbnailPosition: '50% 10%' },
+  'piper-rockelle': { thumbnailPosition: '50% 14%' },
 };
 
 const creatorNames = [
