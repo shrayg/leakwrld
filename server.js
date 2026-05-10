@@ -361,7 +361,8 @@ async function routeApi(req, res, url) {
   const method = (req.method || 'GET').toUpperCase();
 
   if (url.pathname === '/api/health') {
-    return sendJson(res, 200, { ok: true, database: !!pool, mode: 'rebuilt' });
+    const r2Media = R2_WORKER_ORIGIN ? 'worker-proxy' : process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID ? 'rclone' : 'off';
+    return sendJson(res, 200, { ok: true, database: !!pool, mode: 'rebuilt', r2Media });
   }
 
   if (url.pathname === '/api/session' && method === 'GET') {
