@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { recordPageView } from '../lib/analytics';
 import { AdminDashboard } from './AdminDashboard';
 
 export function AdminPage() {
@@ -22,6 +23,12 @@ export function AdminPage() {
   useEffect(() => {
     loadSession();
   }, [loadSession]);
+
+  /** `/admin` is outside AppShell — record visits here so traffic charts & Visits tab aren't empty for admin-only hits. */
+  useEffect(() => {
+    const path = `${window.location.pathname}${window.location.search || ''}`;
+    recordPageView(path);
+  }, []);
 
   async function login(e) {
     e.preventDefault();

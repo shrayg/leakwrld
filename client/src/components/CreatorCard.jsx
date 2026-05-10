@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Play, Sparkles, Unlock } from 'lucide-react';
+import { Heart, Lock, Play, Sparkles, Unlock } from 'lucide-react';
+import { useCatalogShortTelemetry } from '../hooks/useCatalogShortTelemetry';
 import { displayCount, formatCount } from '../lib/metrics';
+import { catalogMediaLike } from '../lib/mediaAnalytics';
 
 export function CreatorCard({ creator, compact = false }) {
   const [thumbBroken, setThumbBroken] = useState(false);
@@ -69,30 +71,85 @@ export function CreatorCard({ creator, compact = false }) {
 
 export function ShortCard({ item, index }) {
   const premium = item.tier !== 'free';
+  const accent = index % 4 === 0 ? 'gold' : index % 3 === 0 ? 'cyan' : 'pink';
+  const telemetry = useCatalogShortTelemetry(item);
+
+  const [views, setViews] = useState(Number(item.views) || 0);
+  const [likes, setLikes] = useState(Number(item.likes) || 0);
+
+  useEffect(() => {
+    setViews(Number(item.views) || 0);
+    setLikes(Number(item.likes) || 0);
+  }, [item.views, item.likes, item.id]);
+
+  const likeKey = `lw_sl_${item.id}`;
+  const [liked, setLiked] = useState(() => {
+    try {
+      return localStorage.getItem(likeKey) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  function onLike(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (liked) return;
+    try {
+      localStorage.setItem(likeKey, '1');
+    } catch {
+      /* ignore */
+    }
+    setLiked(true);
+    catalogMediaLike(item.id);
+    setLikes((x) => x + 1);
+  }
+
+  function onOpenShort() {
+    telemetry.onNavigateIntent();
+    setViews((v) => v + 1);
+  }
+
   return (
-    <article className="lw-card overflow-hidden p-0">
-      <div className={`lw-short-preview accent-${index % 4 === 0 ? 'gold' : index % 3 === 0 ? 'cyan' : 'pink'}`}>
-        <span className="lw-rank">{item.duration}</span>
-        <button type="button" className="lw-play" aria-label={`Play ${item.title}`}>
-          <Play size={22} fill="currentColor" />
-        </button>
-        {premium ? (
-          <span className="lw-tier-chip">
-            <Lock size={12} />
-            Premium
+    <article ref={telemetry.rootRef} className="relative lw-card overflow-hidden p-0">
+      <Link
+        to={`/creators/${item.creatorSlug}`}
+        className="block"
+        onClick={onOpenShort}
+        aria-label={`Open ${item.creatorName} from ${item.title}`}
+      >
+        <div className={`lw-short-preview accent-${accent}`}>
+          <span className="lw-rank">{item.duration}</span>
+          <span className="lw-play pointer-events-none" aria-hidden>
+            <Play size={22} fill="currentColor" />
           </span>
-        ) : (
-          <span className="lw-tier-chip free">Free</span>
-        )}
-      </div>
-      <div className="p-3">
-        <h3 className="truncate text-[14px] font-semibold text-white">{item.title}</h3>
-        <p className="mt-1 text-[12px] text-[var(--color-text-muted)]">{item.creatorName}</p>
-        <div className="mt-3 flex items-center justify-between text-[11px] text-white/60">
-          <span>{formatCount(displayCount(item.views))} views</span>
-          <span>{formatCount(displayCount(item.likes))} likes</span>
+          {premium ? (
+            <span className="lw-tier-chip">
+              <Lock size={12} />
+              Premium
+            </span>
+          ) : (
+            <span className="lw-tier-chip free">Free</span>
+          )}
         </div>
-      </div>
+        <div className="p-3">
+          <h3 className="truncate text-[14px] font-semibold text-white">{item.title}</h3>
+          <p className="mt-1 text-[12px] text-[var(--color-text-muted)]">{item.creatorName}</p>
+          <div className="mt-3 flex items-center justify-between text-[11px] text-white/60">
+            <span>{formatCount(displayCount(views))} views</span>
+            <span>{formatCount(displayCount(likes))} likes</span>
+          </div>
+        </div>
+      </Link>
+      <button
+        type="button"
+        className="lw-icon-btn absolute right-3 top-3 z-10 border border-white/15 bg-black/40 text-white shadow-md backdrop-blur-sm"
+        aria-label={liked ? 'Liked' : 'Like short'}
+        aria-pressed={liked}
+        onClick={onLike}
+      >
+        <Heart size={16} className={liked ? 'text-[var(--color-primary)]' : ''} fill={liked ? 'currentColor' : 'none'} />
+      </button>
     </article>
   );
 }

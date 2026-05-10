@@ -4,6 +4,12 @@ import { apiGet, apiPost } from '../api';
 const AuthContext = createContext(null);
 
 const GATE_DISMISS_KEY = 'lw_auth_gate_dismissed';
+const AUTO_GATE_SUPPRESSED_PATHS = new Set(['/shorts']);
+
+function suppressAutoGateForCurrentPath() {
+  if (typeof window === 'undefined') return false;
+  return AUTO_GATE_SUPPRESSED_PATHS.has(window.location.pathname);
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -51,6 +57,10 @@ export function AuthProvider({ children }) {
       if (sessionStorage.getItem(GATE_DISMISS_KEY)) return;
     } catch (_) {
       /* ignore */
+    }
+    if (suppressAutoGateForCurrentPath()) {
+      setAuthModalOpen(false);
+      return;
     }
     setAuthModalMode('signup');
     setAuthModalOpen(true);

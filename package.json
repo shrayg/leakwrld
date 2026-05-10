@@ -11,7 +11,8 @@
     "build:client": "vite build --config client/vite.config.js",
     "serve": "npm run build && node server.js",
     "db:schema": "psql \"$DATABASE_URL\" -f database/schema.sql",
-    "db:migrate": "psql \"$DATABASE_URL\" -f database/migrations/001_platform_analytics.sql && psql \"$DATABASE_URL\" -f database/migrations/002_phone_and_indexes.sql",
+    "db:migrate": "psql \"$DATABASE_URL\" -f database/migrations/001_platform_analytics.sql && psql \"$DATABASE_URL\" -f database/migrations/002_phone_and_indexes.sql && psql \"$DATABASE_URL\" -f database/migrations/004_media_storage_path_index.sql",
+    "db:reset-seeded-media-metrics": "psql \"$DATABASE_URL\" -f database/migrations/003_reset_media_engagement.sql",
     "db:backfill-referrals": "node scripts/backfill-referral-codes.mjs",
     "r2:login": "wrangler login",
     "r2:whoami": "wrangler whoami",
@@ -33,6 +34,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "geoip-lite": "^2.0.2",
     "lucide-react": "^1.8.0",
     "pg": "^8.16.3",
     "react": "^18.3.1",

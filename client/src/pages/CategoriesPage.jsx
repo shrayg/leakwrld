@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { apiGet } from '../api';
 import { CATEGORIES, CREATORS } from '../data/catalog';
 import { CreatorCard } from '../components/CreatorCard';
+import { recordEvent } from '../lib/analytics';
 
 export function CategoriesPage() {
   const [creators, setCreators] = useState(CREATORS);
@@ -20,6 +21,17 @@ export function CategoriesPage() {
     apiGet(`/api/creators?${params.toString()}`, { creators: CREATORS }).then((data) => {
       setCreators(data.creators || CREATORS);
     });
+  }, [query, category]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      recordEvent('categories_browse', {
+        category: 'discovery',
+        path: '/categories',
+        payload: { q: query.trim(), category: category || null },
+      });
+    }, 650);
+    return () => clearTimeout(t);
   }, [query, category]);
 
   const visible = creators.filter((creator) => {

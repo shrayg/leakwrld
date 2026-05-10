@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiPost } from '../api';
+import { getVisitorKey, recordEvent } from '../lib/analytics';
 import { useAuth } from './AuthContext';
 
 export function AuthModal() {
@@ -37,6 +38,14 @@ export function AuthModal() {
 
   useEffect(() => {
     if (!authModalOpen || user) return;
+    recordEvent('auth_modal', {
+      category: 'auth',
+      payload: { mode: authModalMode },
+    });
+  }, [authModalOpen, authModalMode, user]);
+
+  useEffect(() => {
+    if (!authModalOpen || user) return;
     function onKey(e) {
       if (e.key === 'Escape') closeAuthModal();
     }
@@ -65,11 +74,15 @@ export function AuthModal() {
           password: form.password,
           confirmPassword: form.confirmPassword,
           ...(refTrim ? { referralCode: refTrim } : {}),
+          visitorKey: getVisitorKey(),
+          referrer: typeof document !== 'undefined' ? document.referrer || undefined : undefined,
         });
       } else {
         await apiPost('/api/auth/login', {
           identifier: form.identifier,
           password: form.password,
+          visitorKey: getVisitorKey(),
+          referrer: typeof document !== 'undefined' ? document.referrer || undefined : undefined,
         });
       }
       await refresh();

@@ -1,13 +1,129 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, Lock, Play, Sparkles, Unlock, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Heart, Lock, Play, Sparkles, Unlock, X } from 'lucide-react';
 import { apiGet } from '../api';
 import { CREATORS } from '../data/catalog';
 import { displayCount, formatCount } from '../lib/metrics';
 import { classifyMedia, isLockedTier, mediaUrl, TIER_LABELS } from '../lib/media';
+import { recordEvent } from '../lib/analytics';
+import {
+  manifestMediaLike,
+  manifestMediaProgress,
+  manifestMediaSessionStart,
+  mediaPlaybackSessionId,
+} from '../lib/mediaAnalytics';
 
 const TIER_ORDER = ['free', 'tier1', 'tier2', 'tier3'];
 const PAGE_SIZE = 60;
+
+function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    let lastCheckpoint = 0;
+    let metaSent = false;
+
+    const sendDur = () => {
+      const dur = Math.floor(v.duration || 0);
+      if (dur <= 0 || metaSent) return;
+      metaSent = true;
+      manifestMediaProgress({
+        storageKey: item.key,
+        creatorSlug,
+        playbackSessionId: playbackId,
+        secondsDelta: 0,
+        durationSeconds: dur,
+      });
+    };
+
+    const flush = (force = false) => {
+      const cur = Math.floor(v.currentTime || 0);
+      let d = cur - lastCheckpoint;
+      if (force && d < 1 && cur > lastCheckpoint) d = 1;
+      if (d >= 1) {
+        manifestMediaProgress({
+          storageKey: item.key,
+          creatorSlug,
+          playbackSessionId: playbackId,
+          secondsDelta: Math.min(120, d),
+        });
+        lastCheckpoint = cur;
+      }
+    };
+
+    const onTime = () => flush(false);
+    const onPause = () => flush(true);
+    const onEnded = () => flush(true);
+
+    v.addEventListener('loadedmetadata', sendDur);
+    v.addEventListener('timeupdate', onTime);
+    v.addEventListener('pause', onPause);
+    v.addEventListener('ended', onEnded);
+
+    return () => {
+      flush(true);
+      v.removeEventListener('loadedmetadata', sendDur);
+      v.removeEventListener('timeupdate', onTime);
+      v.removeEventListener('pause', onPause);
+      v.removeEventListener('ended', onEnded);
+    };
+  }, [src, item.key, creatorSlug, playbackId]);
+
+  return (
+    <video
+      ref={ref}
+      src={src}
+      controls
+      autoPlay
+      playsInline
+      crossOrigin="anonymous"
+      preload="metadata"
+      className={className}
+    />
+  );
+}
+
+function LightboxFooter({ item, creatorSlug, index, total }) {
+  const likeKey = `lw_mlk_${item.key}`;
+  const [liked, setLiked] = useState(() => {
+    try {
+      return localStorage.getItem(likeKey) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  function onLike(e) {
+    e.stopPropagation();
+    if (liked) return;
+    try {
+      localStorage.setItem(likeKey, '1');
+    } catch {
+      /* ignore */
+    }
+    setLiked(true);
+    manifestMediaLike({ storageKey: item.key, creatorSlug });
+  }
+
+  return (
+    <div className="lw-lightbox-meta flex flex-wrap items-center justify-between gap-3">
+      <span>
+        {index + 1} / {total}
+      </span>
+      <button
+        type="button"
+        className="flex items-center gap-1.5 rounded-lg border border-white/15 px-2 py-1 text-xs text-white/80 transition-colors hover:border-white/35 hover:text-white"
+        onClick={onLike}
+        aria-pressed={liked}
+        aria-label={liked ? 'Liked' : 'Like'}
+      >
+        <Heart size={16} className={liked ? 'text-[var(--color-primary)]' : ''} fill={liked ? 'currentColor' : 'none'} />
+        Like
+      </button>
+    </div>
+  );
+}
 
 function PaywallOverlay({ tier }) {
   return (
@@ -82,8 +198,21 @@ function MediaTile({ item, onOpen, accent }) {
   );
 }
 
-function Lightbox({ items, index, onClose, onNavigate }) {
+function Lightbox({ items, index, creatorSlug, onClose, onNavigate }) {
   const item = items[index];
+  const playbackId = useMemo(() => mediaPlaybackSessionId(), [item?.key, index]);
+
+  useEffect(() => {
+    if (!item || !creatorSlug) return;
+    const kind = item.kind || classifyMedia(item.name);
+    manifestMediaSessionStart({
+      storageKey: item.key,
+      creatorSlug,
+      kind,
+      playbackSessionId: playbackId,
+    });
+  }, [item, creatorSlug, playbackId]);
+
   const handleKey = useCallback(
     (e) => {
       if (e.key === 'Escape') onClose();
@@ -102,7 +231,7 @@ function Lightbox({ items, index, onClose, onNavigate }) {
     };
   }, [handleKey]);
 
-  if (!item) return null;
+  if (!item || !creatorSlug) return null;
   const kind = item.kind || classifyMedia(item.name);
   const src = mediaUrl(item.key);
 
@@ -135,23 +264,17 @@ function Lightbox({ items, index, onClose, onNavigate }) {
       </button>
       <div className="lw-lightbox-stage" onClick={(e) => e.stopPropagation()}>
         {kind === 'video' ? (
-          <video
+          <TrackedVideo
             src={src}
-            controls
-            autoPlay
-            playsInline
-            crossOrigin="anonymous"
-            preload="metadata"
+            item={item}
+            creatorSlug={creatorSlug}
+            playbackId={playbackId}
             className="lw-lightbox-video"
           />
         ) : (
           <img src={src} alt="" className="lw-lightbox-image" />
         )}
-        <div className="lw-lightbox-meta">
-          <span>
-            {index + 1} / {items.length}
-          </span>
-        </div>
+        <LightboxFooter item={item} creatorSlug={creatorSlug} index={index} total={items.length} />
       </div>
     </div>
   );
@@ -205,12 +328,40 @@ export function CreatorDetailPage() {
     });
   }, [slug, tier]);
 
+  useEffect(() => {
+    if (!creator || creator.slug !== slug) return;
+    recordEvent('creator_profile_view', {
+      category: 'creator',
+      payload: { slug },
+    });
+  }, [creator, slug]);
+
+  useEffect(() => {
+    recordEvent('creator_browse_tier', {
+      category: 'creator',
+      payload: { slug, tier },
+    });
+  }, [slug, tier]);
+
+  const playableItems = useMemo(() => items.filter((it) => !isLockedTier(it.tier)), [items]);
+
   const openLightbox = useCallback(
     (item) => {
-      const idx = items.findIndex((it) => it.key === item.key);
-      if (idx >= 0) setLightboxIndex(idx);
+      const idx = playableItems.findIndex((it) => it.key === item.key);
+      if (idx >= 0) {
+        setLightboxIndex(idx);
+        recordEvent('media_lightbox_open', {
+          category: 'media',
+          payload: {
+            slug,
+            key: item.key,
+            kind: item.kind || classifyMedia(item.name),
+            tier: item.tier,
+          },
+        });
+      }
     },
-    [items],
+    [playableItems, slug],
   );
 
   const navigateLightbox = useCallback(
@@ -218,11 +369,11 @@ export function CreatorDetailPage() {
       setLightboxIndex((prev) => {
         if (prev < 0) return prev;
         const next = prev + delta;
-        if (next < 0 || next >= items.length) return prev;
+        if (next < 0 || next >= playableItems.length) return prev;
         return next;
       });
     },
-    [items.length],
+    [playableItems.length],
   );
 
   if (notFound) {
@@ -319,8 +470,9 @@ export function CreatorDetailPage() {
 
       {lightboxIndex >= 0 ? (
         <Lightbox
-          items={items.filter((it) => !isLockedTier(it.tier))}
+          items={playableItems}
           index={lightboxIndex}
+          creatorSlug={slug}
           onClose={() => setLightboxIndex(-1)}
           onNavigate={navigateLightbox}
         />

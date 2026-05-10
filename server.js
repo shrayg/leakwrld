@@ -5,6 +5,33 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
+
+function loadLocalEnv(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || process.env[key] != null) continue;
+      let value = trimmed.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value;
+    }
+  } catch {
+    /* .env is optional in production; systemd/platform env can provide values. */
+  }
+}
+
+loadLocalEnv(path.join(__dirname, '.env'));
+
 const { Pool } = require('pg');
 const {
   categoryNames,
@@ -15,6 +42,9 @@ const {
 const { generateReferralCode, normalizeReferralCode } = require('./server/referralCodes');
 const adminHourly = require('./server/adminHourly');
 const adminDashboard = require('./server/adminDashboard');
+const adminUserActions = require('./server/adminUserActions');
+const mediaAnalytics = require('./server/mediaAnalytics');
+const { resolveCountryCode } = require('./server/geoCountry');
 
 const thumbnailLookup = new Map(fallbackCreators.map((c) => [c.slug, c.thumbnail]));
 const creatorBySlug = new Map(fallbackCreators.map((c) => [c.slug, c]));
@@ -25,6 +55,19 @@ function thumbnailFor(slug) {
 }
 
 const MEDIA_DIR = path.join(__dirname, 'client', 'public', 'media');
+const MANIFEST_TIER_ACCESS = ['free', 'tier1', 'tier2', 'tier3'];
+
+function userManifestTiers(user) {
+  const tier = String(user?.tier || 'free').toLowerCase();
+  if (tier === 'admin' || tier === 'ultimate') return MANIFEST_TIER_ACCESS;
+  if (tier === 'premium') return MANIFEST_TIER_ACCESS.slice(0, 3);
+  if (tier === 'basic') return MANIFEST_TIER_ACCESS.slice(0, 2);
+  return ['free'];
+}
+
+function mediaStatsId(storageKey) {
+  return mediaAnalytics.rowIdFromStorageKey(storageKey);
+}
 
 function loadMediaManifest(slug) {
   if (!/^[a-z0-9-]+$/.test(slug)) return null;
@@ -78,6 +121,15 @@ function clientIp(req) {
 
 function clientUserAgent(req) {
   return String(req.headers['user-agent'] || '').slice(0, 512);
+}
+
+function parseVisitorUuid(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) {
+    return s;
+  }
+  return null;
 }
 
 /** After this many failed login/signup attempts per IP, enforce a short cooldown. */
@@ -141,7 +193,8 @@ function signupConflictMessage(err) {
   return 'That username is already taken.';
 }
 
-const pool = DATABASE_URL
+let databaseDisabledReason = '';
+let pool = DATABASE_URL
   ? new Pool({
       connectionString: DATABASE_URL,
       max: Number(process.env.PG_POOL_MAX || 10),
@@ -149,6 +202,49 @@ const pool = DATABASE_URL
       connectionTimeoutMillis: 5_000,
     })
   : null;
+
+function localDatabaseFallbackEnabled() {
+  return String(process.env.NODE_ENV || '').toLowerCase() !== 'production';
+}
+
+function isDatabaseConnectionError(err) {
+  const code = String(err?.code || '');
+  return ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNRESET'].includes(code);
+}
+
+function disableDatabaseForProcess(err) {
+  if (!pool || !localDatabaseFallbackEnabled() || !isDatabaseConnectionError(err)) return false;
+  const previousPool = pool;
+  pool = null;
+  catalogSeeded = false;
+  databaseDisabledReason = `${err.code || 'connection_error'} ${err.message || ''}`.trim();
+  previousPool.end().catch(() => {});
+  console.warn(`[database] disabled for this dev process: ${databaseDisabledReason}`);
+  return true;
+}
+
+async function recordAuthTraffic(dbQuery, { userId, visitorKey, path, eventType, referrer, req }) {
+  if (!pool) return;
+  const pathVal = String(path || '/').slice(0, 512);
+  const et = String(eventType || pathVal).slice(0, 96);
+  const ref = referrer != null ? String(referrer).slice(0, 1024) : null;
+  const ip = clientIp(req) || null;
+  const ua = clientUserAgent(req) || null;
+  const countryCode = req ? resolveCountryCode(req, ip) : null;
+  await dbQuery(
+    `insert into analytics_visits (
+      user_id, visitor_key, path, referrer,
+      utm_source, utm_medium, utm_campaign,
+      country_code, ip, user_agent
+    ) values ($1,$2,$3,$4,null,null,null,$5,$6,$7)`,
+    [userId || null, visitorKey, pathVal, ref, countryCode, ip, ua],
+  ).catch(() => {});
+  await dbQuery(
+    `insert into analytics_events (user_id, visitor_key, event_type, path, category, payload)
+     values ($1,$2,$3,$4,$5,$6::jsonb)`,
+    [userId || null, visitorKey, et, pathVal, 'auth', JSON.stringify({})],
+  ).catch(() => {});
+}
 
 let catalogSeeded = false;
 
@@ -259,12 +355,25 @@ async function readJson(req, maxBytes = 64 * 1024) {
 
 async function dbQuery(text, values = []) {
   if (!pool) throw new Error('database_not_configured');
-  return pool.query(text, values);
+  try {
+    return await pool.query(text, values);
+  } catch (err) {
+    disableDatabaseForProcess(err);
+    throw err;
+  }
 }
 
 async function ensureCatalogSeeded() {
-  if (!pool || catalogSeeded) return;
-  const client = await pool.connect();
+  if (!pool || catalogSeeded) return !!pool;
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (err) {
+    if (disableDatabaseForProcess(err) || (!pool && localDatabaseFallbackEnabled() && isDatabaseConnectionError(err))) {
+      return false;
+    }
+    throw err;
+  }
   try {
     await client.query('begin');
     /** Upsert every creator on each boot so newly-added creators land in the DB without manual migration. */
@@ -317,11 +426,15 @@ async function ensureCatalogSeeded() {
     await client.query('commit');
   } catch (err) {
     await client.query('rollback');
+    if (disableDatabaseForProcess(err) || (!pool && localDatabaseFallbackEnabled() && isDatabaseConnectionError(err))) {
+      return false;
+    }
     throw err;
   } finally {
     client.release();
   }
   catalogSeeded = true;
+  return true;
 }
 
 function durationToSeconds(value) {
@@ -374,14 +487,20 @@ async function sessionUserId(req) {
   if (!pool) return null;
   const token = parseCookies(req)[SESSION_COOKIE];
   if (!token) return null;
-  const found = await dbQuery(
-    `select u.id
-     from sessions s
-     join users u on u.id = s.user_id
-     where s.token_hash = $1 and s.expires_at > now() and u.banned_at is null
-     limit 1`,
-    [tokenHash(token)],
-  );
+  let found;
+  try {
+    found = await dbQuery(
+      `select u.id
+       from sessions s
+       join users u on u.id = s.user_id
+       where s.token_hash = $1 and s.expires_at > now() and u.banned_at is null
+       limit 1`,
+      [tokenHash(token)],
+    );
+  } catch (err) {
+    if (!pool || isDatabaseConnectionError(err)) return null;
+    throw err;
+  }
   return found.rows[0]?.id || null;
 }
 
@@ -389,16 +508,22 @@ async function currentUser(req) {
   if (!pool) return null;
   const token = parseCookies(req)[SESSION_COOKIE];
   if (!token) return null;
-  const found = await dbQuery(
-    `select u.id, u.email, u.phone, u.username, u.tier, u.created_at,
-            u.referral_code, u.referral_signups_count, u.referred_by_user_id,
-            u.watch_time_seconds, u.site_time_seconds, u.plan_label, u.last_active_at
-     from sessions s
-     join users u on u.id = s.user_id
-     where s.token_hash = $1 and s.expires_at > now() and u.banned_at is null
-     limit 1`,
-    [tokenHash(token)],
-  );
+  let found;
+  try {
+    found = await dbQuery(
+      `select u.id, u.email, u.phone, u.username, u.tier, u.created_at,
+              u.referral_code, u.referral_signups_count, u.referred_by_user_id,
+              u.watch_time_seconds, u.site_time_seconds, u.plan_label, u.last_active_at
+       from sessions s
+       join users u on u.id = s.user_id
+       where s.token_hash = $1 and s.expires_at > now() and u.banned_at is null
+       limit 1`,
+      [tokenHash(token)],
+    );
+  } catch (err) {
+    if (!pool || isDatabaseConnectionError(err)) return null;
+    throw err;
+  }
   if (!found.rows[0]) return null;
   const ip = clientIp(req) || null;
   await dbQuery(
@@ -438,7 +563,7 @@ async function routeApi(req, res, url) {
 
   if (url.pathname === '/api/health') {
     const r2Media = R2_WORKER_ORIGIN ? 'worker-proxy' : process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID ? 'rclone' : 'off';
-    return sendJson(res, 200, { ok: true, database: !!pool, mode: 'rebuilt', r2Media });
+    return sendJson(res, 200, { ok: true, database: !!pool, databaseDisabledReason, mode: 'rebuilt', r2Media });
   }
 
   if (url.pathname === '/api/session' && method === 'GET') {
@@ -548,6 +673,17 @@ async function routeApi(req, res, url) {
 
       await client.query('commit');
       authThrottleClear(signupThrottle, ip);
+      const signupVisitor = parseVisitorUuid(body.visitorKey ?? body.visitor_key);
+      const signupReferrer =
+        body.referrer != null ? String(body.referrer).slice(0, 1024) : null;
+      await recordAuthTraffic(dbQuery, {
+        userId: newUser.id,
+        visitorKey: signupVisitor,
+        path: '/signup',
+        eventType: 'signup',
+        referrer: signupReferrer,
+        req,
+      });
       await createSession(res, newUser.id, req);
       return sendJson(res, 201, { user: normalizeUser(newUser) });
     } catch (err) {
@@ -592,72 +728,114 @@ async function routeApi(req, res, url) {
       'update users set last_ip = $2, last_active_at = now(), updated_at = now() where id = $1',
       [row.id, clientIp(req) || null],
     ).catch(() => {});
+    const loginVisitor = parseVisitorUuid(body.visitorKey ?? body.visitor_key);
+    const loginReferrer =
+      body.referrer != null ? String(body.referrer).slice(0, 1024) : null;
+    await recordAuthTraffic(dbQuery, {
+      userId: row.id,
+      visitorKey: loginVisitor,
+      path: '/login',
+      eventType: 'login',
+      referrer: loginReferrer,
+      req,
+    });
     await createSession(res, row.id, req);
     return sendJson(res, 200, { user: normalizeUser(row) });
   }
 
   if (url.pathname === '/api/analytics/visit' && method === 'POST') {
     if (!pool) return sendJson(res, 503, { error: 'Postgres is not configured. Set DATABASE_URL.' });
-    const body = await readJson(req);
-    const visitorRaw = body.visitorKey ?? body.visitor_key;
-    let visitorKey = null;
-    if (visitorRaw) {
-      const s = String(visitorRaw).trim();
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) {
-        visitorKey = s;
-      }
-    }
-    const pathVal = String(body.path || '/').slice(0, 512);
-    const referrer = body.referrer != null ? String(body.referrer).slice(0, 1024) : null;
-    const ua = clientUserAgent(req);
-    const ip = clientIp(req);
-    const authUserId = await sessionUserId(req).catch(() => null);
+    try {
+      const body = await readJson(req);
+      const visitorKey = parseVisitorUuid(body.visitorKey ?? body.visitor_key);
+      const pathVal = String(body.path || '/').slice(0, 512);
+      const referrer = body.referrer != null ? String(body.referrer).slice(0, 1024) : null;
+      const ua = clientUserAgent(req);
+      const ip = clientIp(req);
+      const authUserId = await sessionUserId(req).catch(() => null);
+      const countryCode = resolveCountryCode(req, ip);
 
-    await dbQuery(
-      `insert into analytics_visits (
-        user_id, visitor_key, path, referrer,
-        utm_source, utm_medium, utm_campaign,
-        ip, user_agent
-      ) values ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9)`,
-      [
-        authUserId || null,
-        visitorKey,
-        pathVal,
-        referrer,
-        body.utmSource ? String(body.utmSource).slice(0, 128) : null,
-        body.utmMedium ? String(body.utmMedium).slice(0, 128) : null,
-        body.utmCampaign ? String(body.utmCampaign).slice(0, 128) : null,
-        ip || null,
-        ua || null,
-      ],
-    ).catch(() => {});
-    return sendJson(res, 200, { ok: true });
+      /** Omit explicit ::uuid casts so NULL bindings never trip invalid_text_representation. */
+      await dbQuery(
+        `insert into analytics_visits (
+          user_id, visitor_key, path, referrer,
+          utm_source, utm_medium, utm_campaign,
+          country_code, ip, user_agent
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          authUserId || null,
+          visitorKey,
+          pathVal,
+          referrer,
+          body.utmSource ? String(body.utmSource).slice(0, 128) : null,
+          body.utmMedium ? String(body.utmMedium).slice(0, 128) : null,
+          body.utmCampaign ? String(body.utmCampaign).slice(0, 128) : null,
+          countryCode,
+          ip || null,
+          ua || null,
+        ],
+      );
+      await dbQuery(
+        `insert into analytics_events (user_id, visitor_key, event_type, path, category, payload)
+         values ($1,$2,$3,$4,$5,$6::jsonb)`,
+        [
+          authUserId || null,
+          visitorKey,
+          'page_view',
+          pathVal,
+          'navigation',
+          JSON.stringify({ via: 'visit_beacon' }),
+        ],
+      );
+      return sendJson(res, 200, { ok: true });
+    } catch (err) {
+      console.error('[analytics visit]', err.code || '', err.message || err);
+      return sendJson(res, 503, { ok: false, error: 'Could not store visit.' });
+    }
   }
 
   if (url.pathname === '/api/analytics/event' && method === 'POST') {
     if (!pool) return sendJson(res, 503, { error: 'Postgres is not configured. Set DATABASE_URL.' });
-    const body = await readJson(req);
-    const eventType = String(body.eventType || body.event_type || '').trim().slice(0, 96);
-    if (!eventType) return sendJson(res, 400, { error: 'eventType is required.' });
-    const visitorRaw = body.visitorKey ?? body.visitor_key;
-    let visitorKey = null;
-    if (visitorRaw) {
-      const s = String(visitorRaw).trim();
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) {
-        visitorKey = s;
-      }
-    }
-    const authUserId = await sessionUserId(req).catch(() => null);
-    const pathVal = body.path != null ? String(body.path).slice(0, 512) : null;
-    const category = body.category != null ? String(body.category).slice(0, 128) : null;
-    const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
+    try {
+      const body = await readJson(req);
+      const eventType = String(body.eventType || body.event_type || '').trim().slice(0, 96);
+      if (!eventType) return sendJson(res, 400, { error: 'eventType is required.' });
+      const visitorKey = parseVisitorUuid(body.visitorKey ?? body.visitor_key);
+      const authUserId = await sessionUserId(req).catch(() => null);
+      const pathVal = body.path != null ? String(body.path).slice(0, 512) : null;
+      const category = body.category != null ? String(body.category).slice(0, 128) : null;
+      const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
 
-    await dbQuery(
-      `insert into analytics_events (user_id, visitor_key, event_type, path, category, payload)
-       values ($1,$2::uuid,$3,$4,$5,$6::jsonb)`,
-      [authUserId || null, visitorKey, eventType, pathVal, category, JSON.stringify(payload)],
-    ).catch(() => {});
-    return sendJson(res, 200, { ok: true });
+      await dbQuery(
+        `insert into analytics_events (user_id, visitor_key, event_type, path, category, payload)
+         values ($1,$2,$3,$4,$5,$6::jsonb)`,
+        [authUserId || null, visitorKey, eventType, pathVal, category, JSON.stringify(payload)],
+      );
+      return sendJson(res, 200, { ok: true });
+    } catch (err) {
+      const msg = String(err?.message || err || '');
+      if (msg === 'invalid_json' || msg === 'payload_too_large') {
+        return sendJson(res, 400, { error: 'Invalid JSON body.' });
+      }
+      console.error('[analytics event]', err.code || '', err.message || err);
+      return sendJson(res, 503, { ok: false, error: 'Could not store event.' });
+    }
+  }
+
+  if (url.pathname === '/api/analytics/media' && method === 'POST') {
+    if (!pool) return sendJson(res, 503, { error: 'Postgres is not configured. Set DATABASE_URL.' });
+    try {
+      const body = await readJson(req);
+      return await mediaAnalytics.handleMediaAnalytics(pool, dbQuery, body, {
+        res,
+        sendJson,
+        clientIp: () => clientIp(req),
+        sessionUserId: () => sessionUserId(req),
+      });
+    } catch (err) {
+      console.error('[analytics media]', err);
+      return sendJson(res, 400, { error: 'Invalid JSON body.' });
+    }
   }
 
   if (url.pathname === '/api/analytics/ping' && method === 'POST') {
@@ -737,7 +915,8 @@ async function routeApi(req, res, url) {
       return sendJson(res, 503, { error: 'Database not configured.', siteLabel: adminHourly.publicSiteLabel() });
     }
     try {
-      const data = await adminDashboard.getDashboard(dbQuery);
+      const rangeParam = adminDashboard.parseDashboardRange(url.searchParams.get('range'));
+      const data = await adminDashboard.getDashboard(dbQuery, rangeParam);
       return sendJson(res, 200, {
         ok: true,
         database: true,
@@ -750,6 +929,30 @@ async function routeApi(req, res, url) {
     }
   }
 
+  const adminUserMatch = adminUserActions.matchAdminUserRoute(url.pathname);
+  if (adminUserMatch && method !== 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const body = await readJson(req);
+      const result = await adminUserActions.processAdminUserAction({
+        method,
+        userId: adminUserMatch.userId,
+        sub: adminUserMatch.sub,
+        body,
+        dbQuery,
+        passwordHash,
+      });
+      if (result.error) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, { ok: true });
+    } catch (err) {
+      console.error('[admin user action]', err);
+      return sendJson(res, 500, { error: 'Request failed.' });
+    }
+  }
+
   if (url.pathname === '/api/admin/users' && method === 'GET') {
     if (!adminHourly.verifyAdminCookie(req)) {
       return sendJson(res, 401, { error: 'Admin authentication required.' });
@@ -758,7 +961,9 @@ async function routeApi(req, res, url) {
     try {
       const page = adminDashboard.clampPage(url.searchParams.get('page'));
       const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
-      const payload = await adminDashboard.getUsersPage(dbQuery, page, limit);
+      const qParam = url.searchParams.get('q') ?? '';
+      const tierParam = url.searchParams.get('tier') ?? '';
+      const payload = await adminDashboard.getUsersPage(dbQuery, page, limit, qParam, tierParam);
       return sendJson(res, 200, { ok: true, ...payload });
     } catch (err) {
       console.error('[admin users]', err);
@@ -774,7 +979,8 @@ async function routeApi(req, res, url) {
     try {
       const page = adminDashboard.clampPage(url.searchParams.get('page'));
       const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
-      const payload = await adminDashboard.getVisitsPage(dbQuery, page, limit);
+      const qParam = url.searchParams.get('q') ?? '';
+      const payload = await adminDashboard.getVisitsPage(dbQuery, page, limit, qParam);
       return sendJson(res, 200, { ok: true, ...payload });
     } catch (err) {
       console.error('[admin visits]', err);
@@ -790,7 +996,8 @@ async function routeApi(req, res, url) {
     try {
       const page = adminDashboard.clampPage(url.searchParams.get('page'));
       const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
-      const payload = await adminDashboard.getEventsPage(dbQuery, page, limit);
+      const qParam = url.searchParams.get('q') ?? '';
+      const payload = await adminDashboard.getEventsPage(dbQuery, page, limit, qParam);
       return sendJson(res, 200, { ok: true, ...payload });
     } catch (err) {
       console.error('[admin events]', err);
@@ -806,10 +1013,96 @@ async function routeApi(req, res, url) {
     try {
       const page = adminDashboard.clampPage(url.searchParams.get('page'));
       const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
-      const payload = await adminDashboard.getReferralsPage(dbQuery, page, limit);
+      const qParam = url.searchParams.get('q') ?? '';
+      const payload = await adminDashboard.getReferralsPage(dbQuery, page, limit, qParam);
       return sendJson(res, 200, { ok: true, ...payload });
     } catch (err) {
       console.error('[admin referrals]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/referral-lookup' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const qRaw = url.searchParams.get('q') ?? '';
+      const result = await adminDashboard.getReferralLookup(dbQuery, qRaw);
+      if (!result.ok) return sendJson(res, 400, { error: result.error });
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (err) {
+      console.error('[admin referral-lookup]', err);
+      return sendJson(res, 500, { error: 'Lookup failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/media-items' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const page = adminDashboard.clampPage(url.searchParams.get('page'));
+      const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
+      const qParam = url.searchParams.get('q') ?? '';
+      const payload = await adminDashboard.getMediaItemsPage(dbQuery, page, limit, qParam);
+      return sendJson(res, 200, { ok: true, ...payload });
+    } catch (err) {
+      console.error('[admin media-items]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/payments/summary' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const rangeParam = adminDashboard.parsePaymentAdminRange(url.searchParams.get('range'));
+      const summary = await adminDashboard.getPaymentsAdminSummary(dbQuery, rangeParam);
+      return sendJson(res, 200, { ok: true, ...summary });
+    } catch (err) {
+      console.error('[admin payments summary]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/payments' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const page = adminDashboard.clampPage(url.searchParams.get('page'));
+      const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
+      const qParam = url.searchParams.get('q') ?? '';
+      const rangeParam = adminDashboard.parsePaymentAdminRange(url.searchParams.get('range'));
+      const payload = await adminDashboard.getPaymentsPage(dbQuery, page, limit, qParam, rangeParam);
+      return sendJson(res, 200, { ok: true, ...payload });
+    } catch (err) {
+      console.error('[admin payments]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/traffic-sources' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const rangeParam = adminDashboard.parseTrafficSourcesRange(url.searchParams.get('range'));
+      const report = await adminDashboard.getTrafficSourcesReport(dbQuery, rangeParam);
+      return sendJson(res, 200, {
+        ok: true,
+        siteLabel: adminHourly.publicSiteLabel(),
+        ...report,
+      });
+    } catch (err) {
+      console.error('[admin traffic-sources]', err);
       return sendJson(res, 500, { error: 'Query failed.' });
     }
   }
@@ -829,9 +1122,15 @@ async function routeApi(req, res, url) {
   }
 
   if (url.pathname === '/api/queue/status' && method === 'GET') {
-    const online = pool
-      ? Number((await dbQuery("select count(*)::int as count from sessions where last_seen_at > now() - interval '5 minutes'")).rows[0]?.count || 0)
-      : 0;
+    let online = 0;
+    if (pool) {
+      try {
+        online = Number((await dbQuery("select count(*)::int as count from sessions where last_seen_at > now() - interval '5 minutes'")).rows[0]?.count || 0);
+      } catch (err) {
+        if (!isDatabaseConnectionError(err) && !localDatabaseFallbackEnabled()) throw err;
+        online = 0;
+      }
+    }
     const overCapacity = online > ONLINE_CAPACITY;
     return sendJson(res, 200, {
       online,
@@ -861,35 +1160,38 @@ async function routeApi(req, res, url) {
     /** `?include=all` opts into seeing creators without R2 content (admin/debug). */
     const includeAll = url.searchParams.get('include') === 'all';
     let rows = includeAll ? fallbackCreators : fallbackReadyCreators;
-    if (pool) {
-      await ensureCatalogSeeded();
-      const out = await dbQuery(
-        `select rank, name, slug, category, tagline, media_count, free_count, premium_count, heat, accent
-         from creators
-         where ($1 = '' or lower(name) like '%' || $1 || '%')
-           and ($2 = '' or category = $2)
-         order by rank asc`,
-        [q, category],
-      );
-      rows = out.rows.map((row) => {
-        const seed = creatorBySlug.get(row.slug);
-        return {
-          rank: row.rank,
-          name: row.name,
-          slug: row.slug,
-          category: row.category,
-          tagline: row.tagline,
-          /** Prefer real R2 counts (from seeded creator object) over DB-stored seeded values. */
-          mediaCount: seed ? seed.mediaCount : Number(row.media_count || 0),
-          freeCount: seed ? seed.freeCount : Number(row.free_count || 0),
-          premiumCount: seed ? seed.premiumCount : Number(row.premium_count || 0),
-          heat: Number(row.heat || 0),
-          accent: row.accent || 'pink',
-          thumbnail: thumbnailFor(row.slug),
-          ready: readySlugSet.has(row.slug),
-        };
-      });
-      if (!includeAll) rows = rows.filter((r) => r.ready);
+    if (pool && (await ensureCatalogSeeded())) {
+      try {
+        const out = await dbQuery(
+          `select rank, name, slug, category, tagline, media_count, free_count, premium_count, heat, accent
+           from creators
+           where ($1 = '' or lower(name) like '%' || $1 || '%')
+             and ($2 = '' or category = $2)
+           order by rank asc`,
+          [q, category],
+        );
+        rows = out.rows.map((row) => {
+          const seed = creatorBySlug.get(row.slug);
+          return {
+            rank: row.rank,
+            name: row.name,
+            slug: row.slug,
+            category: row.category,
+            tagline: row.tagline,
+            /** Prefer real R2 counts (from seeded creator object) over DB-stored seeded values. */
+            mediaCount: seed ? seed.mediaCount : Number(row.media_count || 0),
+            freeCount: seed ? seed.freeCount : Number(row.free_count || 0),
+            premiumCount: seed ? seed.premiumCount : Number(row.premium_count || 0),
+            heat: Number(row.heat || 0),
+            accent: row.accent || 'pink',
+            thumbnail: thumbnailFor(row.slug),
+            ready: readySlugSet.has(row.slug),
+          };
+        });
+        if (!includeAll) rows = rows.filter((r) => r.ready);
+      } catch (err) {
+        if (!isDatabaseConnectionError(err) && !localDatabaseFallbackEnabled()) throw err;
+      }
     }
     rows = rows.filter((row) => (!q || row.name.toLowerCase().includes(q)) && (!category || row.category === category));
     return sendJson(res, 200, { creators: rows });
@@ -937,28 +1239,143 @@ async function routeApi(req, res, url) {
     });
   }
 
+  if (url.pathname === '/api/shorts/feed' && method === 'GET') {
+    const user = await currentUser(req);
+    const allowedTiers = userManifestTiers(user);
+    const allowedTierSet = new Set(allowedTiers);
+    const limit = Math.min(260, Math.max(1, Number(url.searchParams.get('limit') || 180)));
+    const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+    const wantedCreators = new Set(
+      String(url.searchParams.get('creators') || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => /^[a-z0-9-]+$/.test(s)),
+    );
+    const wantedCategories = new Set(
+      String(url.searchParams.get('categories') || '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const categorySlug = (name) => String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const creatorFilters = [];
+    const categoryCounts = new Map();
+    const buckets = [];
+
+    for (const creator of fallbackReadyCreators) {
+      if (wantedCreators.size && !wantedCreators.has(creator.slug)) continue;
+      const cSlug = categorySlug(creator.category);
+      if (wantedCategories.size && !wantedCategories.has(cSlug)) continue;
+      const manifest = loadMediaManifest(creator.slug);
+      if (!manifest) continue;
+      const videos = manifest.items
+        .filter((item) => item.kind === 'video' && allowedTierSet.has(item.tier))
+        .map((item) => ({
+          id: mediaStatsId(item.key),
+          key: item.key,
+          name: item.name,
+          title: creator.name,
+          creatorSlug: creator.slug,
+          creatorName: creator.name,
+          category: creator.category,
+          categorySlug: cSlug,
+          tier: item.tier,
+          sizeBytes: Number(item.sizeBytes || 0),
+          ext: item.ext || '',
+          views: 0,
+          likes: 0,
+          durationSeconds: 0,
+        }));
+      if (!videos.length) continue;
+      creatorFilters.push({
+        slug: creator.slug,
+        name: creator.name,
+        category: creator.category,
+        categorySlug: cSlug,
+        count: videos.length,
+      });
+      categoryCounts.set(cSlug, {
+        slug: cSlug,
+        name: creator.category,
+        count: (categoryCounts.get(cSlug)?.count || 0) + videos.length,
+      });
+      buckets.push(videos);
+    }
+
+    const interleaved = [];
+    let row = 0;
+    while (true) {
+      let pushed = false;
+      for (const bucket of buckets) {
+        if (bucket[row]) {
+          interleaved.push(bucket[row]);
+          pushed = true;
+        }
+      }
+      if (!pushed) break;
+      row += 1;
+    }
+
+    const shorts = interleaved.slice(offset, offset + limit);
+    if (pool && shorts.length) {
+      try {
+        const stats = await dbQuery(
+          `select id, storage_path, views, likes, duration_seconds
+           from media_items
+           where storage_path = any($1::text[])`,
+          [shorts.map((item) => item.key)],
+        );
+        const byKey = new Map(stats.rows.map((r) => [r.storage_path, r]));
+        for (const item of shorts) {
+          const stat = byKey.get(item.key);
+          if (!stat) continue;
+          item.id = stat.id || item.id;
+          item.views = Number(stat.views || 0);
+          item.likes = Number(stat.likes || 0);
+          item.durationSeconds = Number(stat.duration_seconds || 0);
+        }
+      } catch (err) {
+        console.error('[shorts feed stats]', err.code || '', err.message || err);
+      }
+    }
+
+    return sendJson(res, 200, {
+      shorts,
+      filters: {
+        creators: creatorFilters.sort((a, b) => a.name.localeCompare(b.name)),
+        categories: Array.from(categoryCounts.values()).sort((a, b) => a.name.localeCompare(b.name)),
+      },
+      access: { userTier: user?.tier || 'free', manifestTiers: allowedTiers },
+      page: { offset, limit, total: interleaved.length, returned: shorts.length },
+    });
+  }
+
   if (url.pathname === '/api/shorts' && method === 'GET') {
     let rows = fallbackShorts;
-    if (pool) {
-      await ensureCatalogSeeded();
-      const out = await dbQuery(
-        `select m.id, m.creator_slug, c.name as creator_name, m.title, m.tier, m.duration_seconds, m.views, m.likes
-         from media_items m
-         join creators c on c.slug = m.creator_slug
-         where m.media_type = 'short' and m.status = 'published'
-         order by m.created_at desc, m.views desc
-         limit 80`,
-      );
-      rows = out.rows.map((row) => ({
-        id: row.id,
-        creatorSlug: row.creator_slug,
-        creatorName: row.creator_name,
-        title: row.title,
-        tier: row.tier,
-        duration: secondsToDuration(row.duration_seconds),
-        views: Number(row.views || 0),
-        likes: Number(row.likes || 0),
-      }));
+    if (pool && (await ensureCatalogSeeded())) {
+      try {
+        const out = await dbQuery(
+          `select m.id, m.creator_slug, c.name as creator_name, m.title, m.tier, m.duration_seconds, m.views, m.likes
+           from media_items m
+           join creators c on c.slug = m.creator_slug
+           where m.media_type = 'short' and m.status = 'published'
+           order by m.created_at desc, m.views desc
+           limit 80`,
+        );
+        rows = out.rows.map((row) => ({
+          id: row.id,
+          creatorSlug: row.creator_slug,
+          creatorName: row.creator_name,
+          title: row.title,
+          tier: row.tier,
+          durationSeconds: Number(row.duration_seconds || 0),
+          duration: secondsToDuration(row.duration_seconds),
+          views: Number(row.views || 0),
+          likes: Number(row.likes || 0),
+        }));
+      } catch (err) {
+        if (!isDatabaseConnectionError(err) && !localDatabaseFallbackEnabled()) throw err;
+      }
     }
     return sendJson(res, 200, { shorts: rows });
   }
@@ -981,10 +1398,10 @@ async function routeApi(req, res, url) {
     let creatorCount = fallbackReadyCreators.length;
     if (pool) {
       try {
-        await ensureCatalogSeeded();
+        const seeded = await ensureCatalogSeeded();
         /** Filter to ready slugs in SQL via the same set the seeder uses. */
         const slugs = fallbackReadyCreators.map((c) => c.slug);
-        if (slugs.length > 0) {
+        if (seeded && slugs.length > 0) {
           const row = await dbQuery(
             'select count(*)::int as creator_count from creators where slug = any($1::text[])',
             [slugs],
@@ -1188,9 +1605,11 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/r2/')) return await streamR2(req, res, url);
     return await sendStatic(req, res, url);
   } catch (err) {
-    const status = err.message === 'invalid_json' ? 400 : err.message === 'payload_too_large' ? 413 : 500;
+    const databaseDown = err.message === 'database_not_configured' || isDatabaseConnectionError(err);
+    disableDatabaseForProcess(err);
+    const status = err.message === 'invalid_json' ? 400 : err.message === 'payload_too_large' ? 413 : databaseDown ? 503 : 500;
     console.error('[server]', err);
-    return sendJson(res, status, { error: status === 500 ? 'Server error' : err.message });
+    return sendJson(res, status, { error: status === 500 ? 'Server error' : status === 503 ? 'Database unavailable.' : err.message });
   }
 });
 

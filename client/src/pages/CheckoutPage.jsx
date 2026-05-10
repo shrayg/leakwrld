@@ -1,6 +1,7 @@
 import { Check, Crown, Lock, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { apiGet, money } from '../api';
+import { recordEvent } from '../lib/analytics';
 
 const fallbackPlans = [
   { key: 'basic', name: 'Basic', tier: 1, priceCents: 999, mediaAccess: 'Free previews plus basic vault access' },
@@ -19,6 +20,7 @@ export function CheckoutPage() {
 
   useEffect(() => {
     document.title = 'Premium - Leak World';
+    recordEvent('checkout_view', { category: 'commerce', path: '/checkout', payload: {} });
     apiGet('/api/checkout/plans', { plans: fallbackPlans }).then((data) => setPlans(data.plans || fallbackPlans));
   }, []);
 

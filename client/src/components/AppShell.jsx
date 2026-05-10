@@ -1,7 +1,7 @@
 import { Menu, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { recordPageView } from '../lib/analytics';
+import { recordEvent, recordPageView } from '../lib/analytics';
 import { AuthModal } from './AuthModal';
 import { useAuth } from './AuthContext';
 import { UserAccountMenu } from './UserAccountMenu';
@@ -22,6 +22,7 @@ export function AppShell() {
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const { user, loading, logout, openAuthModal } = useAuth();
+  const isShorts = pathname === '/shorts';
 
   useEffect(() => {
     setMobileOpen(false);
@@ -29,7 +30,13 @@ export function AppShell() {
   }, [pathname]);
 
   useEffect(() => {
-    recordPageView(`${pathname}${search}`);
+    const path = `${pathname}${search}`;
+    recordPageView(path);
+    recordEvent('spa_route', {
+      category: 'navigation',
+      path,
+      payload: { pathname, search: search || '' },
+    });
   }, [pathname, search]);
 
   useEffect(() => {
@@ -50,7 +57,7 @@ export function AppShell() {
         <div className="lw-bg-wash" />
       </div>
 
-      <header className="lw-nav">
+      <header className={`lw-nav ${isShorts ? 'lw-nav--shorts' : ''}`}>
         <div className="lw-nav-top">
           <button
             type="button"
@@ -97,52 +104,69 @@ export function AppShell() {
         </nav>
 
         {mobileOpen ? (
-          <div className="lw-mobile-panel md:hidden">
-            {links.map((link) => (
-              <NavLink key={link.to} to={link.to} end={link.to === '/'} className={navClass}>
-                {link.label}
-              </NavLink>
-            ))}
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              {user ? (
-                <div className="col-span-2">
-                  <UserAccountMenu
-                    user={user}
-                    logout={logout}
-                    variant="mobile"
-                    onAfterNavigate={() => setMobileOpen(false)}
-                  />
-                </div>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="lw-btn ghost"
-                    onClick={() => {
-                      setMobileOpen(false);
-                      openAuthModal('login');
-                    }}
-                  >
-                    Login
-                  </button>
-                  <button
-                    type="button"
-                    className="lw-btn primary"
-                    onClick={() => {
-                      setMobileOpen(false);
-                      openAuthModal('signup');
-                    }}
-                  >
-                    Sign up
-                  </button>
-                </>
-              )}
+          <>
+            <button type="button" className="lw-mobile-scrim md:hidden" aria-label="Close menu" onClick={() => setMobileOpen(false)} />
+            <div className="lw-mobile-panel md:hidden">
+              <div className="lw-mobile-panel-head">
+                <Link to="/" className="lw-brand" aria-label="Leak World home" onClick={() => setMobileOpen(false)}>
+                  <span>Leak World</span>
+                </Link>
+                <button type="button" className="lw-icon-btn" aria-label="Close menu" onClick={() => setMobileOpen(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              {links.map((link, index) => (
+                <NavLink
+                  key={link.to}
+                  to={link.to}
+                  end={link.to === '/'}
+                  className={navClass}
+                  style={{ '--i': index }}
+                >
+                  {link.label}
+                </NavLink>
+              ))}
+              <div className="grid grid-cols-2 gap-2 pt-2" style={{ '--i': links.length }}>
+                {user ? (
+                  <div className="col-span-2">
+                    <UserAccountMenu
+                      user={user}
+                      logout={logout}
+                      variant="mobile"
+                      onAfterNavigate={() => setMobileOpen(false)}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="lw-btn ghost"
+                      onClick={() => {
+                        setMobileOpen(false);
+                        openAuthModal('login');
+                      }}
+                    >
+                      Login
+                    </button>
+                    <button
+                      type="button"
+                      className="lw-btn primary"
+                      onClick={() => {
+                        setMobileOpen(false);
+                        openAuthModal('signup');
+                      }}
+                    >
+                      Sign up
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
+          </>
         ) : null}
       </header>
 
-      <main className="mx-auto w-full max-w-[1440px] px-3 pb-20 pt-[136px] sm:px-4 lg:px-6">
+      <main className={`lw-main mx-auto w-full max-w-[1440px] px-3 pb-20 pt-[136px] sm:px-4 lg:px-6 ${isShorts ? 'lw-main--shorts' : ''}`}>
         <Outlet />
       </main>
 

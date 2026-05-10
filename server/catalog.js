@@ -143,8 +143,9 @@ const shorts = creators.slice(0, 36).map((creator, index) => ({
   title: `${creator.name} preview ${index + 1}`,
   tier: index % 5 === 0 ? 'premium' : 'free',
   duration: ['0:18', '0:24', '0:32', '0:41'][index % 4],
-  views: seededMetric(index + 1, 1200, 88000),
-  likes: seededMetric(index + 1, 140, 6800),
+  /** Real engagement comes from DB/media telemetry after catalog seed — no demo counts. */
+  views: 0,
+  likes: 0,
 }));
 
 module.exports = {

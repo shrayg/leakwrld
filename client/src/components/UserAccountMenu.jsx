@@ -42,7 +42,7 @@ export function UserAccountMenu({ user, logout, variant = 'desktop', onAfterNavi
   return (
     <div
       ref={rootRef}
-      className={`lw-user-menu ${variant === 'mobile' ? 'lw-user-menu--mobile' : ''}`}
+      className={`lw-user-menu ${variant === 'mobile' ? 'lw-user-menu--mobile' : ''} ${variant === 'shorts' ? 'lw-user-menu--shorts' : ''}`}
     >
       <button
         type="button"
