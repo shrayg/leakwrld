@@ -70,11 +70,7 @@ export function AdminPage() {
     <div className="lw-admin-page min-h-screen bg-[var(--color-bg)] px-4 py-16 text-[var(--color-text)]">
       <div className="lw-admin-inner mx-auto max-w-lg">
         <h1 className="mb-1 text-2xl font-semibold text-white">Admin</h1>
-        <p className="mb-8 text-sm text-white/55">
-          Sign in with the password from your channel (when{' '}
-          <code className="text-[var(--color-primary-light)]">ADMIN_DISCORD_WEBHOOK_URL</code> is set in{' '}
-          <code className="text-[var(--color-primary-light)]">.env</code>).
-        </p>
+        <p className="mb-8 text-sm text-white/55">Restricted area — administrator password required.</p>
 
         <form className="lw-form lw-admin-form" onSubmit={login}>
           <label>
