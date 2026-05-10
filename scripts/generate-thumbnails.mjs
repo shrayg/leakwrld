@@ -15,7 +15,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -295,16 +295,22 @@ async function main() {
    *   - client/public/thumbnails/_manifest.json: human-readable, served at /thumbnails/_manifest.json
    *   - client/src/data/thumbnails.json: bundled into the client + read by server catalog,
    *     used to gate the thumbnail field on each creator. */
-  const ready = results
+  const dataManifestPath = join(repoRoot, 'client', 'src', 'data', 'thumbnails.json');
+  let previousSlugs = [];
+  try {
+    previousSlugs = JSON.parse(readFileSync(dataManifestPath, 'utf8'));
+  } catch {
+    previousSlugs = [];
+  }
+  const batchSlugs = results
     .filter((r) => r.status === 'ok' || r.status === 'exists')
-    .map((r) => r.slug)
-    .sort();
+    .map((r) => r.slug);
+  const ready = [...new Set([...(Array.isArray(previousSlugs) ? previousSlugs : []), ...batchSlugs])].sort();
 
   const publicManifest = ready.map((slug) => ({ slug, file: `${slug}.jpg` }));
   const publicManifestPath = join(OUT_DIR, '_manifest.json');
   writeFileSync(publicManifestPath, JSON.stringify(publicManifest, null, 2));
 
-  const dataManifestPath = join(repoRoot, 'client', 'src', 'data', 'thumbnails.json');
   writeFileSync(dataManifestPath, JSON.stringify(ready, null, 2) + '\n');
 
   console.log(`  manifest: ${ready.length} entries`);

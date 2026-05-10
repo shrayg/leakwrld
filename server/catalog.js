@@ -108,14 +108,44 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '');
 }
 
+/** Creators that exist in R2 under `videos/<slug>/` but are not in `creatorNames`.
+ *  List lives in `client/src/data/extra-creators.json` (see `npm run media:import-remote`, requires rclone). */
+function loadExtraCreators() {
+  try {
+    const p = path.join(__dirname, '..', 'client', 'src', 'data', 'extra-creators.json');
+    const raw = fs.readFileSync(p, 'utf8');
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(
+      (e) =>
+        e &&
+        typeof e.slug === 'string' &&
+        /^[a-z0-9-]+$/.test(e.slug) &&
+        typeof e.name === 'string' &&
+        e.name.trim(),
+    );
+  } catch {
+    return [];
+  }
+}
+
 function seededMetric(rank, base, spread) {
   return base + ((rank * 37) % spread);
 }
 
-const creators = creatorNames.map((name, index) => {
+const extraCreatorsFromFile = loadExtraCreators();
+const baseSlugSet = new Set(creatorNames.map((n) => slugify(n)));
+const extraCreators = extraCreatorsFromFile.filter((e) => !baseSlugSet.has(e.slug));
+
+const creatorEntries = [
+  ...creatorNames.map((name) => ({ name, slug: slugify(name) })),
+  ...extraCreators.map((e) => ({ name: e.name.trim(), slug: e.slug })),
+];
+
+const creators = creatorEntries.map((entry, index) => {
   const rank = index + 1;
   const category = categoryNames[index % categoryNames.length];
-  const slug = slugify(name);
+  const { name, slug } = entry;
   const real = mediaSummary.get(slug);
   /** Real R2 counts when available; fall back to seeded values for creators
    *  without a manifest (so the seeded card never shows zero). */
@@ -162,6 +192,8 @@ const shorts = creators.slice(0, 36).map((creator, index) => ({
 
 module.exports = {
   categoryNames,
+  creatorNames,
+  creatorEntries,
   creators,
   readyCreators,
   shorts,
