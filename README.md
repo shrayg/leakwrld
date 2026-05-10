@@ -23,6 +23,12 @@ Set `DATABASE_URL`, then apply the full schema:
 npm run db:schema
 ```
 
+**VPS / `sudo`:** plain `sudo -u leakwrld npm run db:schema` often **drops `DATABASE_URL`**, so `psql` falls back to your Linux username and Postgres looks for a role named `leakwrld` (which does not exist). Source `.env` inside the target user’s shell:
+
+```bash
+sudo -u leakwrld bash -lc 'cd /opt/leakwrld && set -a && . ./.env && set +a && npm run db:schema'
+```
+
 ### Existing database (upgrade from the older baseline)
 
 ```bash
@@ -46,13 +52,21 @@ The app seeds the first 100 creator records and starter shorts on first API read
 
 ## Environment
 
-```bash
-DATABASE_URL=postgres://user:password@localhost:5432/leakworld
-SESSION_SECRET=replace-with-random-secret
-PORT=3002
-ONLINE_CAPACITY=100
-SKIP_QUEUE_PRICE_CENTS=499
-```
+Copy **`.env`** in the repo root (gitignored — create from scratch or sync from your password manager). Keys:
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Postgres connection string |
+| `SESSION_SECRET` | Cookie / session signing |
+| `PORT`, `HOST` | Node HTTP bind (`HOST=127.0.0.1` typical behind nginx) |
+| `SECURE_COOKIES` | Set `1` when serving HTTPS |
+| `ONLINE_CAPACITY`, `SKIP_QUEUE_PRICE_CENTS` | Queue endpoint |
+
+Optional: `VITE_R2_PUBLIC_BASE` for Cloudflare Worker media URLs during **dev**; creator **tiles** use `/api/creators` + bundled `media-summary.json`, not direct R2.
+
+### Empty “Top creators” on the deployed site
+
+The API only lists creators marked **ready** (real counts in `client/src/data/media-summary.json`). If the server could not read that file (older builds only loaded `data/media-summary.json`), the grid was empty — fixed by loading both paths in `server/catalog.js`. After deploy, **`git pull`**, **`npm run build`**, **`sudo systemctl restart leakwrld`**.
 
 Payments are intentionally stubbed until the new VPS deployment and billing provider are chosen.
 

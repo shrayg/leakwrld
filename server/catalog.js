@@ -12,19 +12,35 @@ try {
 }
 
 /**
- * Per-creator media summary built by `npm run media:sync`. The summary maps each
- * slug -> real R2 object counts so creators with no real content (only the
- * `.keep` placeholder) can be hidden from public APIs and the seeded marketing
- * counts can be overridden by real data wherever it exists.
+ * Per-creator media summary from `npm run media:sync` / checked-in manifests.
+ * We merge **both** paths so production (VPS) matches the SPA catalog:
+ *   - `data/media-summary.json` — optional CI/server dump `{ creators: [...] }`
+ *   - `client/src/data/media-summary.json` — array `[{ slug, count, ... }, ...]`
+ * Without this, only `data/media-summary.json` was read and stayed empty on
+ * deploy → every creator looked "not ready" → `/api/creators` returned [].
  */
-let mediaSummary = new Map();
-try {
-  const raw = fs.readFileSync(path.join(__dirname, '..', 'data', 'media-summary.json'), 'utf8');
-  const parsed = JSON.parse(raw);
-  for (const entry of parsed.creators || []) mediaSummary.set(entry.slug, entry);
-} catch {
-  mediaSummary = new Map();
+function loadMediaSummaryMap() {
+  const map = new Map();
+  const paths = [
+    path.join(__dirname, '..', 'data', 'media-summary.json'),
+    path.join(__dirname, '..', 'client', 'src', 'data', 'media-summary.json'),
+  ];
+  for (const filePath of paths) {
+    try {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      const list = Array.isArray(parsed) ? parsed : parsed.creators || [];
+      for (const entry of list) {
+        if (entry && entry.slug) map.set(entry.slug, entry);
+      }
+    } catch {
+      /* missing or invalid */
+    }
+  }
+  return map;
 }
+
+const mediaSummary = loadMediaSummaryMap();
 
 const creatorNames = [
   'Sophie Rain',
@@ -93,7 +109,9 @@ const creators = creatorNames.map((name, index) => {
   /** Real R2 counts when available; fall back to seeded values for creators
    *  without a manifest (so the seeded card never shows zero). */
   const mediaCount = real ? real.count : seededMetric(rank, 24, 420);
-  const freeCount = real ? (real.byTier?.free?.count || 0) : seededMetric(rank, 4, 18);
+  const freeCount = real
+    ? Number(real.byTier?.free?.count ?? real.free ?? 0)
+    : seededMetric(rank, 4, 18);
   const premiumCount = real
     ? mediaCount - freeCount
     : seededMetric(rank, 18, 240);

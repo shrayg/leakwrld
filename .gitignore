@@ -1,7 +1,6 @@
 # Secrets / local config
 .env
 .env.*
-!.env.example
 
 # Runtime / logs
 *.log
