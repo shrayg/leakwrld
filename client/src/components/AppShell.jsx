@@ -1,6 +1,7 @@
 import { Menu, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { recordPageView } from '../lib/analytics';
 import { AuthModal } from './AuthModal';
 import { useAuth } from './AuthContext';
 import { UserAccountMenu } from './UserAccountMenu';
@@ -26,6 +27,10 @@ export function AppShell() {
     setMobileOpen(false);
     window.scrollTo(0, 0);
   }, [pathname]);
+
+  useEffect(() => {
+    recordPageView(`${pathname}${search}`);
+  }, [pathname, search]);
 
   useEffect(() => {
     if (loading) return;
