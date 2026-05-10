@@ -62,7 +62,9 @@ Copy **`.env`** in the repo root (gitignored — create from scratch or sync fro
 | `SECURE_COOKIES` | Set `1` when serving HTTPS |
 | `ONLINE_CAPACITY`, `SKIP_QUEUE_PRICE_CENTS` | Queue endpoint |
 
-Optional: **`VITE_R2_PUBLIC_BASE`** — your deployed **`workers.dev`** (or custom CDN) URL. Set when running **`npm run build`** on the VPS so gallery `/r2/…` requests go straight to Cloudflare (no R2 keys on the server). Alternatively, configure **nginx** to proxy `/r2/` to the same Worker (see Deploy below).
+**Recommended on VPS:** **`R2_WORKER_ORIGIN`** — same public **`https://…workers.dev`** URL as your Worker. Set in **`.env`**, **`systemctl restart leakwrld`** only — Node proxies **`/r2/*`** to Cloudflare (no `npm run build`, no R2 keys).  
+
+Alternative: **`VITE_R2_PUBLIC_BASE`** at **build** time (browser hits Worker directly). Or **nginx** `location /r2/` → Worker — see Deploy.
 
 ### Empty “Top creators” on the deployed site
 
@@ -92,32 +94,25 @@ Payments are intentionally stubbed until the new VPS deployment and billing prov
 
 ### Media files (`/r2/*`) work locally but not on the VPS
 
-Locally, **Vite** forwards `/r2/*` to Node, and Node streams objects with **rclone** when `RCLONE_CONFIG_R2_*` is in `.env`. On the VPS you usually **do not** install rclone or R2 keys.
+Locally, **Vite** forwards `/r2/*` to Node, and Node streams with **rclone** when `RCLONE_CONFIG_R2_*` is set. On the VPS, **without rclone**, Node used to return **503** for every `/r2/` request — thumbnails and lightbox break.
 
 Pick **one**:
 
-**A — Build with Worker URL (simplest)**  
-Your Worker URL is **public** (not an API secret). On the server, add to `.env` before building:
+**A — `R2_WORKER_ORIGIN` (recommended)** — no client rebuild. Add to **`/opt/leakwrld/.env`**:
 
 ```bash
-VITE_R2_PUBLIC_BASE=https://leakwrld-r2.YOUR_SUBDOMAIN.workers.dev
+R2_WORKER_ORIGIN=https://leakwrld-r2.YOUR_SUBDOMAIN.workers.dev
 ```
 
-Then `npm run build` and `systemctl restart leakwrld`. The browser loads media from Cloudflare directly.
+Then **`sudo systemctl restart leakwrld`**. The browser still requests **`https://your-site/r2/videos/...`** (same origin); Node **proxies** to the Worker (forwards `Range` for video).
 
-**B — Nginx proxy** (keep relative `/r2` in the built JS) — inside your `server { }` block:
+If you previously set **`VITE_R2_PUBLIC_BASE`**, the built JS may still load media **directly** from Cloudflare and **ignore** this proxy. Either remove that line and **`npm run build`** again, or fix the Worker URL in `VITE_*`.
 
-```nginx
-location /r2/ {
-    rewrite ^/r2/(.*)$ /$1 break;
-    proxy_pass https://leakwrld-r2.YOUR_SUBDOMAIN.workers.dev;
-    proxy_ssl_server_name on;
-    proxy_http_version 1.1;
-    proxy_set_header Host leakwrld-r2.YOUR_SUBDOMAIN.workers.dev;
-}
-```
+**B — `VITE_R2_PUBLIC_BASE` at build time** — browser loads media straight from the Worker; requires correct URL whenever you **`npm run build`**.
 
-Reload nginx. No Cloudflare **account** keys belong in `.env` for either path — only the Worker’s HTTPS hostname.
+**C — Nginx `location /r2/`** → Worker (nginx snippet stays valid).
+
+Only the Worker’s **HTTPS hostname** is needed — not Cloudflare account API keys.
 
 **HTTPS:** install Certbot on the server and point DNS at the VPS when you have a domain.
 

@@ -59,6 +59,8 @@ const SESSION_DAYS = Number(process.env.SESSION_DAYS || 14);
 const ONLINE_CAPACITY = Math.max(1, Number(process.env.ONLINE_CAPACITY || 100));
 const SKIP_QUEUE_PRICE_CENTS = Math.max(0, Number(process.env.SKIP_QUEUE_PRICE_CENTS || 499));
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+/** VPS production: proxy `/r2/*` to Cloudflare Worker HTTPS origin (public URL, not a secret). */
+const R2_WORKER_ORIGIN = String(process.env.R2_WORKER_ORIGIN || '').trim().replace(/\/+$/, '');
 
 function clientIp(req) {
   const xff = req.headers['x-forwarded-for'];
@@ -815,23 +817,63 @@ async function sendStatic(req, res, url) {
   return res.end(method === 'HEAD' ? Buffer.alloc(0) : index);
 }
 
-/** Dev-only R2 streaming proxy.
- *
- *  In production `/r2/*` is served by the Cloudflare Worker
- *  (worker/src/index.js). In local dev, the Worker may not yet have a
- *  workers.dev subdomain registered, so we stream straight from R2 here
- *  using `rclone cat`. Gated on RCLONE_CONFIG_R2_ACCESS_KEY_ID being present.
+function parseR2ObjectKey(url) {
+  const rawKey = decodeURIComponent(url.pathname.slice('/r2/'.length));
+  if (!rawKey || rawKey.includes('..') || rawKey.startsWith('/') || /^[a-zA-Z]:/.test(rawKey)) return null;
+  return rawKey;
+}
+
+/**
+ * Production on VPS: browser loads same-origin `/r2/...`; Node forwards to the Worker.
+ * No R2 API keys on the server; optional — avoids fragile `VITE_R2_PUBLIC_BASE` rebuilds.
  */
-function streamR2(req, res, url) {
+async function proxyR2FromWorker(req, res, rawKey) {
+  const { Readable } = require('stream');
+  if (!/^https:\/\//i.test(R2_WORKER_ORIGIN)) {
+    return sendJson(res, 500, { error: 'R2_WORKER_ORIGIN must start with https://' });
+  }
+  const targetUrl = `${R2_WORKER_ORIGIN}/${rawKey.split('/').map((seg) => encodeURIComponent(seg)).join('/')}`;
+  const headers = {};
+  if (req.headers.range) headers.Range = req.headers.range;
+  try {
+    const upstream = await fetch(targetUrl, { method: req.method, headers, redirect: 'follow' });
+    const passNames = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'cache-control'];
+    const out = {};
+    for (const name of passNames) {
+      const v = upstream.headers.get(name);
+      if (v) out[name] = v;
+    }
+    res.writeHead(upstream.status, out);
+    if (req.method === 'HEAD' || upstream.status === 304) {
+      upstream.body?.cancel?.().catch(() => {});
+      return res.end();
+    }
+    if (!upstream.body) return res.end();
+    Readable.fromWeb(upstream.body).on('error', () => res.destroy()).pipe(res);
+  } catch (err) {
+    console.error('[r2-worker-proxy]', err);
+    if (!res.headersSent) return sendJson(res, 502, { error: 'Media upstream unreachable' });
+    res.destroy();
+  }
+}
+
+/** `/r2/*`: Worker proxy (`R2_WORKER_ORIGIN`), else rclone (`RCLONE_CONFIG_R2_*`). */
+async function streamR2(req, res, url) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return sendJson(res, 405, { error: 'Method not allowed.' });
   }
-  if (!process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID) {
-    return sendJson(res, 503, { error: 'R2 dev proxy disabled (RCLONE_CONFIG_R2_* env vars missing).' });
+  const rawKey = parseR2ObjectKey(url);
+  if (!rawKey) return sendJson(res, 400, { error: 'Invalid R2 key.' });
+
+  if (R2_WORKER_ORIGIN) {
+    return proxyR2FromWorker(req, res, rawKey);
   }
-  const rawKey = decodeURIComponent(url.pathname.slice('/r2/'.length));
-  if (!rawKey || rawKey.includes('..') || rawKey.startsWith('/') || /^[a-zA-Z]:/.test(rawKey)) {
-    return sendJson(res, 400, { error: 'Invalid R2 key.' });
+
+  if (!process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID) {
+    return sendJson(res, 503, {
+      error:
+        'R2 unavailable: set R2_WORKER_ORIGIN=https://your-worker.workers.dev on the VPS, or RCLONE_CONFIG_R2_* for local rclone.',
+    });
   }
   const ext = (rawKey.match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase();
   const contentType = ext === '.mp4' || ext === '.m4v' ? 'video/mp4'
@@ -888,7 +930,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
     if (url.pathname.startsWith('/api/')) return await routeApi(req, res, url);
-    if (url.pathname.startsWith('/r2/')) return streamR2(req, res, url);
+    if (url.pathname.startsWith('/r2/')) return await streamR2(req, res, url);
     return await sendStatic(req, res, url);
   } catch (err) {
     const status = err.message === 'invalid_json' ? 400 : err.message === 'payload_too_large' ? 413 : 500;
@@ -900,6 +942,9 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`Leak World server running on http://${HOST}:${PORT}`);
   console.log(`Postgres: ${pool ? 'enabled' : 'disabled (set DATABASE_URL)'}`);
+  if (R2_WORKER_ORIGIN) console.log(`R2 media: proxied via Worker (${R2_WORKER_ORIGIN})`);
+  else if (process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID) console.log('R2 media: rclone stream (dev)');
+  else console.log('R2 media: disabled — set R2_WORKER_ORIGIN on VPS or rclone env locally');
 });
 
 process.on('SIGTERM', async () => {
