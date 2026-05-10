@@ -1,6 +1,7 @@
 import { Menu, Search, User, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { AuthModal } from './AuthModal';
 import { useAuth } from './AuthContext';
 
 const links = [
@@ -16,13 +17,25 @@ function navClass({ isActive }) {
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { pathname } = useLocation();
-  const { user, loading, logout } = useAuth();
+  const { pathname, search } = useLocation();
+  const navigate = useNavigate();
+  const { user, loading, logout, openAuthModal } = useAuth();
 
   useEffect(() => {
     setMobileOpen(false);
     window.scrollTo(0, 0);
   }, [pathname]);
+
+  useEffect(() => {
+    if (loading) return;
+    const params = new URLSearchParams(search);
+    const a = params.get('auth');
+    if (a !== 'login' && a !== 'signup') return;
+    if (!user) openAuthModal(a);
+    params.delete('auth');
+    const qs = params.toString();
+    navigate(`${pathname}${qs ? `?${qs}` : ''}`, { replace: true });
+  }, [search, pathname, navigate, openAuthModal, loading, user]);
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]">
@@ -66,12 +79,12 @@ export function AppShell() {
               </>
             ) : (
               <>
-                <Link to="/login" className="lw-btn ghost">
+                <button type="button" className="lw-btn ghost" onClick={() => openAuthModal('login')}>
                   Login
-                </Link>
-                <Link to="/signup" className="lw-btn primary">
+                </button>
+                <button type="button" className="lw-btn primary" onClick={() => openAuthModal('signup')}>
                   Sign up
-                </Link>
+                </button>
               </>
             )}
           </div>
@@ -99,12 +112,26 @@ export function AppShell() {
                 </button>
               ) : (
                 <>
-                  <Link to="/login" className="lw-btn ghost">
+                  <button
+                    type="button"
+                    className="lw-btn ghost"
+                    onClick={() => {
+                      setMobileOpen(false);
+                      openAuthModal('login');
+                    }}
+                  >
                     Login
-                  </Link>
-                  <Link to="/signup" className="lw-btn primary">
+                  </button>
+                  <button
+                    type="button"
+                    className="lw-btn primary"
+                    onClick={() => {
+                      setMobileOpen(false);
+                      openAuthModal('signup');
+                    }}
+                  >
                     Sign up
-                  </Link>
+                  </button>
                 </>
               )}
             </div>
@@ -115,6 +142,8 @@ export function AppShell() {
       <main className="mx-auto w-full max-w-[1440px] px-3 pb-20 pt-[136px] sm:px-4 lg:px-6">
         <Outlet />
       </main>
+
+      <AuthModal />
     </div>
   );
 }

@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { AuthProvider } from './components/AuthContext';
-import { AuthPage } from './pages/AuthPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { CreatorDetailPage } from './pages/CreatorDetailPage';
@@ -20,9 +19,9 @@ export default function App() {
           <Route path="/creators/:slug" element={<CreatorDetailPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/premium" element={<Navigate to="/checkout" replace />} />
-          <Route path="/login" element={<AuthPage mode="login" />} />
-          <Route path="/signup" element={<AuthPage mode="signup" />} />
-          <Route path="/create-account" element={<Navigate to="/signup" replace />} />
+          <Route path="/login" element={<Navigate to="/?auth=login" replace />} />
+          <Route path="/signup" element={<Navigate to="/?auth=signup" replace />} />
+          <Route path="/create-account" element={<Navigate to="/?auth=signup" replace />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

@@ -127,15 +127,6 @@ function authThrottleClear(map, ip) {
   map.delete(ip);
 }
 
-function normalizeOptionalPhone(raw) {
-  const digits = String(raw || '').replace(/\D/g, '');
-  if (!digits) return { phone: null };
-  if (digits.length < 10 || digits.length > 15) {
-    return { error: 'Phone must be 10-15 digits if provided.' };
-  }
-  return { phone: digits };
-}
-
 function signupConflictMessage(err) {
   const c = String(err.constraint || '');
   if (c.includes('phone')) return 'That phone number is already registered.';
@@ -427,8 +418,6 @@ function validateSignup(body) {
   if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return 'Username must be 3-24 characters.';
   if (password.length < 8) return 'Password must be at least 8 characters.';
   if (confirmPassword !== password) return 'Passwords do not match.';
-  const phoneCheck = normalizeOptionalPhone(body.phone || body.phoneNumber || '');
-  if (phoneCheck.error) return phoneCheck.error;
   return null;
 }
 
@@ -460,8 +449,7 @@ async function routeApi(req, res, url) {
             .toLowerCase();
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
-    const phoneParsed = normalizeOptionalPhone(body.phone || body.phoneNumber || '');
-    const phoneFinal = phoneParsed.phone ?? null;
+    const phoneFinal = null;
     const refNorm = normalizeReferralCode(body.referralCode || body.referral_code || '');
     const ip = clientIp(req) || 'unknown';
 
