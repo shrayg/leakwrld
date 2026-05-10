@@ -398,11 +398,14 @@ async function currentUser(req) {
     [tokenHash(token)],
   );
   if (!found.rows[0]) return null;
-  await dbQuery('update sessions set last_seen_at = now() where token_hash = $1', [tokenHash(token)]).catch(() => {});
-  const ip = clientIp(req);
+  const ip = clientIp(req) || null;
+  await dbQuery(
+    'update sessions set last_seen_at = now(), ip = coalesce($2, sessions.ip) where token_hash = $1',
+    [tokenHash(token), ip],
+  ).catch(() => {});
   await dbQuery(
     'update users set last_active_at = now(), last_ip = coalesce($2, last_ip), updated_at = now() where id = $1',
-    [found.rows[0].id, ip || null],
+    [found.rows[0].id, ip],
   ).catch(() => {});
   return normalizeUser(found.rows[0]);
 }
@@ -490,8 +493,8 @@ async function routeApi(req, res, url) {
           inserted = await client.query(
             `insert into users (
               email, phone, username, password_hash, referral_code,
-              referred_by_user_id, signup_ip, last_ip, last_active_at, auth_provider
-            ) values ($1,$2,$3,$4,$5,$6,$7,$8, now(), 'local')
+              referred_by_user_id, signup_ip, last_ip, last_active_at, auth_provider, tier
+            ) values ($1,$2,$3,$4,$5,$6,$7,$8, now(), 'local', 'free')
             returning id, email, phone, username, tier, created_at,
               referral_code, referral_signups_count, referred_by_user_id,
               watch_time_seconds, site_time_seconds, plan_label, last_active_at`,
