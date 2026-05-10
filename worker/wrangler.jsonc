@@ -1,0 +1,34 @@
+/**
+ * leakwrld R2 proxy Worker.
+ *
+ * Default deploy:
+ *   npm run worker:deploy
+ *   -> https://leakwrld-r2.<your-subdomain>.workers.dev
+ *
+ * Production:
+ *   1. Create the route in the Cloudflare dashboard, OR
+ *   2. Uncomment + edit the `routes` block below to bind cdn.leakwrld.com
+ *      (requires the leakwrld.com zone to be on this Cloudflare account).
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "leakwrld-r2",
+  "main": "src/index.js",
+  "compatibility_date": "2026-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "leakwrld"
+    }
+  ]
+  // Uncomment after the cdn.leakwrld.com DNS + zone are in place.
+  // "routes": [
+  //   { "pattern": "cdn.leakwrld.com/*", "custom_domain": true }
+  // ]
+}

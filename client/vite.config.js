@@ -20,6 +20,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': { target: 'http://127.0.0.1:3002', changeOrigin: true },
+      /** /r2/* is served by the Node dev server during local development
+       *  (which streams from R2 via rclone) and by the Cloudflare Worker
+       *  in production. Both paths are transparent to the client. */
+      '/r2': { target: 'http://127.0.0.1:3002', changeOrigin: true },
     },
   },
   resolve: {

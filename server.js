@@ -6,7 +6,50 @@ const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
 const { Pool } = require('pg');
-const { categoryNames, creators: fallbackCreators, shorts: fallbackShorts } = require('./server/catalog');
+const {
+  categoryNames,
+  creators: fallbackCreators,
+  readyCreators: fallbackReadyCreators,
+  shorts: fallbackShorts,
+} = require('./server/catalog');
+const { generateReferralCode, normalizeReferralCode } = require('./server/referralCodes');
+
+const thumbnailLookup = new Map(fallbackCreators.map((c) => [c.slug, c.thumbnail]));
+const creatorBySlug = new Map(fallbackCreators.map((c) => [c.slug, c]));
+const readySlugSet = new Set(fallbackReadyCreators.map((c) => c.slug));
+
+function thumbnailFor(slug) {
+  return thumbnailLookup.get(slug) || null;
+}
+
+const MEDIA_DIR = path.join(__dirname, 'client', 'public', 'media');
+
+function loadMediaManifest(slug) {
+  if (!/^[a-z0-9-]+$/.test(slug)) return null;
+  try {
+    const raw = fs.readFileSync(path.join(MEDIA_DIR, `${slug}.json`), 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+const R2_STATS_PATH = path.join(__dirname, 'data', 'r2-stats.json');
+let r2StatsCache = null;
+let r2StatsMtime = 0;
+
+function loadR2Stats() {
+  try {
+    const stat = fs.statSync(R2_STATS_PATH);
+    if (stat.mtimeMs !== r2StatsMtime) {
+      r2StatsCache = JSON.parse(fs.readFileSync(R2_STATS_PATH, 'utf8'));
+      r2StatsMtime = stat.mtimeMs;
+    }
+  } catch {
+    r2StatsCache = null;
+  }
+  return r2StatsCache;
+}
 
 const PORT = Number(process.env.PORT || 3002);
 const HOST = process.env.HOST || (process.env.PORT ? '0.0.0.0' : '127.0.0.1');
@@ -16,6 +59,17 @@ const SESSION_DAYS = Number(process.env.SESSION_DAYS || 14);
 const ONLINE_CAPACITY = Math.max(1, Number(process.env.ONLINE_CAPACITY || 100));
 const SKIP_QUEUE_PRICE_CENTS = Math.max(0, Number(process.env.SKIP_QUEUE_PRICE_CENTS || 499));
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+
+function clientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) return String(xff).split(',')[0].trim().slice(0, 64);
+  const raw = req.socket?.remoteAddress || '';
+  return String(raw).slice(0, 64);
+}
+
+function clientUserAgent(req) {
+  return String(req.headers['user-agent'] || '').slice(0, 512);
+}
 
 const pool = DATABASE_URL
   ? new Pool({
@@ -138,55 +192,62 @@ async function dbQuery(text, values = []) {
 
 async function ensureCatalogSeeded() {
   if (!pool || catalogSeeded) return;
-  const check = await dbQuery('select count(*)::int as count from creators');
-  if (Number(check.rows[0]?.count || 0) === 0) {
-    const client = await pool.connect();
-    try {
-      await client.query('begin');
-      for (const creator of fallbackCreators) {
-        await client.query(
-          `insert into creators
-            (rank, name, slug, category, tagline, media_count, free_count, premium_count, heat, accent)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-           on conflict (slug) do nothing`,
-          [
-            creator.rank,
-            creator.name,
-            creator.slug,
-            creator.category,
-            creator.tagline,
-            creator.mediaCount,
-            creator.freeCount,
-            creator.premiumCount,
-            creator.heat,
-            creator.accent,
-          ],
-        );
-      }
-      for (const item of fallbackShorts) {
-        await client.query(
-          `insert into media_items
-            (id, creator_slug, title, media_type, tier, duration_seconds, views, likes, status)
-           values ($1,$2,$3,'short',$4,$5,$6,$7,'published')
-           on conflict (id) do nothing`,
-          [
-            item.id,
-            item.creatorSlug,
-            item.title,
-            item.tier,
-            durationToSeconds(item.duration),
-            item.views,
-            item.likes,
-          ],
-        );
-      }
-      await client.query('commit');
-    } catch (err) {
-      await client.query('rollback');
-      throw err;
-    } finally {
-      client.release();
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    /** Upsert every creator on each boot so newly-added creators land in the DB without manual migration. */
+    for (const creator of fallbackCreators) {
+      await client.query(
+        `insert into creators
+          (rank, name, slug, category, tagline, media_count, free_count, premium_count, heat, accent)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         on conflict (slug) do update set
+           rank = excluded.rank,
+           name = excluded.name,
+           category = excluded.category,
+           tagline = excluded.tagline,
+           media_count = excluded.media_count,
+           free_count = excluded.free_count,
+           premium_count = excluded.premium_count,
+           heat = excluded.heat,
+           accent = excluded.accent`,
+        [
+          creator.rank,
+          creator.name,
+          creator.slug,
+          creator.category,
+          creator.tagline,
+          creator.mediaCount,
+          creator.freeCount,
+          creator.premiumCount,
+          creator.heat,
+          creator.accent,
+        ],
+      );
     }
+    for (const item of fallbackShorts) {
+      await client.query(
+        `insert into media_items
+          (id, creator_slug, title, media_type, tier, duration_seconds, views, likes, status)
+         values ($1,$2,$3,'short',$4,$5,$6,$7,'published')
+         on conflict (id) do nothing`,
+        [
+          item.id,
+          item.creatorSlug,
+          item.title,
+          item.tier,
+          durationToSeconds(item.duration),
+          item.views,
+          item.likes,
+        ],
+      );
+    }
+    await client.query('commit');
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
   }
   catalogSeeded = true;
 }
@@ -211,18 +272,44 @@ function normalizeUser(row) {
     email: row.email,
     username: row.username,
     tier: row.tier || 'free',
+    referralCode: row.referral_code,
+    referralSignups: Number(row.referral_signups_count || 0),
+    referredByUserId: row.referred_by_user_id || null,
+    watchTimeSeconds: Number(row.watch_time_seconds || 0),
+    siteTimeSeconds: Number(row.site_time_seconds || 0),
+    planLabel: row.plan_label || null,
     createdAt: row.created_at,
+    lastActiveAt: row.last_active_at || null,
   };
 }
 
-async function createSession(res, userId) {
+async function createSession(res, userId, req) {
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 86400_000);
+  const ip = req ? clientIp(req) : '';
+  const ua = req ? clientUserAgent(req) : '';
   await dbQuery(
-    'insert into sessions (token_hash, user_id, expires_at, last_seen_at) values ($1,$2,$3,now())',
-    [tokenHash(token), userId, expiresAt],
+    `insert into sessions (token_hash, user_id, expires_at, last_seen_at, ip, user_agent)
+     values ($1,$2,$3,now(),$4,$5)`,
+    [tokenHash(token), userId, expiresAt, ip || null, ua || null],
   );
   setSessionCookie(res, token);
+}
+
+/** Resolve logged-in user id without touching sessions/users (for analytics beacons). */
+async function sessionUserId(req) {
+  if (!pool) return null;
+  const token = parseCookies(req)[SESSION_COOKIE];
+  if (!token) return null;
+  const found = await dbQuery(
+    `select u.id
+     from sessions s
+     join users u on u.id = s.user_id
+     where s.token_hash = $1 and s.expires_at > now() and u.banned_at is null
+     limit 1`,
+    [tokenHash(token)],
+  );
+  return found.rows[0]?.id || null;
 }
 
 async function currentUser(req) {
@@ -230,15 +317,22 @@ async function currentUser(req) {
   const token = parseCookies(req)[SESSION_COOKIE];
   if (!token) return null;
   const found = await dbQuery(
-    `select u.id, u.email, u.username, u.tier, u.created_at
+    `select u.id, u.email, u.username, u.tier, u.created_at,
+            u.referral_code, u.referral_signups_count, u.referred_by_user_id,
+            u.watch_time_seconds, u.site_time_seconds, u.plan_label, u.last_active_at
      from sessions s
      join users u on u.id = s.user_id
-     where s.token_hash = $1 and s.expires_at > now()
+     where s.token_hash = $1 and s.expires_at > now() and u.banned_at is null
      limit 1`,
     [tokenHash(token)],
   );
   if (!found.rows[0]) return null;
   await dbQuery('update sessions set last_seen_at = now() where token_hash = $1', [tokenHash(token)]).catch(() => {});
+  const ip = clientIp(req);
+  await dbQuery(
+    'update users set last_active_at = now(), last_ip = coalesce($2, last_ip), updated_at = now() where id = $1',
+    [found.rows[0].id, ip || null],
+  ).catch(() => {});
   return normalizeUser(found.rows[0]);
 }
 
@@ -251,10 +345,11 @@ async function destroySession(req, res) {
 }
 
 function validateSignup(body) {
-  const email = String(body.email || '').trim().toLowerCase();
+  const emailRaw = String(body.email || '').trim().toLowerCase();
   const username = String(body.username || '').trim();
   const password = String(body.password || '');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Enter a valid email.';
+  const email = emailRaw === '' ? null : emailRaw;
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Enter a valid email or leave it blank.';
   if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return 'Username must be 3-24 characters.';
   if (password.length < 8) return 'Password must be at least 8 characters.';
   return null;
@@ -277,21 +372,85 @@ async function routeApi(req, res, url) {
     const body = await readJson(req);
     const error = validateSignup(body);
     if (error) return sendJson(res, 400, { error });
-    const email = String(body.email).trim().toLowerCase();
-    const username = String(body.username).trim();
-    const password = String(body.password);
+    const emailFinal =
+      String(body.email || '')
+        .trim()
+        .toLowerCase() === ''
+        ? null
+        : String(body.email || '')
+            .trim()
+            .toLowerCase();
+    const username = String(body.username || '').trim();
+    const password = String(body.password || '');
+    const refNorm = normalizeReferralCode(body.referralCode || body.referral_code || '');
+    const ip = clientIp(req);
+
+    const client = await pool.connect();
     try {
-      const inserted = await dbQuery(
-        `insert into users (email, username, password_hash)
-         values ($1,$2,$3)
-         returning id, email, username, tier, created_at`,
-        [email, username, passwordHash(password)],
-      );
-      await createSession(res, inserted.rows[0].id);
-      return sendJson(res, 201, { user: normalizeUser(inserted.rows[0]) });
+      await client.query('begin');
+
+      let referrerId = null;
+      if (refNorm) {
+        const refRow = await client.query('select id from users where referral_code = $1', [refNorm]);
+        if (!refRow.rows[0]) {
+          await client.query('rollback');
+          return sendJson(res, 400, { error: 'Invalid referral code.' });
+        }
+        referrerId = refRow.rows[0].id;
+      }
+
+      let inserted = null;
+      for (let attempt = 0; attempt < 25; attempt += 1) {
+        const code = generateReferralCode();
+        try {
+          inserted = await client.query(
+            `insert into users (
+              email, username, password_hash, referral_code,
+              referred_by_user_id, signup_ip, last_ip, last_active_at, auth_provider
+            ) values ($1,$2,$3,$4,$5,$6,$7, now(), 'local')
+            returning id, email, username, tier, created_at,
+              referral_code, referral_signups_count, referred_by_user_id,
+              watch_time_seconds, site_time_seconds, plan_label, last_active_at`,
+            [emailFinal, username, passwordHash(password), code, referrerId, ip || null, ip || null],
+          );
+          break;
+        } catch (err) {
+          const constraint = String(err.constraint || '');
+          const retryRef =
+            String(err.code) === '23505' && (constraint.includes('referral') || constraint.includes('referral_code'));
+          if (retryRef) {
+            continue;
+          }
+          if (String(err.code) === '23505') {
+            await client.query('rollback');
+            return sendJson(res, 409, { error: 'Email or username already exists.' });
+          }
+          throw err;
+        }
+      }
+
+      if (!inserted || !inserted.rows[0]) {
+        await client.query('rollback');
+        return sendJson(res, 500, { error: 'Could not allocate referral code.' });
+      }
+
+      const newUser = inserted.rows[0];
+      if (referrerId) {
+        await client.query(
+          `insert into referral_signups (referrer_user_id, referred_user_id, referral_code_used)
+           values ($1,$2,$3)`,
+          [referrerId, newUser.id, refNorm],
+        );
+      }
+
+      await client.query('commit');
+      await createSession(res, newUser.id, req);
+      return sendJson(res, 201, { user: normalizeUser(newUser) });
     } catch (err) {
-      if (String(err.code) === '23505') return sendJson(res, 409, { error: 'Email or username already exists.' });
+      await client.query('rollback').catch(() => {});
       throw err;
+    } finally {
+      client.release();
     }
   }
 
@@ -302,18 +461,109 @@ async function routeApi(req, res, url) {
     const password = String(body.password || '');
     if (!identifier || !password) return sendJson(res, 400, { error: 'Email/username and password are required.' });
     const found = await dbQuery(
-      `select id, email, username, password_hash, tier, created_at
+      `select id, email, username, password_hash, tier, created_at,
+              referral_code, referral_signups_count, referred_by_user_id,
+              watch_time_seconds, site_time_seconds, plan_label, last_active_at,
+              banned_at
        from users
-       where lower(email) = $1 or lower(username) = $1
+       where lower(username) = $1 or (email is not null and lower(email) = $1)
        limit 1`,
       [identifier],
     );
     const row = found.rows[0];
-    if (!row || !verifyPassword(password, row.password_hash)) {
+    if (!row || row.banned_at || !verifyPassword(password, row.password_hash)) {
       return sendJson(res, 401, { error: 'Invalid credentials.' });
     }
-    await createSession(res, row.id);
+    await dbQuery(
+      'update users set last_ip = $2, last_active_at = now(), updated_at = now() where id = $1',
+      [row.id, clientIp(req) || null],
+    ).catch(() => {});
+    await createSession(res, row.id, req);
     return sendJson(res, 200, { user: normalizeUser(row) });
+  }
+
+  if (url.pathname === '/api/analytics/visit' && method === 'POST') {
+    if (!pool) return sendJson(res, 503, { error: 'Postgres is not configured. Set DATABASE_URL.' });
+    const body = await readJson(req);
+    const visitorRaw = body.visitorKey ?? body.visitor_key;
+    let visitorKey = null;
+    if (visitorRaw) {
+      const s = String(visitorRaw).trim();
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) {
+        visitorKey = s;
+      }
+    }
+    const pathVal = String(body.path || '/').slice(0, 512);
+    const referrer = body.referrer != null ? String(body.referrer).slice(0, 1024) : null;
+    const ua = clientUserAgent(req);
+    const ip = clientIp(req);
+    const authUserId = await sessionUserId(req).catch(() => null);
+
+    await dbQuery(
+      `insert into analytics_visits (
+        user_id, visitor_key, path, referrer,
+        utm_source, utm_medium, utm_campaign,
+        ip, user_agent
+      ) values ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        authUserId || null,
+        visitorKey,
+        pathVal,
+        referrer,
+        body.utmSource ? String(body.utmSource).slice(0, 128) : null,
+        body.utmMedium ? String(body.utmMedium).slice(0, 128) : null,
+        body.utmCampaign ? String(body.utmCampaign).slice(0, 128) : null,
+        ip || null,
+        ua || null,
+      ],
+    ).catch(() => {});
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (url.pathname === '/api/analytics/event' && method === 'POST') {
+    if (!pool) return sendJson(res, 503, { error: 'Postgres is not configured. Set DATABASE_URL.' });
+    const body = await readJson(req);
+    const eventType = String(body.eventType || body.event_type || '').trim().slice(0, 96);
+    if (!eventType) return sendJson(res, 400, { error: 'eventType is required.' });
+    const visitorRaw = body.visitorKey ?? body.visitor_key;
+    let visitorKey = null;
+    if (visitorRaw) {
+      const s = String(visitorRaw).trim();
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) {
+        visitorKey = s;
+      }
+    }
+    const authUserId = await sessionUserId(req).catch(() => null);
+    const pathVal = body.path != null ? String(body.path).slice(0, 512) : null;
+    const category = body.category != null ? String(body.category).slice(0, 128) : null;
+    const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
+
+    await dbQuery(
+      `insert into analytics_events (user_id, visitor_key, event_type, path, category, payload)
+       values ($1,$2::uuid,$3,$4,$5,$6::jsonb)`,
+      [authUserId || null, visitorKey, eventType, pathVal, category, JSON.stringify(payload)],
+    ).catch(() => {});
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (url.pathname === '/api/analytics/ping' && method === 'POST') {
+    if (!pool) return sendJson(res, 503, { error: 'Postgres is not configured. Set DATABASE_URL.' });
+    const user = await currentUser(req);
+    if (!user) return sendJson(res, 401, { error: 'Authentication required.' });
+    const body = await readJson(req);
+    const siteSec = Math.min(900, Math.max(0, Math.floor(Number(body.siteSeconds ?? body.site_seconds ?? 0))));
+    const watchSec = Math.min(3600, Math.max(0, Math.floor(Number(body.watchSeconds ?? body.watch_seconds ?? 0))));
+    if (siteSec || watchSec) {
+      await dbQuery(
+        `update users set
+           site_time_seconds = site_time_seconds + $2::bigint,
+           watch_time_seconds = watch_time_seconds + $3::bigint,
+           updated_at = now()
+         where id = $1`,
+        [user.id, siteSec, watchSec],
+      ).catch(() => {});
+    }
+    return sendJson(res, 200, { ok: true });
   }
 
   if (url.pathname === '/api/auth/logout' && method === 'POST') {
@@ -351,7 +601,9 @@ async function routeApi(req, res, url) {
   if (url.pathname === '/api/creators' && method === 'GET') {
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
     const category = String(url.searchParams.get('category') || '').trim();
-    let rows = fallbackCreators;
+    /** `?include=all` opts into seeing creators without R2 content (admin/debug). */
+    const includeAll = url.searchParams.get('include') === 'all';
+    let rows = includeAll ? fallbackCreators : fallbackReadyCreators;
     if (pool) {
       await ensureCatalogSeeded();
       const out = await dbQuery(
@@ -362,23 +614,70 @@ async function routeApi(req, res, url) {
          order by rank asc`,
         [q, category],
       );
-      rows = out.rows.map((row) => ({
-        rank: row.rank,
-        name: row.name,
-        slug: row.slug,
-        category: row.category,
-        tagline: row.tagline,
-        mediaCount: Number(row.media_count || 0),
-        freeCount: Number(row.free_count || 0),
-        premiumCount: Number(row.premium_count || 0),
-        heat: Number(row.heat || 0),
-        accent: row.accent || 'pink',
-      }));
+      rows = out.rows.map((row) => {
+        const seed = creatorBySlug.get(row.slug);
+        return {
+          rank: row.rank,
+          name: row.name,
+          slug: row.slug,
+          category: row.category,
+          tagline: row.tagline,
+          /** Prefer real R2 counts (from seeded creator object) over DB-stored seeded values. */
+          mediaCount: seed ? seed.mediaCount : Number(row.media_count || 0),
+          freeCount: seed ? seed.freeCount : Number(row.free_count || 0),
+          premiumCount: seed ? seed.premiumCount : Number(row.premium_count || 0),
+          heat: Number(row.heat || 0),
+          accent: row.accent || 'pink',
+          thumbnail: thumbnailFor(row.slug),
+          ready: readySlugSet.has(row.slug),
+        };
+      });
+      if (!includeAll) rows = rows.filter((r) => r.ready);
     }
-    if (!pool) {
-      rows = rows.filter((row) => (!q || row.name.toLowerCase().includes(q)) && (!category || row.category === category));
-    }
+    rows = rows.filter((row) => (!q || row.name.toLowerCase().includes(q)) && (!category || row.category === category));
     return sendJson(res, 200, { creators: rows });
+  }
+
+  /** Single creator detail (used by /creators/:slug page). */
+  const creatorMatch = url.pathname.match(/^\/api\/creators\/([a-z0-9-]+)$/);
+  if (creatorMatch && method === 'GET') {
+    const slug = creatorMatch[1];
+    const c = creatorBySlug.get(slug);
+    if (!c) return sendJson(res, 404, { error: 'Creator not found.' });
+    const manifest = loadMediaManifest(slug);
+    return sendJson(res, 200, {
+      creator: c,
+      mediaSummary: manifest ? manifest.totals : null,
+      hasMedia: !!manifest && manifest.totals.count > 0,
+    });
+  }
+
+  /** Per-creator media manifest (paginated). */
+  const mediaMatch = url.pathname.match(/^\/api\/creators\/([a-z0-9-]+)\/media$/);
+  if (mediaMatch && method === 'GET') {
+    const slug = mediaMatch[1];
+    const c = creatorBySlug.get(slug);
+    if (!c) return sendJson(res, 404, { error: 'Creator not found.' });
+    const manifest = loadMediaManifest(slug);
+    if (!manifest) return sendJson(res, 200, { creator: c, items: [], totals: null });
+
+    const tier = String(url.searchParams.get('tier') || '').trim();
+    const kind = String(url.searchParams.get('kind') || '').trim();
+    const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') || 200)));
+    const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+
+    let items = manifest.items;
+    if (tier) items = items.filter((it) => it.tier === tier);
+    if (kind) items = items.filter((it) => it.kind === kind);
+    const total = items.length;
+    items = items.slice(offset, offset + limit);
+
+    return sendJson(res, 200, {
+      creator: c,
+      totals: manifest.totals,
+      page: { offset, limit, total, returned: items.length },
+      items,
+    });
   }
 
   if (url.pathname === '/api/shorts' && method === 'GET') {
@@ -410,11 +709,52 @@ async function routeApi(req, res, url) {
   if (url.pathname === '/api/checkout/plans' && method === 'GET') {
     return sendJson(res, 200, {
       plans: [
-        { key: 'basic', name: 'Basic', tier: 1, priceCents: 999, mediaAccess: 'Free previews plus basic vault access' },
-        { key: 'premium', name: 'Premium', tier: 2, priceCents: 2499, mediaAccess: 'Premium videos, photo sets, and request priority' },
-        { key: 'ultimate', name: 'Ultimate', tier: 3, priceCents: 3999, mediaAccess: 'Everything plus skip-queue priority when payments go live' },
+        { key: 'basic', name: 'Basic', tier: 1, priceCents: 999, mediaAccess: 'Free previews plus full access to the basic vault.' },
+        { key: 'premium', name: 'Premium', tier: 2, priceCents: 2499, mediaAccess: 'Every premium video, photo set, and priority on creator requests.' },
+        { key: 'ultimate', name: 'Ultimate', tier: 3, priceCents: 3999, mediaAccess: 'Everything in Premium plus skip-the-queue priority access during peak hours.' },
       ],
       paymentsEnabled: false,
+    });
+  }
+
+  if (url.pathname === '/api/stats' && method === 'GET') {
+    /** Public-facing creator count = creators with real R2 content. The full
+     *  catalog includes placeholders that haven't been processed yet, which
+     *  shouldn't be advertised on the homepage. */
+    let creatorCount = fallbackReadyCreators.length;
+    if (pool) {
+      try {
+        await ensureCatalogSeeded();
+        /** Filter to ready slugs in SQL via the same set the seeder uses. */
+        const slugs = fallbackReadyCreators.map((c) => c.slug);
+        if (slugs.length > 0) {
+          const row = await dbQuery(
+            'select count(*)::int as creator_count from creators where slug = any($1::text[])',
+            [slugs],
+          );
+          creatorCount = Number(row.rows[0]?.creator_count || creatorCount);
+        }
+      } catch (err) {
+        console.error('[stats]', err);
+      }
+    }
+
+    /** Real R2 object count + bytes (refreshed by `npm run r2:count`); fall back to
+     *  the seeded catalog totals if the snapshot is missing so the page never shows
+     *  zero. The client applies the marketing multipliers (see client/src/lib/metrics.js)
+     *  -- this endpoint always returns RAW values so any future
+     *  search/sort/threshold logic can use them safely. */
+    const r2 = loadR2Stats();
+    const rawCount = r2 ? r2.rawCount : fallbackCreators.reduce((sum, c) => sum + (c.mediaCount || 0), 0);
+    const rawBytes = r2 ? r2.rawBytes : rawCount * 63 * 1024 * 1024;
+
+    return sendJson(res, 200, {
+      creators: creatorCount,
+      rawObjectCount: rawCount,
+      rawBytes,
+      lastScannedAt: r2?.scannedAt || null,
+      categories: categoryNames.length,
+      backups: { cadence: 'daily', mirrored: true, reuploaded: true },
     });
   }
 
@@ -475,10 +815,80 @@ async function sendStatic(req, res, url) {
   return res.end(method === 'HEAD' ? Buffer.alloc(0) : index);
 }
 
+/** Dev-only R2 streaming proxy.
+ *
+ *  In production `/r2/*` is served by the Cloudflare Worker
+ *  (worker/src/index.js). In local dev, the Worker may not yet have a
+ *  workers.dev subdomain registered, so we stream straight from R2 here
+ *  using `rclone cat`. Gated on RCLONE_CONFIG_R2_ACCESS_KEY_ID being present.
+ */
+function streamR2(req, res, url) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return sendJson(res, 405, { error: 'Method not allowed.' });
+  }
+  if (!process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID) {
+    return sendJson(res, 503, { error: 'R2 dev proxy disabled (RCLONE_CONFIG_R2_* env vars missing).' });
+  }
+  const rawKey = decodeURIComponent(url.pathname.slice('/r2/'.length));
+  if (!rawKey || rawKey.includes('..') || rawKey.startsWith('/') || /^[a-zA-Z]:/.test(rawKey)) {
+    return sendJson(res, 400, { error: 'Invalid R2 key.' });
+  }
+  const ext = (rawKey.match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase();
+  const contentType = ext === '.mp4' || ext === '.m4v' ? 'video/mp4'
+    : ext === '.webm' ? 'video/webm'
+    : ext === '.mov' ? 'video/quicktime'
+    : ext === '.mkv' ? 'video/x-matroska'
+    : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+    : ext === '.png' ? 'image/png'
+    : ext === '.webp' ? 'image/webp'
+    : ext === '.gif' ? 'image/gif'
+    : 'application/octet-stream';
+  if (req.method === 'HEAD') {
+    /** Cheap HEAD: don't actually fetch the body, just acknowledge. */
+    res.writeHead(200, { 'content-type': contentType, 'accept-ranges': 'none' });
+    return res.end();
+  }
+  const { spawn } = require('node:child_process');
+  const child = spawn('rclone', ['cat', `r2:leakwrld/${rawKey}`], { windowsHide: true });
+  let headersSent = false;
+  let aborted = false;
+  child.stdout.on('data', (chunk) => {
+    if (!headersSent) {
+      res.writeHead(200, {
+        'content-type': contentType,
+        'cache-control': 'public, max-age=300',
+        'accept-ranges': 'none',
+      });
+      headersSent = true;
+    }
+    if (!res.write(chunk)) child.stdout.pause();
+  });
+  res.on('drain', () => child.stdout.resume());
+  /** Swallow rclone's progress noise (it writes "Transferred:" to stderr). */
+  child.stderr.on('data', () => {});
+  child.on('error', () => {
+    if (!aborted && !headersSent) sendJson(res, 502, { error: 'rclone spawn failed' });
+    aborted = true;
+  });
+  child.on('close', (code) => {
+    if (aborted) return;
+    if (!headersSent) {
+      return sendJson(res, code === 0 ? 404 : 502, {
+        error: code === 0 ? 'Empty object' : `rclone exit ${code}`,
+      });
+    }
+    res.end();
+  });
+  res.on('close', () => {
+    if (!child.killed) child.kill('SIGTERM');
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
     if (url.pathname.startsWith('/api/')) return await routeApi(req, res, url);
+    if (url.pathname.startsWith('/r2/')) return streamR2(req, res, url);
     return await sendStatic(req, res, url);
   } catch (err) {
     const status = err.message === 'invalid_json' ? 400 : err.message === 'payload_too_large' ? 413 : 500;

@@ -38,7 +38,7 @@ export function ShortsPage() {
         <div className="lw-page-head">
           <span className="lw-eyebrow">Vertical feed</span>
           <h1>Shorts</h1>
-          <p>Fast free previews with premium locks already modeled for the future payment layer.</p>
+          <p>Quick free previews from every creator in the archive — tap any premium clip to unlock the full set.</p>
         </div>
 
         <div className="lw-toolbar">

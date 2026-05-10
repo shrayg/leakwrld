@@ -4,6 +4,7 @@ import { AuthProvider } from './components/AuthContext';
 import { AuthPage } from './pages/AuthPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { CheckoutPage } from './pages/CheckoutPage';
+import { CreatorDetailPage } from './pages/CreatorDetailPage';
 import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ShortsPage } from './pages/ShortsPage';
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/shorts" element={<ShortsPage />} />
           <Route path="/categories" element={<CategoriesPage />} />
+          <Route path="/creators/:slug" element={<CreatorDetailPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/premium" element={<Navigate to="/checkout" replace />} />
           <Route path="/login" element={<AuthPage mode="login" />} />

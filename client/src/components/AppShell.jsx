@@ -43,7 +43,6 @@ export function AppShell() {
           </button>
 
           <Link to="/" className="lw-brand" aria-label="Leak World home">
-            <img src="/assets/branding/pornwrld-logo.png" alt="" className="h-8 w-8 rounded-[6px]" />
             <span>Leak World</span>
           </Link>
 

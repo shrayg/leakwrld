@@ -25,9 +25,9 @@ export function CheckoutPage() {
   return (
     <div className="space-y-6">
       <section className="lw-page-head">
-        <span className="lw-eyebrow">Checkout preserved</span>
+        <span className="lw-eyebrow">Membership</span>
         <h1>Premium access</h1>
-        <p>Plan cards are ready. Payment processing is intentionally disabled until the new VPS/Postgres stack is settled.</p>
+        <p>One subscription, the entire mirrored archive. Pick a tier — billing opens shortly. Existing accounts keep all their saved creators when you upgrade.</p>
       </section>
 
       <section className="grid gap-3 lg:grid-cols-3">
@@ -49,7 +49,7 @@ export function CheckoutPage() {
               </div>
               <p>{plan.mediaAccess}</p>
               <button type="button" className={`lw-btn ${featured ? 'primary' : 'ghost'} w-full justify-center`} disabled>
-                Payments coming soon
+                Billing opens soon
               </button>
             </article>
           );
@@ -59,10 +59,10 @@ export function CheckoutPage() {
       <section className="lw-matrix">
         {[
           ['Free previews', true, true, true],
-          ['Premium media', false, true, true],
-          ['Queue skip priority', false, false, true],
-          ['Creator request priority', false, true, true],
-          ['Future billing integration', true, true, true],
+          ['Full premium archive', false, true, true],
+          ['Skip the peak-hour queue', false, false, true],
+          ['Priority on creator requests', false, true, true],
+          ['Re-uploaded the moment files drop', true, true, true],
         ].map((row) => (
           <div key={row[0]} className="lw-matrix-row">
             <span>{row[0]}</span>

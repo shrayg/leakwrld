@@ -1,106 +1,63 @@
 'use strict';
 
+const path = require('path');
+const fs = require('fs');
+
+let thumbnailSlugs = new Set();
+try {
+  const raw = fs.readFileSync(path.join(__dirname, '..', 'client', 'src', 'data', 'thumbnails.json'), 'utf8');
+  thumbnailSlugs = new Set(JSON.parse(raw));
+} catch {
+  thumbnailSlugs = new Set();
+}
+
+/**
+ * Per-creator media summary built by `npm run media:sync`. The summary maps each
+ * slug -> real R2 object counts so creators with no real content (only the
+ * `.keep` placeholder) can be hidden from public APIs and the seeded marketing
+ * counts can be overridden by real data wherever it exists.
+ */
+let mediaSummary = new Map();
+try {
+  const raw = fs.readFileSync(path.join(__dirname, '..', 'data', 'media-summary.json'), 'utf8');
+  const parsed = JSON.parse(raw);
+  for (const entry of parsed.creators || []) mediaSummary.set(entry.slug, entry);
+} catch {
+  mediaSummary = new Map();
+}
+
 const creatorNames = [
   'Sophie Rain',
-  'Mia Khalifa',
+  'Lil Tay',
   'Bhad Bhabie',
-  'Bella Thorne',
-  'Blac Chyna',
-  'Iggy Azalea',
-  'Cardi B',
-  'Tana Mongeau',
-  'Belle Delphine',
-  'Tyga',
-  'Amber Rose',
   'Bonnie Blue',
   'Lily Phillips',
-  'Ari Kytsya',
+  'Corinna Kopf',
+  'Belle Delphine',
   'Camilla Araujo',
   'Aishah Sofey',
-  'Angela White',
-  'Mia Malkova',
-  'Eva Elfie',
-  'Francesca Farago',
-  'Lena The Plug',
+  'Ari Kytsya',
+  'Tana Mongeau',
   'Amouranth',
-  'Corinna Kopf',
-  'Coco Austin',
-  'Trisha Paytas',
-  'Pia Mia',
-  'Ana Cheri',
-  'Francia James',
-  'Violet Myers',
-  'Bryce Adams',
-  'Louisa Khovanski',
+  'Mia Khalifa',
+  'Amber Rose',
+  'Iggy Azalea',
   'Skylar Mae',
-  'Bruna Lima',
-  'Viking Barbie',
-  'Emily Elizabeth',
-  'Hannah Palmer',
-  'Kayla Simmons',
-  'Ariella Ferrera',
-  'Whitney Johns',
-  'Carriejune Anne Bowlby',
-  'Heidi Lavon',
-  'Gigi Gorgeous Getty',
-  'Kerry Katona',
-  'Drea de Matteo',
-  'Sonja Morgan',
-  'Chloe Sims',
-  'Renee Gracie',
-  'Brittney Palmer',
-  'Amanda Ribas',
-  'Polyana Viana',
-  'Maryana Ro',
-  'Yeri Mua',
-  'Danyan Cat',
-  'Marleny Aleelayn',
-  'Daniela Alexis',
-  'Emily Ahern',
+  'Marie Temara',
+  'Vera Dijkmans',
+  'Jameliz Smith',
+  'Pia Mia',
+  'Erica Mena',
+  'Farrah Abraham',
+  'Chloe Khan',
   'Sofia Gomez',
-  'Nara Ford',
-  'Janna Breslin',
-  'Marcela Moss',
-  'Brandi Andrews',
-  'Sydney Lint',
-  'Lexi Cayla',
-  'Diana Maux',
-  'Jasmine Gifford',
-  'Molly Eskam',
-  'Corinne Olympios',
-  'Casey Boonstra',
-  'CJ Sparxx',
-  'Sugey Abrego',
-  'Carla Leclercq',
-  'Lizzy Capri',
-  'Vic Hoa',
-  'Willow Harper',
-  'Alyssa Griffith',
-  'Ashleigh Dunn',
-  'Jasmin Montalvo',
-  'Kellan Ness',
-  'Diana Estrada',
-  'Aniela Verbin',
-  'Tati Evans',
-  'Shayne Jansen',
-  'Sabrina Banks',
-  'Courtney McClure',
-  'Cathilee Zingano',
-  'Lewis Buchanan',
-  'Sarah Caldeira',
-  'Jade Love',
-  'Lacey Jayne',
-  'Mila',
-  'Tara',
-  'Angelina Maldonado',
-  'Samantha Jerasa',
-  'Callie Murphy',
-  'Summer Brookes',
-  'Elena Belle',
-  'SlimGem24',
-  'Lexi Luna',
-  'Johnny Sins',
-  'Alex Adams',
+  'Amber Ajami',
+  'Alinaxrose',
+  'Breckie Hill',
+  'Kira Pregiato',
+  'Bunni Emmie',
+  'Lela Sohna',
+  'Piper Rockelle',
 ];
 
 const categoryNames = [
@@ -116,6 +73,8 @@ const categoryNames = [
 
 function slugify(value) {
   return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/&/g, 'and')
     .replace(/[^a-z0-9]+/g, '-')
@@ -129,19 +88,35 @@ function seededMetric(rank, base, spread) {
 const creators = creatorNames.map((name, index) => {
   const rank = index + 1;
   const category = categoryNames[index % categoryNames.length];
+  const slug = slugify(name);
+  const real = mediaSummary.get(slug);
+  /** Real R2 counts when available; fall back to seeded values for creators
+   *  without a manifest (so the seeded card never shows zero). */
+  const mediaCount = real ? real.count : seededMetric(rank, 24, 420);
+  const freeCount = real ? (real.byTier?.free?.count || 0) : seededMetric(rank, 4, 18);
+  const premiumCount = real
+    ? mediaCount - freeCount
+    : seededMetric(rank, 18, 240);
   return {
     rank,
     name,
-    slug: slugify(name),
+    slug,
     category,
-    tagline: `${category} creator collection with free previews and premium media slots ready for Postgres content.`,
-    mediaCount: seededMetric(rank, 24, 420),
-    freeCount: seededMetric(rank, 4, 18),
-    premiumCount: seededMetric(rank, 18, 240),
+    tagline: `${category} archive with free previews and a fully mirrored premium vault.`,
+    mediaCount,
+    freeCount,
+    premiumCount,
     heat: Math.max(42, 100 - Math.floor(rank / 2)),
     accent: ['pink', 'gold', 'cyan', 'green'][index % 4],
+    thumbnail: thumbnailSlugs.has(slug) ? `/thumbnails/${slug}.jpg` : null,
+    /** "ready" = R2 has real content for this creator; the public catalog
+     *  filters on this so empty placeholders don't appear in the grid. */
+    ready: !!real,
   };
 });
+
+/** Public-facing list: only creators with real R2 content. */
+const readyCreators = creators.filter((c) => c.ready);
 
 const shorts = creators.slice(0, 36).map((creator, index) => ({
   id: `short-${creator.slug}`,
@@ -157,6 +132,7 @@ const shorts = creators.slice(0, 36).map((creator, index) => ({
 module.exports = {
   categoryNames,
   creators,
+  readyCreators,
   shorts,
   slugify,
 };

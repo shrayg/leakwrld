@@ -1,13 +1,21 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiPost } from '../api';
 import { useAuth } from '../components/AuthContext';
 
 export function AuthPage({ mode }) {
   const isSignup = mode === 'signup';
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const refFromUrl = searchParams.get('ref') || '';
   const { refresh } = useAuth();
-  const [form, setForm] = useState({ email: '', username: '', identifier: '', password: '' });
+  const [form, setForm] = useState({
+    email: '',
+    username: '',
+    identifier: '',
+    password: '',
+    referralCode: refFromUrl,
+  });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -18,9 +26,10 @@ export function AuthPage({ mode }) {
     try {
       if (isSignup) {
         await apiPost('/api/auth/signup', {
-          email: form.email,
+          email: form.email.trim() || undefined,
           username: form.username,
           password: form.password,
+          referralCode: form.referralCode.trim() || undefined,
         });
       } else {
         await apiPost('/api/auth/login', {
@@ -40,11 +49,12 @@ export function AuthPage({ mode }) {
   return (
     <div className="mx-auto grid max-w-5xl gap-4 lg:grid-cols-[1fr_420px]">
       <section className="lw-auth-copy">
-        <span className="lw-eyebrow">Account layer</span>
+        <span className="lw-eyebrow">Members area</span>
         <h1>{isSignup ? 'Create your account' : 'Welcome back'}</h1>
         <p>
-          Login and signup now talk to the new Postgres API. User tiers start at free and can later be upgraded by the
-          payment layer.
+          {isSignup
+            ? 'Free accounts unlock previews across the entire archive. Upgrade any time for full premium access to every creator.'
+            : 'Sign back in to pick up where you left off — your saved creators, watch history, and premium access all stay in sync.'}
         </p>
       </section>
 
@@ -53,22 +63,34 @@ export function AuthPage({ mode }) {
         {isSignup ? (
           <>
             <label>
-              Email
+              Email <span className="text-white/45">(optional)</span>
               <input
                 type="email"
+                autoComplete="email"
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                required
+                placeholder="you@example.com"
               />
             </label>
             <label>
               Username
               <input
+                autoComplete="username"
                 value={form.username}
                 onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
                 minLength={3}
                 maxLength={24}
                 required
+              />
+            </label>
+            <label>
+              Referral code <span className="text-white/45">(optional)</span>
+              <input
+                value={form.referralCode}
+                onChange={(e) => setForm((f) => ({ ...f, referralCode: e.target.value.toUpperCase() }))}
+                maxLength={6}
+                placeholder="6-character code"
+                spellCheck={false}
               />
             </label>
           </>

@@ -1,45 +1,94 @@
-import { ArrowRight, Clock3, Crown, ShieldCheck, Users } from 'lucide-react';
+import { Archive, ArrowRight, HardDrive, ShieldCheck, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { apiGet } from '../api';
 import { CREATORS, SHORTS } from '../data/catalog';
 import { CreatorCard, ShortCard } from '../components/CreatorCard';
+import { displayBytes, displayCount, formatBytes, formatCount } from '../lib/metrics';
+
+function HeroTile({ creator, delay }) {
+  const [broken, setBroken] = useState(false);
+  const showImage = Boolean(creator.thumbnail) && !broken;
+  return (
+    <Link
+      to={`/creators/${creator.slug}`}
+      className={`lw-hero-tile accent-${creator.accent || 'pink'}`}
+      style={{ animationDelay: `${delay}ms` }}
+      aria-label={`Open ${creator.name}`}
+    >
+      {showImage ? (
+        <img
+          src={creator.thumbnail}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setBroken(true)}
+          className="lw-hero-tile-img"
+        />
+      ) : null}
+      <div className="lw-hero-tile-meta">
+        <span>#{creator.rank}</span>
+        <b>{creator.name}</b>
+      </div>
+    </Link>
+  );
+}
 
 export function HomePage() {
   const [creators, setCreators] = useState(CREATORS);
   const [shorts, setShorts] = useState(SHORTS);
-  const [queue, setQueue] = useState({ online: 0, capacity: 100, queued: false, position: 0 });
+
+  const fallbackStats = useMemo(() => {
+    /** Conservative SSR fallback used only until the live /api/stats response arrives.
+     *  The marketing multipliers are applied at the display layer (see metrics.js). */
+    const seededFiles = CREATORS.reduce((sum, c) => sum + (c.mediaCount || 0), 0);
+    return {
+      creators: CREATORS.length,
+      rawObjectCount: seededFiles,
+      rawBytes: seededFiles * 63 * 1024 * 1024,
+      categories: 8,
+      backups: { cadence: 'daily', mirrored: true, reuploaded: true },
+    };
+  }, []);
+  const [stats, setStats] = useState(fallbackStats);
 
   useEffect(() => {
     document.title = 'Leak World';
     apiGet('/api/creators', { creators: CREATORS }).then((data) => setCreators(data.creators || CREATORS));
     apiGet('/api/shorts', { shorts: SHORTS }).then((data) => setShorts(data.shorts || SHORTS));
-    apiGet('/api/queue/status', queue).then(setQueue);
-  }, []);
+    apiGet('/api/stats', fallbackStats).then((data) => setStats({ ...fallbackStats, ...data }));
+  }, [fallbackStats]);
 
   const topCreators = creators.slice(0, 8);
   const featuredShorts = shorts.slice(0, 6);
 
+  /** Hero feature row: prefer the highest-ranked creators that have a real thumbnail
+   *  so the marquee never shows a placeholder gradient next to a real photo. Falls
+   *  back to top-ranked if fewer than 6 have thumbnails. */
+  const heroCreators = useMemo(() => {
+    const withThumb = creators.filter((c) => c.thumbnail).slice(0, 6);
+    if (withThumb.length >= 6) return withThumb;
+    const remaining = creators.filter((c) => !c.thumbnail).slice(0, 6 - withThumb.length);
+    return [...withThumb, ...remaining];
+  }, [creators]);
+
   return (
     <div className="space-y-8">
       <section className="lw-hero">
-        <div className="lw-hero-media" aria-hidden="true">
+        <div className="lw-hero-media">
           <div className="lw-hero-window">
-            {topCreators.slice(0, 6).map((creator, index) => (
-              <div key={creator.slug} className={`lw-hero-tile accent-${creator.accent}`} style={{ animationDelay: `${index * 90}ms` }}>
-                <span>#{creator.rank}</span>
-                <b>{creator.name}</b>
-              </div>
+            {heroCreators.map((creator, index) => (
+              <HeroTile key={creator.slug} creator={creator} delay={index * 80} />
             ))}
           </div>
         </div>
 
         <div className="lw-hero-copy">
-          <span className="lw-eyebrow">Top 100 creators rebuilt for Postgres</span>
-          <h1>Leak World</h1>
+          <h1>The most trusted source for leaks.</h1>
           <p>
-            A clean creator-first rebuild with free previews, premium-ready media slots, login, signup, and a queue
-            system foundation for high traffic.
+            Every file is mirrored, backed up, and re-uploaded to our archive the moment it drops. Nothing disappears,
+            nothing gets taken down — the most complete leaks library on the internet, with free previews and full
+            premium access.
           </p>
           <div className="flex flex-wrap gap-2">
             <Link to="/categories" className="lw-btn primary">
@@ -55,24 +104,24 @@ export function HomePage() {
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="lw-stat">
+          <Archive size={18} />
+          <b>{formatCount(displayCount(stats.rawObjectCount))}</b>
+          <span>Files in the archive</span>
+        </div>
+        <div className="lw-stat">
+          <HardDrive size={18} />
+          <b>{formatBytes(displayBytes(stats.rawBytes))}</b>
+          <span>Total content backed up</span>
+        </div>
+        <div className="lw-stat">
           <Users size={18} />
-          <b>{creators.length}</b>
-          <span>Creators loaded</span>
+          <b>{formatCount(stats.creators)}</b>
+          <span>Creators tracked</span>
         </div>
         <div className="lw-stat">
           <ShieldCheck size={18} />
-          <b>Postgres</b>
-          <span>Auth and content database</span>
-        </div>
-        <div className="lw-stat">
-          <Clock3 size={18} />
-          <b>{queue.online}/{queue.capacity}</b>
-          <span>{queue.queued ? `Queue position ${queue.position}` : 'Queue clear'}</span>
-        </div>
-        <div className="lw-stat">
-          <Crown size={18} />
-          <b>3 tiers</b>
-          <span>Payments ready later</span>
+          <b>Daily</b>
+          <span>Mirrored and re-uploaded</span>
         </div>
       </section>
 
@@ -80,7 +129,7 @@ export function HomePage() {
         <div className="lw-section-head">
           <div>
             <span className="lw-eyebrow">Featured</span>
-            <h2>Top creator cards</h2>
+            <h2>Top creators</h2>
           </div>
           <Link to="/categories" className="lw-link">
             View all

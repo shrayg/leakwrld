@@ -10,7 +10,24 @@
     "build": "npm run build:client",
     "build:client": "vite build --config client/vite.config.js",
     "serve": "npm run build && node server.js",
-    "db:schema": "psql \"$DATABASE_URL\" -f database/schema.sql"
+    "db:schema": "psql \"$DATABASE_URL\" -f database/schema.sql",
+    "db:migrate": "psql \"$DATABASE_URL\" -f database/migrations/001_platform_analytics.sql",
+    "db:backfill-referrals": "node scripts/backfill-referral-codes.mjs",
+    "r2:login": "wrangler login",
+    "r2:whoami": "wrangler whoami",
+    "r2:bucket-info": "wrangler r2 bucket info leakwrld",
+    "r2:create-folders": "node scripts/r2-create-creator-folders.mjs",
+    "r2:create-folders:dry": "node scripts/r2-create-creator-folders.mjs --dry-run",
+    "r2:sync": "node scripts/r2-sync-creator-folders.mjs",
+    "r2:sync:dry": "node scripts/r2-sync-creator-folders.mjs --dry-run",
+    "r2:verify": "node scripts/r2-verify-creator-folders.mjs",
+    "r2:count": "node scripts/r2-count-objects.mjs",
+    "media:sync": "node scripts/r2-build-media-manifests.mjs",
+    "media:sync:slug": "node scripts/r2-build-media-manifests.mjs --slug=",
+    "thumbs:gen": "node scripts/generate-thumbnails.mjs",
+    "thumbs:gen:force": "node scripts/generate-thumbnails.mjs --force",
+    "worker:dev": "wrangler dev --config worker/wrangler.jsonc",
+    "worker:deploy": "wrangler deploy --config worker/wrangler.jsonc"
   },
   "engines": {
     "node": ">=18"
@@ -28,6 +45,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "tailwindcss": "^4.2.4",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "wrangler": "^4.90.0"
   }
 }

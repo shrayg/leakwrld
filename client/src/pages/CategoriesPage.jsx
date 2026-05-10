@@ -33,7 +33,7 @@ export function CategoriesPage() {
       <section className="lw-page-head">
         <span className="lw-eyebrow">Creator index</span>
         <h1>Categories</h1>
-        <p>Top 100 creators grouped into a clean content model for free and paid access.</p>
+        <p>Browse every creator in the archive. Search by name or filter by category — all leaks are mirrored and stay online forever.</p>
       </section>
 
       <section className="lw-toolbar">
