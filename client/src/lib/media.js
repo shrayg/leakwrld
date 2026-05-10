@@ -1,22 +1,21 @@
 /**
  * Media URL helper.
  *
- * The browser shouldn't talk to R2 directly (no public URL on the bucket and
- * we want a single seam for tier gating + edge caching). Every media URL is
- * routed through `R2_BASE`, which the Vite dev server and the production
- * deployment forward to the Cloudflare Worker proxy in `worker/`.
+ * Objects live in R2; browsers load them via **`worker/`** (Cloudflare) or the
+ * Node **rclone** stream in dev (`server.js` → `/r2/*`), never with bucket keys.
  *
- * Local development:
- *   - Vite proxies `/r2/*` -> `${VITE_R2_PUBLIC_BASE}/*` (see vite.config.js)
- *   - Default: `https://leakwrld-r2.<your-subdomain>.workers.dev`
- *   - Override via `.env`: VITE_R2_PUBLIC_BASE=https://cdn.leakwrld.com
+ * **Local dev (default):** `mediaUrl` → `/r2/...` → Vite proxies to Node → rclone
+ * (needs `RCLONE_CONFIG_R2_*` in `.env`).
  *
- * Production:
- *   - Static deploy points `/r2/*` to the same worker (Cloudflare route or
- *     reverse-proxy), so no client code changes are needed.
+ * **VPS without rclone:** Node returns 503 for `/r2/*` unless you either:
+ *   1. Set **`VITE_R2_PUBLIC_BASE`** to your Worker’s **public** HTTPS URL before
+ *      `npm run build` (same-origin cookies unaffected; URL is not a secret), or
+ *   2. Configure **nginx** `location /r2/` → proxy to that Worker (strip `/r2`
+ *      prefix). See README → Deploy.
  */
 
-const R2_BASE = '/r2';
+const RAW_BASE = import.meta.env.VITE_R2_PUBLIC_BASE;
+const R2_BASE = RAW_BASE ? String(RAW_BASE).trim().replace(/\/+$/, '') : '/r2';
 
 export function mediaUrl(key) {
   if (!key) return '';

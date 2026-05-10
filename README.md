@@ -62,7 +62,7 @@ Copy **`.env`** in the repo root (gitignored — create from scratch or sync fro
 | `SECURE_COOKIES` | Set `1` when serving HTTPS |
 | `ONLINE_CAPACITY`, `SKIP_QUEUE_PRICE_CENTS` | Queue endpoint |
 
-Optional: `VITE_R2_PUBLIC_BASE` for Cloudflare Worker media URLs during **dev**; creator **tiles** use `/api/creators` + bundled `media-summary.json`, not direct R2.
+Optional: **`VITE_R2_PUBLIC_BASE`** — your deployed **`workers.dev`** (or custom CDN) URL. Set when running **`npm run build`** on the VPS so gallery `/r2/…` requests go straight to Cloudflare (no R2 keys on the server). Alternatively, configure **nginx** to proxy `/r2/` to the same Worker (see Deploy below).
 
 ### Empty “Top creators” on the deployed site
 
@@ -89,6 +89,35 @@ Payments are intentionally stubbed until the new VPS deployment and billing prov
    Or copy `scripts/deploy/vps-bootstrap.sh` to the server and run it. The script writes `/opt/leakwrld/.env` with a generated `DATABASE_URL` and `SESSION_SECRET` — **back up `.env`** off the server.
 
 3. **Verify:** `systemctl status leakwrld` and open `http://YOUR_SERVER_IP/` (nginx proxies to the app on port 3002).
+
+### Media files (`/r2/*`) work locally but not on the VPS
+
+Locally, **Vite** forwards `/r2/*` to Node, and Node streams objects with **rclone** when `RCLONE_CONFIG_R2_*` is in `.env`. On the VPS you usually **do not** install rclone or R2 keys.
+
+Pick **one**:
+
+**A — Build with Worker URL (simplest)**  
+Your Worker URL is **public** (not an API secret). On the server, add to `.env` before building:
+
+```bash
+VITE_R2_PUBLIC_BASE=https://leakwrld-r2.YOUR_SUBDOMAIN.workers.dev
+```
+
+Then `npm run build` and `systemctl restart leakwrld`. The browser loads media from Cloudflare directly.
+
+**B — Nginx proxy** (keep relative `/r2` in the built JS) — inside your `server { }` block:
+
+```nginx
+location /r2/ {
+    rewrite ^/r2/(.*)$ /$1 break;
+    proxy_pass https://leakwrld-r2.YOUR_SUBDOMAIN.workers.dev;
+    proxy_ssl_server_name on;
+    proxy_http_version 1.1;
+    proxy_set_header Host leakwrld-r2.YOUR_SUBDOMAIN.workers.dev;
+}
+```
+
+Reload nginx. No Cloudflare **account** keys belong in `.env` for either path — only the Worker’s HTTPS hostname.
 
 **HTTPS:** install Certbot on the server and point DNS at the VPS when you have a domain.
 
