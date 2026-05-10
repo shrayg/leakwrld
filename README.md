@@ -15,6 +15,18 @@ npm start
 
 **One PostgreSQL instance** on the VPS is enough: relational tables for users, referrals, catalog, payments, and append-only analytics (`analytics_visits`, `analytics_events`). At very large scale you might add a columnar warehouse later; start with Postgres only.
 
+**What lives where (same DB):**
+
+| Area | Tables |
+|------|--------|
+| Accounts | `users` (username, email, password hash, tier, IPs, watch/site seconds, 6-char `referral_code`, `referral_signups_count`, `referred_by_user_id`) |
+| Referrals | `referral_signups` (referrer, referred user, code used) + trigger keeps counts on `users` |
+| Media (aggregate, no per-viewer PII) | `media_items` (`views`, `likes`, `watch_seconds_total`, `watch_sessions` → avg watch & like ratio) |
+| Traffic | `analytics_visits`, `analytics_events` |
+| Admin UI | `/admin` reads these via `/api/admin/dashboard` and paginated `/api/admin/*` routes |
+
+No second database type is required unless you later add dedicated search/analytics infrastructure.
+
 ### New database
 
 Set `DATABASE_URL`, then apply the full schema:

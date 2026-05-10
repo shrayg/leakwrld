@@ -14,6 +14,7 @@ const {
 } = require('./server/catalog');
 const { generateReferralCode, normalizeReferralCode } = require('./server/referralCodes');
 const adminHourly = require('./server/adminHourly');
+const adminDashboard = require('./server/adminDashboard');
 
 const thumbnailLookup = new Map(fallbackCreators.map((c) => [c.slug, c.thumbnail]));
 const creatorBySlug = new Map(fallbackCreators.map((c) => [c.slug, c]));
@@ -726,6 +727,105 @@ async function routeApi(req, res, url) {
       database: !!pool,
       siteLabel: adminHourly.publicSiteLabel(),
     });
+  }
+
+  if (url.pathname === '/api/admin/dashboard' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) {
+      return sendJson(res, 503, { error: 'Database not configured.', siteLabel: adminHourly.publicSiteLabel() });
+    }
+    try {
+      const data = await adminDashboard.getDashboard(dbQuery);
+      return sendJson(res, 200, {
+        ok: true,
+        database: true,
+        siteLabel: adminHourly.publicSiteLabel(),
+        ...data,
+      });
+    } catch (err) {
+      console.error('[admin dashboard]', err);
+      return sendJson(res, 500, { error: 'Dashboard query failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/users' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const page = adminDashboard.clampPage(url.searchParams.get('page'));
+      const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
+      const payload = await adminDashboard.getUsersPage(dbQuery, page, limit);
+      return sendJson(res, 200, { ok: true, ...payload });
+    } catch (err) {
+      console.error('[admin users]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/visits' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const page = adminDashboard.clampPage(url.searchParams.get('page'));
+      const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
+      const payload = await adminDashboard.getVisitsPage(dbQuery, page, limit);
+      return sendJson(res, 200, { ok: true, ...payload });
+    } catch (err) {
+      console.error('[admin visits]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/events' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const page = adminDashboard.clampPage(url.searchParams.get('page'));
+      const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
+      const payload = await adminDashboard.getEventsPage(dbQuery, page, limit);
+      return sendJson(res, 200, { ok: true, ...payload });
+    } catch (err) {
+      console.error('[admin events]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/referrals' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const page = adminDashboard.clampPage(url.searchParams.get('page'));
+      const limit = adminDashboard.clampLimit(url.searchParams.get('limit'));
+      const payload = await adminDashboard.getReferralsPage(dbQuery, page, limit);
+      return sendJson(res, 200, { ok: true, ...payload });
+    } catch (err) {
+      console.error('[admin referrals]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  if (url.pathname === '/api/admin/media-summary' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const rollup = await adminDashboard.getMediaRollup(dbQuery);
+      return sendJson(res, 200, { ok: true, rollup });
+    } catch (err) {
+      console.error('[admin media-summary]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
   }
 
   if (url.pathname === '/api/queue/status' && method === 'GET') {

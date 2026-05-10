@@ -337,6 +337,92 @@ input {
   box-shadow: none;
 }
 
+.lw-admin-dash {
+  min-height: 100vh;
+}
+
+.lw-admin-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.lw-admin-tab {
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 245, 251, 0.72);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.lw-admin-tab:hover {
+  border-color: rgba(242, 104, 184, 0.35);
+  color: white;
+}
+
+.lw-admin-tab.active {
+  border-color: rgba(242, 104, 184, 0.5);
+  background: rgba(242, 104, 184, 0.14);
+  color: white;
+}
+
+.lw-admin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 12px;
+}
+
+.lw-admin-kpi {
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: rgba(48, 47, 47, 0.76);
+}
+
+.lw-admin-table-wrap {
+  overflow: auto;
+  max-height: min(70vh, 620px);
+  border-radius: 8px;
+}
+
+.lw-admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.lw-admin-table th,
+.lw-admin-table td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(255, 245, 251, 0.06);
+}
+
+.lw-admin-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(34, 33, 33, 0.98);
+  color: rgba(255, 245, 251, 0.55);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lw-admin-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .lw-hero {
   position: relative;
   display: grid;
