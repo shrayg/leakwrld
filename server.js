@@ -56,17 +56,103 @@ function thumbnailFor(slug) {
 
 const MEDIA_DIR = path.join(__dirname, 'client', 'public', 'media');
 const MANIFEST_TIER_ACCESS = ['free', 'tier1', 'tier2', 'tier3'];
+const FEED_FILTERS = [
+  { slug: 'trending', name: 'Trending' },
+  { slug: 'top-videos', name: 'Top videos' },
+  { slug: 'featured', name: 'Featured' },
+];
+const FEED_FILTER_LABELS = new Map(FEED_FILTERS.map((filter) => [filter.slug, filter.name]));
+const TIER_DISPLAY_LABELS = {
+  free: 'Free',
+  basic: 'Tier 1',
+  tier1: 'Tier 1',
+  premium: 'Tier 2',
+  tier2: 'Tier 2',
+  ultimate: 'Tier 3 / Ultimate',
+  tier3: 'Tier 3',
+  admin: 'Admin',
+};
+const ACCOUNT_TIER_ALIASES = {
+  free: 'free',
+  tier1: 'basic',
+  basic: 'basic',
+  tier2: 'premium',
+  premium: 'premium',
+  tier3: 'ultimate',
+  ultimate: 'ultimate',
+  admin: 'admin',
+};
+
+function normalizeAccountTier(tier) {
+  const key = String(tier || 'free').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return ACCOUNT_TIER_ALIASES[key] || 'free';
+}
 
 function userManifestTiers(user) {
-  const tier = String(user?.tier || 'free').toLowerCase();
+  const tier = normalizeAccountTier(user?.tier || user);
   if (tier === 'admin' || tier === 'ultimate') return MANIFEST_TIER_ACCESS;
   if (tier === 'premium') return MANIFEST_TIER_ACCESS.slice(0, 3);
   if (tier === 'basic') return MANIFEST_TIER_ACCESS.slice(0, 2);
   return ['free'];
 }
 
+function accountTierLabel(tier) {
+  return TIER_DISPLAY_LABELS[normalizeAccountTier(tier)] || 'Free';
+}
+
+function manifestTierFromParam(value) {
+  const key = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!key) return '';
+  if (key === 'free') return 'free';
+  if (key === 'tier1' || key === 'basic') return 'tier1';
+  if (key === 'tier2' || key === 'premium') return 'tier2';
+  if (key === 'tier3' || key === 'ultimate') return 'tier3';
+  return key;
+}
+
 function mediaStatsId(storageKey) {
   return mediaAnalytics.rowIdFromStorageKey(storageKey);
+}
+
+function stableHash(value) {
+  let hash = 2166136261;
+  const s = String(value || '');
+  for (let i = 0; i < s.length; i += 1) {
+    hash ^= s.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededRandom(seed) {
+  let state = stableHash(seed) || 0x9e3779b9;
+  return () => {
+    state += 0x6d2b79f5;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seededShuffle(items, seed) {
+  const out = items.slice();
+  const rand = seededRandom(seed);
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function isShortsFeedMedia(item) {
+  const ext = String(item?.ext || '').toLowerCase();
+  return item?.kind === 'video' || ext === '.gif';
+}
+
+function r2ManifestTierFromKey(key) {
+  const match = String(key || '').match(/^videos\/[a-z0-9-]+\/(free|tier1|tier2|tier3)\//i);
+  return match ? match[1].toLowerCase() : null;
 }
 
 function loadMediaManifest(slug) {
@@ -452,12 +538,16 @@ function secondsToDuration(seconds) {
 
 function normalizeUser(row) {
   if (!row) return null;
+  const tier = normalizeAccountTier(row.tier);
   return {
     id: row.id,
     email: row.email,
     phone: row.phone || null,
     username: row.username,
-    tier: row.tier || 'free',
+    tier,
+    rawTier: row.tier || 'free',
+    tierLabel: accountTierLabel(tier),
+    manifestTiers: userManifestTiers(tier),
     referralCode: row.referral_code,
     referralSignups: Number(row.referral_signups_count || 0),
     referredByUserId: row.referred_by_user_id || null,
@@ -1220,20 +1310,38 @@ async function routeApi(req, res, url) {
     const manifest = loadMediaManifest(slug);
     if (!manifest) return sendJson(res, 200, { creator: c, items: [], totals: null });
 
-    const tier = String(url.searchParams.get('tier') || '').trim();
+    const tier = manifestTierFromParam(url.searchParams.get('tier') || '');
     const kind = String(url.searchParams.get('kind') || '').trim();
     const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') || 200)));
     const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+    const user = await currentUser(req);
+    const allowedTierSet = new Set(userManifestTiers(user));
 
     let items = manifest.items;
     if (tier) items = items.filter((it) => it.tier === tier);
     if (kind) items = items.filter((it) => it.kind === kind);
     const total = items.length;
-    items = items.slice(offset, offset + limit);
+    items = items.slice(offset, offset + limit).map((item, index) => {
+      if (allowedTierSet.has(item.tier)) return item;
+      return {
+        tier: item.tier,
+        name: item.name,
+        key: `locked:${slug}:${item.tier}:${offset + index}`,
+        sizeBytes: Number(item.sizeBytes || 0),
+        ext: item.ext || '',
+        kind: item.kind || 'other',
+        locked: true,
+      };
+    });
 
     return sendJson(res, 200, {
       creator: c,
       totals: manifest.totals,
+      access: {
+        userTier: user?.tier || 'free',
+        userTierLabel: accountTierLabel(user?.tier || 'free'),
+        manifestTiers: Array.from(allowedTierSet),
+      },
       page: { offset, limit, total, returned: items.length },
       items,
     });
@@ -1245,6 +1353,7 @@ async function routeApi(req, res, url) {
     const allowedTierSet = new Set(allowedTiers);
     const limit = Math.min(260, Math.max(1, Number(url.searchParams.get('limit') || 180)));
     const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+    const seed = String(url.searchParams.get('seed') || crypto.randomUUID()).slice(0, 96);
     const wantedCreators = new Set(
       String(url.searchParams.get('creators') || '')
         .split(',')
@@ -1257,19 +1366,22 @@ async function routeApi(req, res, url) {
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean),
     );
-    const categorySlug = (name) => String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const creatorFilters = [];
     const categoryCounts = new Map();
     const buckets = [];
+    const allEligible = [];
+    let fullAccessRaw = 0;
+    let allowedAccessRaw = 0;
 
     for (const creator of fallbackReadyCreators) {
-      if (wantedCreators.size && !wantedCreators.has(creator.slug)) continue;
-      const cSlug = categorySlug(creator.category);
-      if (wantedCategories.size && !wantedCategories.has(cSlug)) continue;
       const manifest = loadMediaManifest(creator.slug);
       if (!manifest) continue;
-      const videos = manifest.items
-        .filter((item) => item.kind === 'video' && allowedTierSet.has(item.tier))
+      const feedMedia = manifest.items.filter(isShortsFeedMedia);
+      fullAccessRaw += feedMedia.length;
+      const allowedForCreator = feedMedia.filter((item) => allowedTierSet.has(item.tier));
+      allowedAccessRaw += allowedForCreator.length;
+      if (wantedCreators.size && !wantedCreators.has(creator.slug)) continue;
+      const videos = allowedForCreator
         .map((item) => ({
           id: mediaStatsId(item.key),
           key: item.key,
@@ -1277,8 +1389,9 @@ async function routeApi(req, res, url) {
           title: creator.name,
           creatorSlug: creator.slug,
           creatorName: creator.name,
-          category: creator.category,
-          categorySlug: cSlug,
+          creatorRank: Number(creator.rank || 999),
+          creatorHeat: Number(creator.heat || 0),
+          kind: item.ext === '.gif' ? 'image' : item.kind,
           tier: item.tier,
           sizeBytes: Number(item.sizeBytes || 0),
           ext: item.ext || '',
@@ -1291,15 +1404,10 @@ async function routeApi(req, res, url) {
         slug: creator.slug,
         name: creator.name,
         category: creator.category,
-        categorySlug: cSlug,
         count: videos.length,
       });
-      categoryCounts.set(cSlug, {
-        slug: cSlug,
-        name: creator.category,
-        count: (categoryCounts.get(cSlug)?.count || 0) + videos.length,
-      });
       buckets.push(videos);
+      allEligible.push(...videos);
     }
 
     const interleaved = [];
@@ -1316,7 +1424,64 @@ async function routeApi(req, res, url) {
       row += 1;
     }
 
-    const shorts = interleaved.slice(offset, offset + limit);
+    const bucketSize = Math.max(8, Math.ceil(allEligible.length * 0.34));
+    const topVideos = new Set(
+      allEligible
+        .slice()
+        .sort((a, b) => {
+          const scoreA = Number(a.sizeBytes || 0) + Number(a.creatorHeat || 0) * 400000 + (stableHash(`${seed}:top:${a.key}`) % 400000);
+          const scoreB = Number(b.sizeBytes || 0) + Number(b.creatorHeat || 0) * 400000 + (stableHash(`${seed}:top:${b.key}`) % 400000);
+          return scoreB - scoreA;
+        })
+        .slice(0, bucketSize)
+        .map((item) => item.key),
+    );
+    const trending = new Set(
+      allEligible
+        .slice()
+        .sort((a, b) => {
+          const scoreA = Number(a.creatorHeat || 0) * 10000 + (stableHash(`${seed}:trend:${a.key}`) % 10000) + Math.min(2000, Number(a.sizeBytes || 0) / 250000);
+          const scoreB = Number(b.creatorHeat || 0) * 10000 + (stableHash(`${seed}:trend:${b.key}`) % 10000) + Math.min(2000, Number(b.sizeBytes || 0) / 250000);
+          return scoreB - scoreA;
+        })
+        .slice(0, bucketSize)
+        .map((item) => item.key),
+    );
+    const featured = new Set(
+      interleaved
+        .slice()
+        .sort((a, b) => {
+          const scoreA = (1000 - Number(a.creatorRank || 999)) * 1000 + (stableHash(`${seed}:feature:${a.key}`) % 1000);
+          const scoreB = (1000 - Number(b.creatorRank || 999)) * 1000 + (stableHash(`${seed}:feature:${b.key}`) % 1000);
+          return scoreB - scoreA;
+        })
+        .slice(0, bucketSize)
+        .map((item) => item.key),
+    );
+
+    for (const item of allEligible) {
+      const categorySlugs = [];
+      if (trending.has(item.key)) categorySlugs.push('trending');
+      if (topVideos.has(item.key)) categorySlugs.push('top-videos');
+      if (featured.has(item.key)) categorySlugs.push('featured');
+      if (!categorySlugs.length) categorySlugs.push('featured');
+      item.categorySlugs = categorySlugs;
+      item.categoryLabels = categorySlugs.map((slug) => FEED_FILTER_LABELS.get(slug) || slug);
+      item.categorySlug = categorySlugs[0];
+      item.category = item.categoryLabels[0];
+      for (const slug of categorySlugs) {
+        const prev = categoryCounts.get(slug) || { slug, name: FEED_FILTER_LABELS.get(slug) || slug, count: 0 };
+        prev.count += 1;
+        categoryCounts.set(slug, prev);
+      }
+    }
+
+    let feedPool = interleaved;
+    if (wantedCategories.size) {
+      feedPool = feedPool.filter((item) => item.categorySlugs?.some((slug) => wantedCategories.has(slug)));
+    }
+    const randomized = seededShuffle(feedPool, seed);
+    const shorts = randomized.slice(offset, offset + limit);
     if (pool && shorts.length) {
       try {
         const stats = await dbQuery(
@@ -1343,10 +1508,20 @@ async function routeApi(req, res, url) {
       shorts,
       filters: {
         creators: creatorFilters.sort((a, b) => a.name.localeCompare(b.name)),
-        categories: Array.from(categoryCounts.values()).sort((a, b) => a.name.localeCompare(b.name)),
+        categories: FEED_FILTERS.map((filter) => ({
+          ...filter,
+          count: categoryCounts.get(filter.slug)?.count || 0,
+        })),
       },
-      access: { userTier: user?.tier || 'free', manifestTiers: allowedTiers },
-      page: { offset, limit, total: interleaved.length, returned: shorts.length },
+      access: {
+        userTier: user?.tier || 'free',
+        userTierLabel: accountTierLabel(user?.tier || 'free'),
+        manifestTiers: allowedTiers,
+        allowedRaw: allowedAccessRaw,
+        fullAccessRaw,
+        unlockableRaw: Math.max(0, fullAccessRaw - allowedAccessRaw),
+      },
+      page: { offset, limit, total: randomized.length, returned: shorts.length, seed },
     });
   }
 
@@ -1515,6 +1690,8 @@ async function proxyR2FromWorker(req, res, rawKey) {
       const v = upstream.headers.get(name);
       if (v) out[name] = v;
     }
+    const requiredTier = r2ManifestTierFromKey(rawKey);
+    if (requiredTier && requiredTier !== 'free') out['cache-control'] = 'private, max-age=300';
     res.writeHead(upstream.status, out);
     if (req.method === 'HEAD' || upstream.status === 304) {
       upstream.body?.cancel?.().catch(() => {});
@@ -1536,6 +1713,13 @@ async function streamR2(req, res, url) {
   }
   const rawKey = parseR2ObjectKey(url);
   if (!rawKey) return sendJson(res, 400, { error: 'Invalid R2 key.' });
+  const requiredTier = r2ManifestTierFromKey(rawKey);
+  if (requiredTier && requiredTier !== 'free') {
+    const user = await currentUser(req);
+    if (!userManifestTiers(user).includes(requiredTier)) {
+      return sendJson(res, 403, { error: 'Upgrade required for this media.' });
+    }
+  }
 
   if (R2_WORKER_ORIGIN) {
     return proxyR2FromWorker(req, res, rawKey);
@@ -1568,9 +1752,10 @@ async function streamR2(req, res, url) {
   let aborted = false;
   child.stdout.on('data', (chunk) => {
     if (!headersSent) {
+      const privateMedia = requiredTier && requiredTier !== 'free';
       res.writeHead(200, {
         'content-type': contentType,
-        'cache-control': 'public, max-age=300',
+        'cache-control': privateMedia ? 'private, max-age=300' : 'public, max-age=300',
         'accept-ranges': 'none',
       });
       headersSent = true;

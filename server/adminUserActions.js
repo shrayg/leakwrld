@@ -1,6 +1,21 @@
 'use strict';
 
-const ALLOWED_TIERS = new Set(['free', 'basic', 'premium', 'ultimate', 'admin']);
+const TIER_ALIASES = {
+  free: 'free',
+  tier1: 'basic',
+  basic: 'basic',
+  tier2: 'premium',
+  premium: 'premium',
+  tier3: 'ultimate',
+  ultimate: 'ultimate',
+  admin: 'admin',
+};
+const ALLOWED_TIERS = new Set(Object.keys(TIER_ALIASES));
+
+function normalizeAccountTier(tier) {
+  const key = String(tier || 'free').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return TIER_ALIASES[key] || null;
+}
 
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -26,8 +41,8 @@ async function patchUser(dbQuery, userId, body) {
   let n = 1;
 
   if (body.tier !== undefined && body.tier !== null && String(body.tier).trim() !== '') {
-    const t = String(body.tier).trim().toLowerCase();
-    if (!ALLOWED_TIERS.has(t)) return { status: 400, error: 'Invalid tier.' };
+    const t = normalizeAccountTier(body.tier);
+    if (!t) return { status: 400, error: 'Invalid tier.' };
     sets.push(`tier = $${n++}`);
     vals.push(t);
   }
@@ -102,6 +117,7 @@ async function processAdminUserAction({ method, userId, sub, body, dbQuery, pass
 
 module.exports = {
   ALLOWED_TIERS,
+  normalizeAccountTier,
   matchAdminUserRoute,
   processAdminUserAction,
 };

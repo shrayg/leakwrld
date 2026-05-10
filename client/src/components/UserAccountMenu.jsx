@@ -1,6 +1,7 @@
 import { ChevronDown } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { accountTierLabel } from '../lib/media';
 import { UserAvatar } from './UserAvatar';
 
 export function UserAccountMenu({ user, logout, variant = 'desktop', onAfterNavigate }) {
@@ -38,6 +39,7 @@ export function UserAccountMenu({ user, logout, variant = 'desktop', onAfterNavi
       fn?.();
     });
   };
+  const tierLabel = user.tierLabel || accountTierLabel(user.tier);
 
   return (
     <div
@@ -68,6 +70,10 @@ export function UserAccountMenu({ user, logout, variant = 'desktop', onAfterNavi
           role="menu"
           aria-labelledby={triggerId}
         >
+          <div className="lw-user-menu-tier" role="none">
+            <span>Tier</span>
+            <b>{tierLabel}</b>
+          </div>
           <Link
             className="lw-user-menu-item"
             role="menuitem"

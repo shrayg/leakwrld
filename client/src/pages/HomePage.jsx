@@ -1,6 +1,6 @@
 import { Archive, ArrowRight, HardDrive, ShieldCheck, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet } from '../api';
 import { CREATORS, SHORTS } from '../data/catalog';
 import { CreatorCard, ShortCard } from '../components/CreatorCard';
@@ -37,6 +37,12 @@ function HeroTile({ creator, delay }) {
 export function HomePage() {
   const [creators, setCreators] = useState(CREATORS);
   const [shorts, setShorts] = useState(SHORTS);
+  const [shortsSeed, setShortsSeed] = useState('');
+  const shortsSeedRef = useRef(
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 
   const fallbackStats = useMemo(() => {
     /** Conservative SSR fallback used only until the live /api/stats response arrives.
@@ -55,7 +61,16 @@ export function HomePage() {
   useEffect(() => {
     document.title = 'Leak World';
     apiGet('/api/creators', { creators: CREATORS }).then((data) => setCreators(data.creators || CREATORS));
-    apiGet('/api/shorts', { shorts: SHORTS }).then((data) => setShorts(data.shorts || SHORTS));
+    const seed = shortsSeedRef.current;
+    apiGet(
+      `/api/shorts/feed?limit=12&offset=0&seed=${encodeURIComponent(seed)}`,
+      { shorts: SHORTS, page: { seed } },
+    ).then((data) => {
+      const feedShorts = Array.isArray(data?.shorts) ? data.shorts : [];
+      if (feedShorts.length) setShorts(feedShorts);
+      else setShorts(SHORTS);
+      setShortsSeed(String(data?.page?.seed || seed));
+    });
     apiGet('/api/stats', fallbackStats).then((data) => setStats({ ...fallbackStats, ...data }));
   }, [fallbackStats]);
 
@@ -156,7 +171,14 @@ export function HomePage() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {featuredShorts.map((item, index) => (
-            <ShortCard key={item.id} item={item} index={index} />
+            <ShortCard
+              key={item.id}
+              item={item}
+              index={index}
+              to={`/shorts?v=${encodeURIComponent(item.id)}${
+                shortsSeed ? `&s=${encodeURIComponent(shortsSeed)}` : ''
+              }`}
+            />
           ))}
         </div>
       </section>

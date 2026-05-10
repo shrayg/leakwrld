@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ChevronLeft, ChevronRight, Heart, Lock, Play, Sparkles, Unlock, X } from 'lucide-react';
 import { apiGet } from '../api';
+import { useAuth } from '../components/AuthContext';
 import { CREATORS } from '../data/catalog';
 import { displayCount, formatCount } from '../lib/metrics';
-import { classifyMedia, isLockedTier, mediaUrl, TIER_LABELS } from '../lib/media';
+import { accountTierLabel, classifyMedia, isLockedTier, mediaUrl, TIER_LABELS } from '../lib/media';
 import { recordEvent } from '../lib/analytics';
 import {
   manifestMediaLike,
@@ -139,8 +140,8 @@ function PaywallOverlay({ tier }) {
   );
 }
 
-function MediaTile({ item, onOpen, accent }) {
-  const locked = isLockedTier(item.tier);
+function MediaTile({ item, onOpen, accent, accountTier }) {
+  const locked = item.locked || isLockedTier(item.tier, accountTier);
   const kind = item.kind || classifyMedia(item.name);
   const src = mediaUrl(item.key);
 
@@ -282,6 +283,7 @@ function Lightbox({ items, index, creatorSlug, onClose, onNavigate }) {
 
 export function CreatorDetailPage() {
   const { slug } = useParams();
+  const { user } = useAuth();
   const seedCreator = useMemo(() => CREATORS.find((c) => c.slug === slug), [slug]);
 
   const [creator, setCreator] = useState(seedCreator || null);
@@ -326,7 +328,7 @@ export function CreatorDetailPage() {
       if (data.totals) setTotals(data.totals);
       setLoading(false);
     });
-  }, [slug, tier]);
+  }, [slug, tier, user?.tier]);
 
   useEffect(() => {
     if (!creator || creator.slug !== slug) return;
@@ -343,7 +345,8 @@ export function CreatorDetailPage() {
     });
   }, [slug, tier]);
 
-  const playableItems = useMemo(() => items.filter((it) => !isLockedTier(it.tier)), [items]);
+  const accountTier = user?.tier || 'free';
+  const playableItems = useMemo(() => items.filter((it) => !it.locked && !isLockedTier(it.tier, accountTier)), [items, accountTier]);
 
   const openLightbox = useCallback(
     (item) => {
@@ -428,6 +431,7 @@ export function CreatorDetailPage() {
       <section className="lw-toolbar">
         <div className="flex items-center gap-2 text-[13px] text-white/70">
           Browsing <b className="text-white">{TIER_LABELS[tier]}</b>
+          <span className="text-white/45">Your tier: {accountTierLabel(accountTier)}</span>
         </div>
         <div className="flex flex-wrap gap-2">
           {TIER_ORDER.map((t) => {
@@ -456,7 +460,7 @@ export function CreatorDetailPage() {
       ) : (
         <section className="lw-media-grid">
           {items.map((item) => (
-            <MediaTile key={item.key} item={item} onOpen={openLightbox} accent={accent} />
+            <MediaTile key={item.key} item={item} onOpen={openLightbox} accent={accent} accountTier={accountTier} />
           ))}
         </section>
       )}

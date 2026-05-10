@@ -31,7 +31,7 @@ const NAV_LINKS = [
   { to: '/', label: 'Home' },
   { to: '/shorts', label: 'Shorts' },
   { to: '/categories', label: 'Categories' },
-  { to: '/checkout', label: 'Premium' },
+  { to: '/checkout', label: 'Premium', premium: true },
 ];
 
 const EMPTY_FILTERS = { creators: [], categories: [] };
@@ -59,8 +59,8 @@ function reactionKey(item) {
   return `${REACTION_PREFIX}${item?.id || item?.key || ''}`;
 }
 
-function navClass({ isActive }) {
-  return `lw-shorts-drawer-link ${isActive ? 'active' : ''}`;
+function navClass(link) {
+  return ({ isActive }) => `lw-shorts-drawer-link ${link.premium ? 'lw-premium-nav' : ''} ${isActive ? 'active' : ''}`.trim();
 }
 
 function clampIndex(value, length) {
@@ -73,31 +73,55 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
   const playbackId = useMemo(() => mediaPlaybackSessionId(), [item.key]);
   const [playing, setPlaying] = useState(false);
   const [ready, setReady] = useState(false);
+  const isImage = item.kind === 'image' || String(item.ext || '').toLowerCase() === '.gif';
 
   useEffect(() => {
+    if (isImage) return;
     const video = videoRef.current;
     if (!video) return;
     video.muted = muted;
+    video.defaultMuted = true;
+    video.autoplay = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    if (muted) video.setAttribute('muted', '');
     if (!isActive) {
       video.pause();
       setPlaying(false);
       return;
     }
-    const play = video.play();
-    if (play && typeof play.then === 'function') {
-      play.then(() => setPlaying(true)).catch(() => setPlaying(false));
-    } else {
-      setPlaying(true);
-    }
-  }, [isActive, muted, item.key]);
+    const attemptPlay = () => {
+      const play = video.play();
+      if (play && typeof play.then === 'function') {
+        play.then(() => setPlaying(true)).catch(() => setPlaying(false));
+      } else {
+        setPlaying(true);
+      }
+    };
+    attemptPlay();
+    const retry = window.setTimeout(attemptPlay, 240);
+    const onCanPlay = () => attemptPlay();
+    const onUserGesture = () => attemptPlay();
+    video.addEventListener('canplay', onCanPlay);
+    window.addEventListener('pointerup', onUserGesture, { once: true });
+    window.addEventListener('touchend', onUserGesture, { once: true });
+    return () => {
+      window.clearTimeout(retry);
+      video.removeEventListener('canplay', onCanPlay);
+      window.removeEventListener('pointerup', onUserGesture);
+      window.removeEventListener('touchend', onUserGesture);
+    };
+  }, [isActive, muted, item.key, isImage]);
 
   useEffect(() => {
+    if (isImage) return;
     const video = videoRef.current;
     if (!video || isActive) return;
     video.load();
-  }, [isActive, item.key]);
+  }, [isActive, item.key, isImage]);
 
   useEffect(() => {
+    if (isImage) return;
     const video = videoRef.current;
     if (!video || !isActive) return;
     let lastCheckpoint = 0;
@@ -173,10 +197,10 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
       video.removeEventListener('play', onPlay);
       video.removeEventListener('ended', onEnded);
     };
-  }, [isActive, item, playbackId]);
+  }, [isActive, item, playbackId, isImage]);
 
   const togglePlayback = useCallback(() => {
-    if (!isActive) return;
+    if (!isActive || isImage) return;
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
@@ -190,7 +214,7 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
       video.pause();
       setPlaying(false);
     }
-  }, [isActive]);
+  }, [isActive, isImage]);
 
   return (
     <article
@@ -198,25 +222,37 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
       style={{ transform: `translate3d(0, calc(${offset * 100}% + ${dragOffset}px), 0)` }}
       aria-hidden={!isActive}
     >
-      <video
-        ref={videoRef}
-        className="lw-short-video"
-        src={mediaUrl(item.key)}
-        preload="auto"
-        playsInline
-        loop
-        muted={muted}
-        crossOrigin="anonymous"
-      />
+      {isImage ? (
+        <img
+          className="lw-short-video lw-short-image"
+          src={mediaUrl(item.key)}
+          alt=""
+          loading={isActive ? 'eager' : 'lazy'}
+          decoding="async"
+          onLoad={() => setReady(true)}
+        />
+      ) : (
+        <video
+          ref={videoRef}
+          className="lw-short-video"
+          src={mediaUrl(item.key)}
+          preload="auto"
+          autoPlay={isActive}
+          playsInline
+          loop
+          muted={muted}
+          crossOrigin="anonymous"
+        />
+      )}
       <button
         type="button"
         className="lw-short-play-surface"
-        aria-label={playing ? 'Pause short' : 'Play short'}
+        aria-label={isImage ? 'View short' : playing ? 'Pause short' : 'Play short'}
         tabIndex={isActive ? 0 : -1}
         onClick={togglePlayback}
       >
         {!ready ? <span className="lw-short-loading">Loading</span> : null}
-        {ready && !playing ? (
+        {ready && !isImage && !playing ? (
           <span className="lw-short-play-float">
             <Play size={34} fill="currentColor" />
           </span>
@@ -247,7 +283,7 @@ function ShortsDrawer({ open, onClose, user, loading, logout, openAuthModal }) {
               key={link.to}
               to={link.to}
               end={link.to === '/'}
-              className={navClass}
+              className={navClass(link)}
               style={{ '--i': index }}
               onClick={onClose}
             >
@@ -303,14 +339,20 @@ function FilterPanel({
   onAllCategories,
   onNoCategories,
   onClose,
+  access,
 }) {
   if (!open) return null;
+  const unlockable = displayCount(access?.unlockableRaw || 0);
   return (
     <div className="lw-shorts-filter-panel" role="dialog" aria-label="Shorts filters">
       <div className="lw-shorts-filter-head">
         <div>
           <h2>Filters</h2>
           <p>{selectedCreators.size} creators / {selectedCategories.size} categories</p>
+        </div>
+        <div className="lw-shorts-filter-tier">
+          <span>Your tier: {access?.userTierLabel || access?.userTier || 'Free'}</span>
+          <b>{unlockable > 0 ? `Upgrade to unlock ${formatCount(unlockable)} more videos` : 'All videos unlocked'}</b>
         </div>
         <button type="button" className="lw-icon-btn" aria-label="Close filters" onClick={onClose}>
           <X size={18} />
@@ -383,12 +425,21 @@ export function ShortsPage() {
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [reactions, setReactions] = useState({});
-  const [likeDeltas, setLikeDeltas] = useState({});
   const [shared, setShared] = useState(false);
-  const initialVideoId = useRef(typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('v') : null);
+  const initialVideoId = useRef(
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('v') : null,
+  );
+  const initialFeedSeed = useRef(
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('s') : null,
+  );
   const pointerRef = useRef(null);
   const wheelLockRef = useRef(0);
   const requestSeq = useRef(0);
+  const feedSeedRef = useRef(
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 
   useEffect(() => {
     document.title = 'Shorts - Leak World';
@@ -401,7 +452,14 @@ export function ShortsPage() {
     const requestId = ++requestSeq.current;
     setLoading(true);
     setLoadingMore(false);
-    apiGet(`/api/shorts/feed?limit=${FEED_PAGE_SIZE}&offset=0`, { shorts: [], filters: EMPTY_FILTERS, access: { userTier: 'free', manifestTiers: ['free'] }, page: { offset: 0, returned: 0, total: 0 } })
+    feedSeedRef.current =
+      initialFeedSeed.current ||
+      (typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    initialFeedSeed.current = null;
+    const seed = encodeURIComponent(feedSeedRef.current);
+    apiGet(`/api/shorts/feed?limit=${FEED_PAGE_SIZE}&offset=0&seed=${seed}`, { shorts: [], filters: EMPTY_FILTERS, access: { userTier: 'free', manifestTiers: ['free'] }, page: { offset: 0, returned: 0, total: 0 } })
       .then((data) => {
         if (cancelled || requestId !== requestSeq.current) return;
         setShorts(data?.shorts || []);
@@ -420,7 +478,8 @@ export function ShortsPage() {
     const nextOffset = Number(pageInfo.offset || 0) + Number(pageInfo.returned || 0);
     if (loading || loadingMore || nextOffset <= 0 || nextOffset >= Number(pageInfo.total || 0)) return;
     setLoadingMore(true);
-    apiGet(`/api/shorts/feed?limit=${FEED_PAGE_SIZE}&offset=${nextOffset}`, { shorts: [], page: pageInfo })
+    const seed = encodeURIComponent(feedSeedRef.current);
+    apiGet(`/api/shorts/feed?limit=${FEED_PAGE_SIZE}&offset=${nextOffset}&seed=${seed}`, { shorts: [], page: pageInfo })
       .then((data) => {
         const nextItems = data?.shorts || [];
         setShorts((prev) => {
@@ -448,13 +507,16 @@ export function ShortsPage() {
   );
 
   const visibleShorts = useMemo(
-    () => shorts.filter((item) => activeCreatorSet.has(item.creatorSlug) && activeCategorySet.has(item.categorySlug)),
+    () => shorts.filter((item) => {
+      const itemCategories = item.categorySlugs?.length ? item.categorySlugs : [item.categorySlug];
+      return activeCreatorSet.has(item.creatorSlug) && itemCategories.some((slug) => activeCategorySet.has(slug));
+    }),
     [shorts, activeCreatorSet, activeCategorySet],
   );
 
   const current = visibleShorts[activeIndex] || null;
   const currentReaction = current ? reactions[current.id] ?? storageGet(reactionKey(current)) : null;
-  const currentLikes = current ? Math.max(0, Number(current.likes || 0) + Number(likeDeltas[current.id] || 0)) : 0;
+  const currentLikes = current ? Math.max(0, Number(current.likes || 0)) : 0;
 
   const navigateShort = useCallback(
     (delta) => {
@@ -539,12 +601,12 @@ export function ShortsPage() {
     if (!current) return;
     const key = reactionKey(current);
     const previous = currentReaction;
-    const next = previous === kind ? null : kind;
+    if (kind === 'like' && previous === 'like') return;
+    const next = kind === 'like' ? 'like' : previous === kind ? null : kind;
     storageSet(key, next);
     setReactions((state) => ({ ...state, [current.id]: next }));
     if (kind === 'like' && previous !== 'like') {
       manifestMediaLike({ storageKey: current.key, creatorSlug: current.creatorSlug });
-      setLikeDeltas((state) => ({ ...state, [current.id]: Number(state[current.id] || 0) + 1 }));
     }
     if (kind === 'dislike' && previous !== 'dislike') {
       recordEvent('short_dislike', {
@@ -674,6 +736,7 @@ export function ShortsPage() {
             setActiveIndex(0);
           }}
           onClose={() => setFilterOpen(false)}
+          access={access}
         />
 
         <div
@@ -713,8 +776,8 @@ export function ShortsPage() {
               <Link to={`/creators/${current.creatorSlug}`} className="lw-short-creator">
                 {current.creatorName}
               </Link>
-              <p>{current.category} / {TIER_LABELS[current.tier] || current.tier}</p>
-              <p>{formatCount(displayCount(current.views || 0))} views / {formatCount(displayCount(currentLikes))} likes</p>
+              <p>{(current.categoryLabels?.[0] || current.category || 'Featured')} / {TIER_LABELS[current.tier] || current.tier}</p>
+              <p>{formatCount(current.views || 0)} views / {formatCount(currentLikes)} likes</p>
             </div>
 
             <div className="lw-short-actions" aria-label="Short actions">
@@ -723,6 +786,7 @@ export function ShortsPage() {
                 className={`lw-short-action ${currentReaction === 'like' ? 'active' : ''}`}
                 aria-label="Like"
                 aria-pressed={currentReaction === 'like'}
+                disabled={currentReaction === 'like'}
                 onClick={() => react('like')}
               >
                 <Heart size={20} fill={currentReaction === 'like' ? 'currentColor' : 'none'} />
@@ -759,7 +823,7 @@ export function ShortsPage() {
       <aside className="lw-shorts-side-panel">
         <span className="lw-eyebrow">Shorts</span>
         <h1>Swipe Feed</h1>
-        <p>{formatCount(displayCount(pageInfo.total || visibleShorts.length))} videos available for {access.userTier}. Access: {tierLabels || 'Free'}.</p>
+        <p>{formatCount(displayCount(pageInfo.total || visibleShorts.length))} videos available for {access.userTierLabel || access.userTier}. Access: {tierLabels || 'Free'}.</p>
         <div className="lw-shorts-side-stats">
           <span>{activeIndex + (visibleShorts.length ? 1 : 0)} / {visibleShorts.length}</span>
           <span>{activeCreatorSet.size} creators</span>

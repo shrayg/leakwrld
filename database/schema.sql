@@ -128,6 +128,15 @@ create table if not exists media_items (
 create index if not exists media_items_creator_idx on media_items (creator_slug);
 create index if not exists media_items_type_status_idx on media_items (media_type, status);
 
+create table if not exists media_item_likes (
+  media_item_id text not null references media_items (id) on delete cascade,
+  actor_key text not null,
+  created_at timestamptz not null default now(),
+  primary key (media_item_id, actor_key)
+);
+
+create index if not exists media_item_likes_created_idx on media_item_likes (created_at desc);
+
 -- ─── Traffic & admin-facing analytics (append-heavy) ─────────────────────────
 
 create table if not exists analytics_visits (

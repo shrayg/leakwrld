@@ -20,6 +20,7 @@ export function CreatorCard({ creator, compact = false }) {
               decoding="async"
               onError={() => setThumbBroken(true)}
               className="lw-thumb-img"
+              style={creator.thumbnailPosition ? { objectPosition: creator.thumbnailPosition } : undefined}
             />
           ) : null}
           <span className="lw-rank">#{creator.rank}</span>
@@ -29,11 +30,11 @@ export function CreatorCard({ creator, compact = false }) {
             </div>
           ) : null}
           <div className="lw-tier-chips">
-            <span className="lw-tier-chip unlocked" aria-label={`${creator.freeCount} free files`}>
+            <span className="lw-tier-chip unlocked" aria-label={`${formatCount(displayCount(creator.freeCount))} free files`}>
               <Unlock size={12} />
               {formatCount(displayCount(creator.freeCount))}
             </span>
-            <span className="lw-tier-chip locked" aria-label={`${creator.mediaCount} total files`}>
+            <span className="lw-tier-chip locked" aria-label={`${formatCount(displayCount(creator.mediaCount))} total files`}>
               <Lock size={12} />
               {formatCount(displayCount(creator.mediaCount))}
             </span>
@@ -69,7 +70,7 @@ export function CreatorCard({ creator, compact = false }) {
   );
 }
 
-export function ShortCard({ item, index }) {
+export function ShortCard({ item, index, to }) {
   const premium = item.tier !== 'free';
   const accent = index % 4 === 0 ? 'gold' : index % 3 === 0 ? 'cyan' : 'pink';
   const telemetry = useCatalogShortTelemetry(item);
@@ -113,7 +114,7 @@ export function ShortCard({ item, index }) {
   return (
     <article ref={telemetry.rootRef} className="relative lw-card overflow-hidden p-0">
       <Link
-        to={`/creators/${item.creatorSlug}`}
+        to={to || `/creators/${item.creatorSlug}`}
         className="block"
         onClick={onOpenShort}
         aria-label={`Open ${item.creatorName} from ${item.title}`}
@@ -136,8 +137,8 @@ export function ShortCard({ item, index }) {
           <h3 className="truncate text-[14px] font-semibold text-white">{item.title}</h3>
           <p className="mt-1 text-[12px] text-[var(--color-text-muted)]">{item.creatorName}</p>
           <div className="mt-3 flex items-center justify-between text-[11px] text-white/60">
-            <span>{formatCount(displayCount(views))} views</span>
-            <span>{formatCount(displayCount(likes))} likes</span>
+            <span>{formatCount(views)} views</span>
+            <span>{formatCount(likes)} likes</span>
           </div>
         </div>
       </Link>

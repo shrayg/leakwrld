@@ -15,6 +15,8 @@ const LIKE_COOLDOWN_MS = 2000;
 const RATE = new Map();
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 240;
+let likesTableEnsured = false;
+let likesTableEnsurePromise = null;
 
 function prunePlaybackMemory(now) {
   if (PLAYBACK_MEM.size < PLAYBACK_MEM_CAP) return;
@@ -57,6 +59,42 @@ function likeThrottleOk(ip, mediaRef, now) {
     }
   }
   return true;
+}
+
+async function ensureMediaLikesTable(dbQuery) {
+  if (likesTableEnsured) return;
+  if (likesTableEnsurePromise) {
+    await likesTableEnsurePromise;
+    return;
+  }
+  likesTableEnsurePromise = dbQuery(
+    `create table if not exists media_item_likes (
+      media_item_id text not null references media_items (id) on delete cascade,
+      actor_key text not null,
+      created_at timestamptz not null default now(),
+      primary key (media_item_id, actor_key)
+    )`,
+  )
+    .then(() =>
+      dbQuery(
+        `create index if not exists media_item_likes_created_idx
+         on media_item_likes (created_at desc)`,
+      ),
+    )
+    .then(() => {
+      likesTableEnsured = true;
+    })
+    .finally(() => {
+      likesTableEnsurePromise = null;
+    });
+  await likesTableEnsurePromise;
+}
+
+function likeActorKey({ userId, visitorKey, ip }) {
+  if (userId) return `u:${userId}`;
+  if (visitorKey) return `v:${visitorKey}`;
+  if (ip) return `ip:${ip}`;
+  return null;
 }
 
 function parseVisitorUuid(raw) {
@@ -182,6 +220,18 @@ async function handleMediaAnalytics(pool, dbQuery, body, meta) {
     }
   }
 
+  let uid = null;
+  if (typeof sessionUserId === 'function') {
+    try {
+      uid = await sessionUserId();
+    } catch {
+      uid = null;
+    }
+  }
+
+  const visitorKey = parseVisitorUuid(body.visitorKey ?? body.visitor_key);
+  const actorKey = likeActorKey({ userId: uid, visitorKey, ip });
+
   let incViews = 0;
   let incSessions = 0;
   let incSeconds = 0;
@@ -198,6 +248,9 @@ async function handleMediaAnalytics(pool, dbQuery, body, meta) {
 
   if (action === 'like' && !likeThrottleOk(ip, mediaRef, now)) {
     return sendJson(res, 200, { ok: true, throttled: true });
+  }
+  if (action === 'like' && !actorKey) {
+    return sendJson(res, 200, { ok: true, ignored: true });
   }
 
   const durationOnlyProgress = action === 'progress' && secondsDelta <= 0 && durHint > 0;
@@ -236,6 +289,18 @@ async function handleMediaAnalytics(pool, dbQuery, body, meta) {
       return sendJson(res, 200, { ok: true });
     }
 
+    if (action === 'like') {
+      await ensureMediaLikesTable(dbQuery);
+      const likeInsert = await client.query(
+        `insert into media_item_likes (media_item_id, actor_key)
+         values ($1, $2)
+         on conflict do nothing`,
+        [rowId, actorKey],
+      );
+      // Count only first like per actor/media; re-clicks become no-op.
+      if (likeInsert.rowCount === 0) incLikes = 0;
+    }
+
     const params = [rowId, incViews, incSessions, BigInt(incSeconds), incLikes];
     let sql = `
       update media_items set
@@ -270,17 +335,6 @@ async function handleMediaAnalytics(pool, dbQuery, body, meta) {
       await client.query('rollback');
       return sendJson(res, 500, { error: 'Media row missing after upsert.' });
     }
-
-    let uid = null;
-    if (typeof sessionUserId === 'function') {
-      try {
-        uid = await sessionUserId();
-      } catch {
-        uid = null;
-      }
-    }
-
-    const visitorKey = parseVisitorUuid(body.visitorKey ?? body.visitor_key);
 
     await client.query(
       `insert into analytics_events (user_id, visitor_key, event_type, path, category, payload)

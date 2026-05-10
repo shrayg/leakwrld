@@ -10,11 +10,11 @@ const links = [
   { to: '/', label: 'Home' },
   { to: '/shorts', label: 'Shorts' },
   { to: '/categories', label: 'Categories' },
-  { to: '/checkout', label: 'Premium' },
+  { to: '/checkout', label: 'Premium', premium: true },
 ];
 
-function navClass({ isActive }) {
-  return `lw-nav-tab ${isActive ? 'active' : ''}`;
+function navClass(link) {
+  return ({ isActive }) => `lw-nav-tab ${link.premium ? 'lw-premium-nav' : ''} ${isActive ? 'active' : ''}`.trim();
 }
 
 export function AppShell() {
@@ -61,7 +61,7 @@ export function AppShell() {
         <div className="lw-nav-top">
           <button
             type="button"
-            className="lw-icon-btn md:hidden"
+            className="lw-icon-btn lw-menu-toggle"
             aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
             onClick={() => setMobileOpen((open) => !open)}
           >
@@ -97,7 +97,7 @@ export function AppShell() {
 
         <nav className="lw-nav-tabs" aria-label="Main navigation">
           {links.map((link) => (
-            <NavLink key={link.to} to={link.to} end={link.to === '/'} className={navClass}>
+            <NavLink key={link.to} to={link.to} end={link.to === '/'} className={navClass(link)}>
               {link.label}
             </NavLink>
           ))}
@@ -105,8 +105,8 @@ export function AppShell() {
 
         {mobileOpen ? (
           <>
-            <button type="button" className="lw-mobile-scrim md:hidden" aria-label="Close menu" onClick={() => setMobileOpen(false)} />
-            <div className="lw-mobile-panel md:hidden">
+            <button type="button" className="lw-mobile-scrim" aria-label="Close menu" onClick={() => setMobileOpen(false)} />
+            <div className="lw-mobile-panel">
               <div className="lw-mobile-panel-head">
                 <Link to="/" className="lw-brand" aria-label="Leak World home" onClick={() => setMobileOpen(false)}>
                   <span>Leak World</span>
@@ -120,7 +120,7 @@ export function AppShell() {
                   key={link.to}
                   to={link.to}
                   end={link.to === '/'}
-                  className={navClass}
+                  className={navClass(link)}
                   style={{ '--i': index }}
                 >
                   {link.label}

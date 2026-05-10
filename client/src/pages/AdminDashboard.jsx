@@ -169,7 +169,13 @@ async function adminMutation(url, method, body) {
   return { ok: res.ok, data };
 }
 
-const USER_TIER_OPTIONS = ['free', 'basic', 'premium', 'ultimate', 'admin'];
+const USER_TIER_OPTIONS = [
+  { value: 'free', label: 'Free' },
+  { value: 'basic', label: 'Tier 1' },
+  { value: 'premium', label: 'Tier 2' },
+  { value: 'ultimate', label: 'Tier 3 / Ultimate' },
+  { value: 'admin', label: 'Admin' },
+];
 
 function UserModerateModal({ user, onClose, onSaved }) {
   const [tierDraft, setTierDraft] = useState(user.tier);
@@ -292,8 +298,8 @@ function UserModerateModal({ user, onClose, onSaved }) {
                 onChange={(e) => setTierDraft(e.target.value)}
               >
                 {USER_TIER_OPTIONS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+                  <option key={t.value} value={t.value}>
+                    {t.label}
                   </option>
                 ))}
               </select>
@@ -1684,11 +1690,11 @@ export function AdminDashboard({ siteLabel, onLogout }) {
                     aria-label="Filter by tier"
                   >
                     <option value="">All tiers</option>
-                    <option value="free">free</option>
-                    <option value="basic">basic</option>
-                    <option value="premium">premium</option>
-                    <option value="ultimate">ultimate</option>
-                    <option value="admin">admin</option>
+                    {USER_TIER_OPTIONS.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
               ) : null}
@@ -1871,7 +1877,7 @@ export function AdminDashboard({ siteLabel, onLogout }) {
                       <tr key={v.id}>
                         <td className="whitespace-nowrap text-xs">{fmtTime(v.created_at)}</td>
                         <td className="max-w-[160px] truncate">{v.path}</td>
-                        <td>{v.user_id ? 'yes' : 'guest'}</td>
+                        <td>{v.username || 'guest'}</td>
                         <td className="font-mono text-xs">{v.ip || '—'}</td>
                       </tr>
                     ))}

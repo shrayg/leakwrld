@@ -3,6 +3,13 @@ import MEDIA_SUMMARY from './media-summary.json';
 
 const THUMBNAIL_SET = new Set(THUMBNAIL_SLUGS);
 const MEDIA_BY_SLUG = new Map(MEDIA_SUMMARY.map((e) => [e.slug, e]));
+const CREATOR_THUMB_OVERRIDES = {
+  'sophie-rain': { thumbnailPosition: '50% 14%' },
+  'bhad-bhabie': { thumbnailPosition: '50% 16%' },
+  'belle-delphine': { thumbnailPosition: '58% 28%' },
+  'lil-tay': { thumbnailPosition: '50% 20%' },
+  'corinna-kopf': { thumbnailPosition: '50% 20%' },
+};
 
 const CREATOR_NAMES = [
   'Sophie Rain',
@@ -83,6 +90,7 @@ const ALL_CREATORS = CREATOR_NAMES.map((name, index) => {
     heat: Math.max(42, 100 - Math.floor(rank / 2)),
     accent: ['pink', 'gold', 'cyan', 'green'][index % 4],
     thumbnail: THUMBNAIL_SET.has(slug) ? `/thumbnails/${slug}.jpg` : null,
+    ...(CREATOR_THUMB_OVERRIDES[slug] || {}),
     ready: !!real,
   };
 });

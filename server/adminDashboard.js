@@ -12,7 +12,16 @@ function clampLimit(n, fallback = 50, max = 100) {
   return Math.min(max, Math.max(10, Math.floor(x)));
 }
 
-const USER_TIER_FILTERS = new Set(['free', 'basic', 'premium', 'ultimate', 'admin']);
+const USER_TIER_FILTERS = new Map([
+  ['free', 'free'],
+  ['tier1', 'basic'],
+  ['basic', 'basic'],
+  ['tier2', 'premium'],
+  ['premium', 'premium'],
+  ['tier3', 'ultimate'],
+  ['ultimate', 'ultimate'],
+  ['admin', 'admin'],
+]);
 
 /** Strip LIKE wildcards so search is always substring semantics (no user-controlled % / _). */
 function normalizeAdminSearch(raw) {
@@ -26,8 +35,13 @@ function normalizeAdminSearch(raw) {
 }
 
 function parseTierFilter(raw) {
-  const t = String(raw || '').trim().toLowerCase();
-  return USER_TIER_FILTERS.has(t) ? t : null;
+  const t = String(raw || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  return USER_TIER_FILTERS.get(t) || null;
+}
+
+function normalizeAccountTierValue(raw) {
+  const t = String(raw || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  return USER_TIER_FILTERS.get(t) || 'free';
 }
 
 function isUuidQuery(s) {
@@ -476,7 +490,7 @@ async function getUsersPage(dbQuery, page, limit, searchRaw, tierRaw) {
       id: r.id,
       username: r.username,
       email: r.email,
-      tier: r.tier,
+      tier: normalizeAccountTierValue(r.tier),
       referralCode: r.referral_code,
       referralSignups: r.referral_signups_count,
       watchTimeSeconds: Number(r.watch_time_seconds || 0),
@@ -510,15 +524,16 @@ async function getVisitsPage(dbQuery, page, limit, searchRaw) {
     cond.push(`(user_id = $${n}::uuid OR visitor_key = $${n}::uuid)`);
   } else if (search) {
     const pat = `%${search}%`;
-    vals.push(pat, pat, pat, pat, pat, pat);
-    const b = vals.length - 6;
+    vals.push(pat, pat, pat, pat, pat, pat, pat);
+    const b = vals.length - 7;
     cond.push(`(
-      path ilike $${b + 1}
-      OR coalesce(referrer, '') ilike $${b + 2}
-      OR coalesce(ip, '') ilike $${b + 3}
-      OR coalesce(country_code::text, '') ilike $${b + 4}
-      OR cast(id as text) ilike $${b + 5}
-      OR coalesce(user_agent, '') ilike $${b + 6}
+      v.path ilike $${b + 1}
+      OR coalesce(v.referrer, '') ilike $${b + 2}
+      OR coalesce(v.ip, '') ilike $${b + 3}
+      OR coalesce(v.country_code::text, '') ilike $${b + 4}
+      OR cast(v.id as text) ilike $${b + 5}
+      OR coalesce(v.user_agent, '') ilike $${b + 6}
+      OR coalesce(u.username, '') ilike $${b + 7}
     )`);
   }
 
@@ -530,16 +545,24 @@ async function getVisitsPage(dbQuery, page, limit, searchRaw) {
 
   const [data, countRow] = await Promise.all([
     dbQuery(
-      `select id, created_at, path, referrer, user_id,
-        left(coalesce(ip, ''), 45) as ip,
-        left(coalesce(user_agent, ''), 120) as user_agent
-       from analytics_visits
+      `select v.id, v.created_at, v.path, v.referrer, v.user_id,
+        u.username,
+        left(coalesce(v.ip, ''), 45) as ip,
+        left(coalesce(v.user_agent, ''), 120) as user_agent
+       from analytics_visits v
+       left join users u on u.id = v.user_id
        ${whereSql}
-       order by created_at desc
+       order by v.created_at desc
        limit $${limPl} offset $${offPl}`,
       vals,
     ),
-    dbQuery(`select count(*)::bigint as c from analytics_visits ${whereSql}`, countVals),
+    dbQuery(
+      `select count(*)::bigint as c
+       from analytics_visits v
+       left join users u on u.id = v.user_id
+       ${whereSql}`,
+      countVals,
+    ),
   ]);
   return {
     rows: data.rows,
