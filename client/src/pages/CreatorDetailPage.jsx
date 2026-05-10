@@ -50,9 +50,20 @@ function MediaTile({ item, onOpen, accent }) {
   }
 
   if (kind === 'video') {
+    /** Grid used to show only a gradient — looked “broken” on prod. A muted
+     *  `preload="metadata"` fetch shows the first frame like a poster (same URL as lightbox).
+     *  `crossOrigin="anonymous"` matches Worker CORS when `VITE_R2_PUBLIC_BASE` is cross-origin. */
     return (
       <button type="button" className="lw-media-tile" onClick={() => onOpen(item)} aria-label="Play video">
-        <div className={`lw-media-tile-poster accent-${accent}`}>
+        <video
+          className="lw-media-tile-video-el"
+          src={src}
+          muted
+          playsInline
+          preload="metadata"
+          crossOrigin="anonymous"
+        />
+        <div className="lw-media-tile-video-overlay" aria-hidden>
           <span className="lw-play big">
             <Play size={28} fill="currentColor" />
           </span>
@@ -124,7 +135,15 @@ function Lightbox({ items, index, onClose, onNavigate }) {
       </button>
       <div className="lw-lightbox-stage" onClick={(e) => e.stopPropagation()}>
         {kind === 'video' ? (
-          <video src={src} controls autoPlay playsInline className="lw-lightbox-video" />
+          <video
+            src={src}
+            controls
+            autoPlay
+            playsInline
+            crossOrigin="anonymous"
+            preload="metadata"
+            className="lw-lightbox-video"
+          />
         ) : (
           <img src={src} alt="" className="lw-lightbox-image" />
         )}

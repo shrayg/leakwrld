@@ -26,7 +26,8 @@ const TIER_PATTERN = /^videos\/[^/]+\/(free|tier1|tier2|tier3)\//;
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, HEAD, OPTIONS',
-  'access-control-allow-headers': 'Range, Content-Type',
+  /** Browsers may send extra headers on Range/preflight when `<video crossOrigin>` hits workers.dev */
+  'access-control-allow-headers': 'Range, Content-Type, Accept, Accept-Encoding, Origin',
   'access-control-expose-headers': 'Content-Length, Content-Range, Accept-Ranges, ETag',
   'access-control-max-age': '86400',
 };
