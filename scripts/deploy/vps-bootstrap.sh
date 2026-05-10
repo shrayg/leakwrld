@@ -27,8 +27,15 @@ if ! command -v node >/dev/null 2>&1 || [[ "$(node -p process.versions.node | cu
 fi
 
 echo "==> Creating system user ${APP_USER_SYS}"
+LEAK_HOME="/home/${APP_USER_SYS}"
 if ! id -u "${APP_USER_SYS}" >/dev/null 2>&1; then
-  useradd --system --shell /bin/bash "${APP_USER_SYS}"
+  useradd --system --shell /bin/bash --home-dir "${LEAK_HOME}" --create-home "${APP_USER_SYS}"
+else
+  if [[ ! -d "${LEAK_HOME}" ]]; then
+    mkdir -p "${LEAK_HOME}"
+    chown "${APP_USER_SYS}:${APP_USER_SYS}" "${LEAK_HOME}"
+    usermod --home "${LEAK_HOME}" "${APP_USER_SYS}" 2>/dev/null || true
+  fi
 fi
 mkdir -p "${APP_DIR}"
 chown "${APP_USER_SYS}:${APP_USER_SYS}" "${APP_DIR}"
@@ -56,6 +63,10 @@ sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=1 -c "GRANT ALL ON SCHEMA
 DATABASE_URL="postgres://${DB_ROLE}:${DB_PASS}@127.0.0.1:5432/${DB_NAME}"
 
 echo "==> Cloning / updating app"
+# If /opt/leakwrld was cloned manually as root, git run as ${APP_USER_SYS} hits "dubious ownership".
+chown -R "${APP_USER_SYS}:${APP_USER_SYS}" "${APP_DIR}" 2>/dev/null || true
+sudo -u "${APP_USER_SYS}" git config --global --add safe.directory "${APP_DIR}" 2>/dev/null || true
+
 if [[ -d "${APP_DIR}/.git" ]]; then
   sudo -u "${APP_USER_SYS}" git -C "${APP_DIR}" pull --ff-only
 else
@@ -72,7 +83,6 @@ DATABASE_URL=${DATABASE_URL}
 SESSION_SECRET=${SESSION_SECRET}
 PORT=3002
 HOST=127.0.0.1
-NODE_ENV=production
 SECURE_COOKIES=1
 EOF
 chmod 600 "${ENV_FILE}"
@@ -95,6 +105,7 @@ Type=simple
 User=${APP_USER_SYS}
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
+Environment=NODE_ENV=production
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=5

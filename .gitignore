@@ -17,7 +17,7 @@ node_modules/
 # Vite React build output
 client/dist/
 
-# Local artifacts
-data/
+# Local artifacts (repo root only — do not use plain `data/` or `client/src/data` is ignored)
+/data/
 backups/
 *.tmp
