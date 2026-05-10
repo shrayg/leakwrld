@@ -106,7 +106,6 @@ export function AuthModal() {
           <X size={18} strokeWidth={2} />
         </button>
 
-        <span className="lw-eyebrow lw-auth-modal-eyebrow">Members area</span>
         <h2 id="auth-modal-title" className="lw-auth-modal-title">
           Login or sign up to view all content
         </h2>
@@ -158,7 +157,10 @@ export function AuthModal() {
                 />
               </label>
               <label>
-                Email <span className="text-white/45">(optional)</span>
+                <span className="lw-form-label-title">
+                  Email{' '}
+                  <span className="text-white/45">(optional)</span>
+                </span>
                 <input
                   type="email"
                   autoComplete="email"

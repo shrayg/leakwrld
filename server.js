@@ -55,6 +55,11 @@ const PORT = Number(process.env.PORT || 3002);
 const HOST = process.env.HOST || (process.env.PORT ? '0.0.0.0' : '127.0.0.1');
 const SESSION_COOKIE = 'lw_session';
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.TBW_PEPPER || 'dev-session-secret-change-me';
+
+/** Only send Secure cookies when explicitly enabled (HTTPS sites). Production HTTP behind nginx IP breaks login otherwise. */
+function secureCookiesEnabled() {
+  return String(process.env.SECURE_COOKIES || '').trim() === '1';
+}
 const SESSION_DAYS = Number(process.env.SESSION_DAYS || 14);
 const ONLINE_CAPACITY = Math.max(1, Number(process.env.ONLINE_CAPACITY || 100));
 const SKIP_QUEUE_PRICE_CENTS = Math.max(0, Number(process.env.SKIP_QUEUE_PRICE_CENTS || 499));
@@ -197,12 +202,14 @@ function setSessionCookie(res, token) {
     'SameSite=Lax',
     `Max-Age=${SESSION_DAYS * 86400}`,
   ];
-  if (process.env.NODE_ENV === 'production' || process.env.SECURE_COOKIES === '1') parts.push('Secure');
+  if (secureCookiesEnabled()) parts.push('Secure');
   appendCookie(res, parts.join('; '));
 }
 
 function clearSessionCookie(res) {
-  appendCookie(res, `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  const parts = [`${SESSION_COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+  if (secureCookiesEnabled()) parts.push('Secure');
+  appendCookie(res, parts.join('; '));
 }
 
 function tokenHash(token) {

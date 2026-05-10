@@ -1,8 +1,9 @@
-import { Menu, Search, User, X } from 'lucide-react';
+import { Menu, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AuthModal } from './AuthModal';
 import { useAuth } from './AuthContext';
+import { UserAvatar } from './UserAvatar';
 
 const links = [
   { to: '/', label: 'Home' },
@@ -70,7 +71,7 @@ export function AppShell() {
             ) : user ? (
               <>
                 <span className="lw-user-chip">
-                  <User size={15} />
+                  <UserAvatar username={user.username} size={28} />
                   {user.username}
                 </span>
                 <button type="button" className="lw-btn ghost" onClick={logout}>
@@ -107,9 +108,15 @@ export function AppShell() {
             ))}
             <div className="grid grid-cols-2 gap-2 pt-2">
               {user ? (
-                <button type="button" className="lw-btn ghost col-span-2" onClick={logout}>
-                  Logout
-                </button>
+                <>
+                  <div className="lw-user-chip col-span-2 flex min-h-0 items-center gap-2">
+                    <UserAvatar username={user.username} size={28} />
+                    <span className="min-w-0 truncate font-medium">{user.username}</span>
+                  </div>
+                  <button type="button" className="lw-btn ghost col-span-2" onClick={logout}>
+                    Logout
+                  </button>
+                </>
               ) : (
                 <>
                   <button

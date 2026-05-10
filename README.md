@@ -59,12 +59,22 @@ Copy **`.env`** in the repo root (gitignored — create from scratch or sync fro
 | `DATABASE_URL` | Postgres connection string |
 | `SESSION_SECRET` | Cookie / session signing |
 | `PORT`, `HOST` | Node HTTP bind (`HOST=127.0.0.1` typical behind nginx) |
-| `SECURE_COOKIES` | Set `1` when serving HTTPS |
+| `SECURE_COOKIES` | Set `1` only when the **browser** loads the site over **HTTPS** (required for `Secure` session cookies). Leave unset/`0` for `http://` or cookies are ignored and login appears broken. |
 | `ONLINE_CAPACITY`, `SKIP_QUEUE_PRICE_CENTS` | Queue endpoint |
 
 **Recommended on VPS:** **`R2_WORKER_ORIGIN`** — same public **`https://…workers.dev`** URL as your Worker. Set in **`.env`**, **`systemctl restart leakwrld`** only — Node proxies **`/r2/*`** to Cloudflare (no `npm run build`, no R2 keys).  
 
 Alternative: **`VITE_R2_PUBLIC_BASE`** at **build** time (browser hits Worker directly). Or **nginx** `location /r2/` → Worker — see Deploy.
+
+### Login/signup succeeds but header still shows “Login”
+
+Usually **`SECURE_COOKIES=1`** in `.env` while visitors use **`http://`**. Session cookies are marked `Secure`, so the browser drops them. Use **`SECURE_COOKIES=0`** until HTTPS is configured, **or** enable HTTPS and set **`SECURE_COOKIES=1`**, then **`sudo systemctl restart leakwrld`**.
+
+List recent accounts:
+
+```bash
+sudo -u leakwrld bash -lc 'cd /opt/leakwrld && set -a && . ./.env && set +a && psql "$DATABASE_URL" -c "select username, email, referral_code, created_at from users order by created_at desc limit 15;"'
+```
 
 ### Empty “Top creators” on the deployed site
 
