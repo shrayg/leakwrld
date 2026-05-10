@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { AuthProvider } from './components/AuthContext';
+import { AdminPage } from './pages/AdminPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { CreatorDetailPage } from './pages/CreatorDetailPage';
@@ -12,6 +13,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        <Route path="/admin" element={<AdminPage />} />
         <Route element={<AppShell />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/shorts" element={<ShortsPage />} />

@@ -13,6 +13,7 @@ const {
   shorts: fallbackShorts,
 } = require('./server/catalog');
 const { generateReferralCode, normalizeReferralCode } = require('./server/referralCodes');
+const adminHourly = require('./server/adminHourly');
 
 const thumbnailLookup = new Map(fallbackCreators.map((c) => [c.slug, c.thumbnail]));
 const creatorBySlug = new Map(fallbackCreators.map((c) => [c.slug, c]));
@@ -683,6 +684,50 @@ async function routeApi(req, res, url) {
     return sendJson(res, 200, { ok: true });
   }
 
+  if (url.pathname === '/api/admin/session' && method === 'GET') {
+    const ok = adminHourly.verifyAdminCookie(req);
+    return sendJson(res, 200, {
+      ok,
+      siteLabel: ok ? adminHourly.publicSiteLabel() : undefined,
+    });
+  }
+
+  if (url.pathname === '/api/admin/login' && method === 'POST') {
+    const body = await readJson(req);
+    const pw = body.password ?? body.adminPassword;
+    if (!adminHourly.verifyPasswordAttempt(pw)) {
+      return sendJson(res, 401, { error: 'Invalid password.' });
+    }
+    adminHourly.setAdminAuthCookie(res);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (url.pathname === '/api/admin/logout' && method === 'POST') {
+    adminHourly.clearAdminAuthCookie(res);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (url.pathname === '/api/admin/stats' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    let userCount = null;
+    if (pool) {
+      try {
+        const cr = await dbQuery('select count(*)::int as c from users');
+        userCount = cr.rows[0]?.c ?? null;
+      } catch {
+        userCount = null;
+      }
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      userCount,
+      database: !!pool,
+      siteLabel: adminHourly.publicSiteLabel(),
+    });
+  }
+
   if (url.pathname === '/api/queue/status' && method === 'GET') {
     const online = pool
       ? Number((await dbQuery("select count(*)::int as count from sessions where last_seen_at > now() - interval '5 minutes'")).rows[0]?.count || 0)
@@ -1050,11 +1095,13 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
+  adminHourly.initAdminHourlyScheduler();
   console.log(`Leak World server running on http://${HOST}:${PORT}`);
   console.log(`Postgres: ${pool ? 'enabled' : 'disabled (set DATABASE_URL)'}`);
   if (R2_WORKER_ORIGIN) console.log(`R2 media: proxied via Worker (${R2_WORKER_ORIGIN})`);
   else if (process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID) console.log('R2 media: rclone stream (dev)');
   else console.log('R2 media: disabled — set R2_WORKER_ORIGIN on VPS or rclone env locally');
+  console.log(`Admin /admin → hourly password${process.env.ADMIN_DISCORD_WEBHOOK_URL ? ' + Discord' : ' (set ADMIN_DISCORD_WEBHOOK_URL to notify)'}`);
 });
 
 process.on('SIGTERM', async () => {
