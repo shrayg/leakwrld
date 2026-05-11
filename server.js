@@ -151,7 +151,7 @@ function isShortsFeedMedia(item) {
 }
 
 function r2ManifestTierFromKey(key) {
-  const match = String(key || '').match(/^videos\/[a-z0-9-]+\/(free|tier1|tier2|tier3)\//i);
+  const match = String(key || '').match(/^videos\/[^/]+\/(free|tier1|tier2|tier3)\//i);
   return match ? match[1].toLowerCase() : null;
 }
 

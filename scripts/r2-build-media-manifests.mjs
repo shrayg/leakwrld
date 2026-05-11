@@ -40,7 +40,7 @@ const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, '..');
 
 const require = createRequire(import.meta.url);
-const { creators } = require(join(repoRoot, 'server', 'catalog.js'));
+const { creators, r2VideoFolderSegment } = require(join(repoRoot, 'server', 'catalog.js'));
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -99,9 +99,10 @@ function buildManifestFor(creator) {
   const items = [];
   const totals = { count: 0, bytes: 0, byTier: { free: emptyTier(), tier1: emptyTier(), tier2: emptyTier(), tier3: emptyTier() } };
   let realObjects = 0;
+  const folder = r2VideoFolderSegment(creator.slug);
 
   for (const tier of TIERS) {
-    const listed = rcloneListWithSize(`${creator.slug}/${tier}`);
+    const listed = rcloneListWithSize(`${folder}/${tier}`);
     for (const obj of listed) {
       /** Skip the .keep placeholder objects that mark empty folders. */
       if (obj.name === '.keep' || obj.name.endsWith('/.keep')) continue;
@@ -110,7 +111,7 @@ function buildManifestFor(creator) {
       const item = {
         tier,
         name: obj.name,
-        key: `videos/${creator.slug}/${tier}/${obj.name}`,
+        key: `videos/${folder}/${tier}/${obj.name}`,
         sizeBytes: obj.sizeBytes,
         ext,
         kind,

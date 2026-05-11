@@ -1,8 +1,9 @@
 'use strict';
 
 const crypto = require('crypto');
+const { catalogSlugFromR2FolderSegment } = require('./catalog');
 
-const STORAGE_KEY_RE = /^videos\/([a-z0-9-]+)\/(free|tier1|tier2|tier3)\/[^/]+$/;
+const STORAGE_KEY_RE = /^videos\/([^/]+)\/(free|tier1|tier2|tier3)\/[^/]+$/;
 const CATALOG_ID_RE = /^short-[a-z0-9-]+$/;
 
 const PLAYBACK_MEM = new Map();
@@ -114,7 +115,8 @@ function parseStorageKey(key) {
   const s = String(key || '').trim();
   if (!STORAGE_KEY_RE.test(s)) return null;
   const parts = s.split('/');
-  const creatorSlug = parts[1];
+  const folderSegment = parts[1];
+  const creatorSlug = catalogSlugFromR2FolderSegment(folderSegment);
   const tierRaw = parts[2];
   const filename = parts.slice(3).join('/');
   return { creatorSlug, tierRaw, filename, key: s };

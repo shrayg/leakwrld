@@ -26,7 +26,7 @@ const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, '..');
 
 const require = createRequire(import.meta.url);
-const { creators } = require(join(repoRoot, 'server', 'catalog.js'));
+const { creators, r2VideoFolderSegment } = require(join(repoRoot, 'server', 'catalog.js'));
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -98,9 +98,10 @@ function getExt(name) {
 }
 
 function pickThumbnailFile(slug) {
+  const folder = r2VideoFolderSegment(slug);
   /** First pass: prefer images. */
   for (const tier of TIER_PRIORITY) {
-    const files = rcloneList(`${slug}/${tier}`);
+    const files = rcloneList(`${folder}/${tier}`);
     const images = files.filter((f) => IMAGE_EXTS.has(getExt(f)));
     if (images.length === 0) continue;
     const scored = images.map((name) => {
@@ -135,7 +136,7 @@ function pickThumbnailFile(slug) {
    *  are tiny. */
   const MIN_REAL_BYTES = 5 * 1024 * 1024;
   for (const tier of TIER_PRIORITY) {
-    const items = rcloneListWithSize(`${slug}/${tier}`);
+    const items = rcloneListWithSize(`${folder}/${tier}`);
     const videos = items.filter((it) => VIDEO_EXTS.has(getExt(it.name)));
     if (videos.length === 0) continue;
     videos.sort((a, b) => a.sizeBytes - b.sizeBytes || a.name.localeCompare(b.name));
@@ -206,10 +207,11 @@ async function processCreator(creator) {
     return { slug, status: 'no-image' };
   }
 
+  const folder = r2VideoFolderSegment(slug);
   const tmpFile = join(tmpdir(), `lw-thumb-${slug}-${Date.now()}.${pick.file.split('.').pop()}`);
   const dl = spawnSync(
     'rclone',
-    ['copyto', `${REMOTE}/${slug}/${pick.tier}/${pick.file}`, tmpFile, '--retries', '2'],
+    ['copyto', `${REMOTE}/${folder}/${pick.tier}/${pick.file}`, tmpFile, '--retries', '2'],
     { encoding: 'utf8' },
   );
   if (dl.status !== 0 || !existsSync(tmpFile)) {

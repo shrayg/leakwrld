@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { creators } = require('../server/catalog.js');
+const { creators, r2VideoFolderSegment } = require('../server/catalog.js');
 
 function parseArgs(argv) {
   const out = {
@@ -81,12 +81,12 @@ console.log('');
 if (args.dryRun) {
   if (toDelete.length) {
     console.log('Would DELETE:');
-    for (const s of toDelete) console.log(`  ${args.prefix}/${s}/.keep`);
+    for (const s of toDelete) console.log(`  ${args.prefix}/${r2VideoFolderSegment(s)}/.keep`);
     console.log('');
   }
   if (toCreate.length) {
     console.log('Would CREATE:');
-    for (const s of toCreate) console.log(`  ${args.prefix}/${s}/.keep`);
+    for (const s of toCreate) console.log(`  ${args.prefix}/${r2VideoFolderSegment(s)}/.keep`);
     console.log('');
   }
   process.exit(0);
@@ -102,7 +102,8 @@ const placeholder = join(tmp, '.keep');
 writeFileSync(placeholder, '');
 
 function runWrangler(action, slug) {
-  const key = `${args.prefix}/${slug}/.keep`;
+  const folder = r2VideoFolderSegment(slug);
+  const key = `${args.prefix}/${folder}/.keep`;
   const argv =
     action === 'put'
       ? ['--yes', 'wrangler', 'r2', 'object', 'put', `${args.bucket}/${key}`, '--file', placeholder, '--remote']

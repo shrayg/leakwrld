@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { creators } = require('../server/catalog.js');
+const { creators, r2VideoFolderSegment } = require('../server/catalog.js');
 
 function parseArgs(argv) {
   const out = { bucket: 'leakwrld', prefix: 'videos', parallel: 8 };
@@ -40,7 +40,8 @@ console.log('');
 const tmp = mkdtempSync(join(tmpdir(), 'r2-verify-'));
 
 function checkOne(slug) {
-  const key = `${args.prefix}/${slug}/.keep`;
+  const folder = r2VideoFolderSegment(slug);
+  const key = `${args.prefix}/${folder}/.keep`;
   const out = join(tmp, `${slug}.bin`);
   return new Promise((resolve) => {
     const proc = spawn(

@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { creators } = require('../server/catalog.js');
+const { creators, r2VideoFolderSegment } = require('../server/catalog.js');
 
 function parseArgs(argv) {
   const out = { bucket: 'leakwrld', prefix: 'videos', parallel: 8, dryRun: false };
@@ -44,7 +44,10 @@ console.log(`Dry run:   ${args.dryRun}`);
 console.log('');
 
 if (args.dryRun) {
-  for (const slug of slugs) console.log(`would PUT ${args.bucket}/${args.prefix}/${slug}/.keep`);
+  for (const slug of slugs) {
+    const folder = r2VideoFolderSegment(slug);
+    console.log(`would PUT ${args.bucket}/${args.prefix}/${folder}/.keep`);
+  }
   process.exit(0);
 }
 
@@ -53,7 +56,8 @@ const placeholder = join(tmp, '.keep');
 writeFileSync(placeholder, '');
 
 function runWrangler(slug) {
-  const key = `${args.prefix}/${slug}/.keep`;
+  const folder = r2VideoFolderSegment(slug);
+  const key = `${args.prefix}/${folder}/.keep`;
   return new Promise((resolve) => {
     const proc = spawn(
       'npx',

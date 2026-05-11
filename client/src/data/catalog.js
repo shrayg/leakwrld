@@ -47,6 +47,12 @@ const CREATOR_NAMES = [
   'Bunni Emmie',
   'Lela Sohna',
   'Piper Rockelle',
+  'Alice Rosenblum',
+  'Jameliz',
+  'Julia Filippo',
+  'Katiana Kay',
+  'Summerxiris',
+  'Waifumia',
 ];
 
 export const CATEGORIES = [
