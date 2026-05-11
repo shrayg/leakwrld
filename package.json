@@ -23,6 +23,8 @@
     "r2:sync:dry": "node scripts/r2-sync-creator-folders.mjs --dry-run",
     "r2:verify": "node scripts/r2-verify-creator-folders.mjs",
     "r2:count": "node scripts/r2-count-objects.mjs",
+    "r2:rename-prefixes": "node scripts/r2-rename-video-prefixes.mjs",
+    "r2:rename-prefixes:dry": "node scripts/r2-rename-video-prefixes.mjs --dry-run",
     "media:sync": "node scripts/r2-build-media-manifests.mjs",
     "media:sync:slug": "node scripts/r2-build-media-manifests.mjs --slug=",
     "thumbs:gen": "node scripts/generate-thumbnails.mjs",

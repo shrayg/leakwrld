@@ -53,17 +53,6 @@ const creatorThumbOverrides = {
   'piper-rockelle': { thumbnailPosition: '50% 14%' },
 };
 
-/** First segment under `videos/` in R2 when the bucket folder name ≠ slug (Cloudflare UI names). */
-const R2_VIDEO_FOLDER_BY_SLUG = {
-  'alice-rosenblum': 'Alice Rosenblum',
-  jameliz: 'Jameliz',
-  'julia-filippo': 'Julia Filippo',
-  'katiana-kay': 'Katiana Kay',
-  'kira-pregiato': 'Kira Pregiato',
-  summerxiris: 'Summerxiris',
-  waifumia: 'Waifumia',
-};
-
 const creatorNames = [
   'Sophie Rain',
   'Lil Tay',
@@ -125,22 +114,6 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '');
 }
 
-/** Path segment under `videos/<segment>/` for rclone / real object keys. */
-function r2VideoFolderSegment(slug) {
-  const s = String(slug || '').toLowerCase();
-  return R2_VIDEO_FOLDER_BY_SLUG[s] || slug;
-}
-
-/** Map R2 folder segment back to canonical catalog slug (URLs, DB `creator_slug`). */
-function catalogSlugFromR2FolderSegment(segment) {
-  const raw = String(segment || '').trim();
-  if (!raw) return '';
-  for (const [slug, folder] of Object.entries(R2_VIDEO_FOLDER_BY_SLUG)) {
-    if (folder === raw) return slug;
-  }
-  return slugify(raw);
-}
-
 function seededMetric(rank, base, spread) {
   return base + ((rank * 37) % spread);
 }
@@ -199,7 +172,4 @@ module.exports = {
   readyCreators,
   shorts,
   slugify,
-  R2_VIDEO_FOLDER_BY_SLUG,
-  r2VideoFolderSegment,
-  catalogSlugFromR2FolderSegment,
 };
