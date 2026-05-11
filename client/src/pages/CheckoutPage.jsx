@@ -157,12 +157,14 @@ export function CheckoutPage() {
           const isUltimate = plan.key === 'ultimate';
           return (
             <article key={plan.key} className={`lw-plan ${theme}`.trim()}>
-              {isUltimate ? <span className="lw-plan-ribbon">Best value</span> : null}
               <div className="lw-plan-head flex items-center justify-between">
                 <span className="lw-plan-icon">
                   <Icon size={20} />
                 </span>
-                <span className="lw-plan-tier-badge">Tier {plan.tier}</span>
+                <div className="lw-plan-head-badges">
+                  {isUltimate ? <span className="lw-plan-ribbon">Best value</span> : null}
+                  <span className="lw-plan-tier-badge">Tier {plan.tier}</span>
+                </div>
               </div>
               <h2>{plan.name}</h2>
               <div className="lw-plan-price-row flex items-end gap-1">
@@ -194,7 +196,11 @@ export function CheckoutPage() {
                     openCheckoutPrompt(plan.key)
                   }
                 >
-                  Continue to checkout
+                  {plan.key === 'ultimate'
+                    ? 'Purchase Ultimate Tier'
+                    : plan.key === 'premium'
+                      ? 'Purchase Premium Tier'
+                      : 'Purchase Basic Tier'}
                 </button>
               )}
             </article>

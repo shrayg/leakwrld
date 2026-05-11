@@ -2290,9 +2290,9 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 }
 
 .lw-plan-ribbon {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+  position: static;
+  display: inline-flex;
+  align-items: center;
   border-radius: 6px;
   padding: 5px 9px;
   background: linear-gradient(135deg, #ff9bd8, #ff4fb8);
@@ -2304,9 +2304,12 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   box-shadow: 0 10px 26px rgba(255, 79, 180, 0.42);
 }
 
-/* Ribbon is absolute top-right; keep the tier badge out of that band so nothing clips. */
-.lw-plan--ultimate .lw-plan-head {
-  padding-right: clamp(6.75rem, 36%, 9rem);
+.lw-plan-head-badges {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
 }
 
 .lw-plan-tier-badge {
