@@ -528,6 +528,9 @@ export function CreatorDetailPage() {
   const [missingOutPromoOpen, setMissingOutPromoOpen] = useState(false);
   const pendingLightboxIndexRef = useRef(null);
   const requestId = useRef(0);
+  const accountTier = user?.tier || 'free';
+  const accountTierNorm = normalizeAccountTier(accountTier);
+  const showCreatorUpgradeBanner = accountTierNorm !== 'ultimate' && accountTierNorm !== 'admin';
 
   useEffect(() => {
     document.title = seedCreator ? `${seedCreator.name} - Leak World` : 'Creator - Leak World';
@@ -577,13 +580,6 @@ export function CreatorDetailPage() {
   }, [slug, tier, pageOffset]);
 
   useEffect(() => {
-    if (accountTierNorm !== 'free') {
-      pendingLightboxIndexRef.current = null;
-      setMissingOutPromoOpen(false);
-    }
-  }, [accountTierNorm]);
-
-  useEffect(() => {
     if (!creator || creator.slug !== slug) return;
     recordEvent('creator_profile_view', {
       category: 'creator',
@@ -598,9 +594,6 @@ export function CreatorDetailPage() {
     });
   }, [slug, tier]);
 
-  const accountTier = user?.tier || 'free';
-  const accountTierNorm = normalizeAccountTier(accountTier);
-  const showCreatorUpgradeBanner = accountTierNorm !== 'ultimate' && accountTierNorm !== 'admin';
   const playableItems = useMemo(() => items.filter((it) => !it.locked && !isLockedTier(it.tier, accountTier)), [items, accountTier]);
 
   useEffect(() => {
