@@ -132,6 +132,7 @@ const creators = creatorNames.map((name, index) => {
   const premiumCount = real
     ? mediaCount - freeCount
     : seededMetric(rank, 18, 240);
+  const viewsAllTime = Math.max(0, Math.floor(mediaCount * 142 + freeCount * 88 + rank * 400));
   return {
     rank,
     name,
@@ -141,6 +142,7 @@ const creators = creatorNames.map((name, index) => {
     mediaCount,
     freeCount,
     premiumCount,
+    viewsAllTime,
     heat: Math.max(42, 100 - Math.floor(rank / 2)),
     accent: ['pink', 'gold', 'cyan', 'green'][index % 4],
     thumbnail: thumbnailSlugs.has(slug) ? `/thumbnails/${slug}.jpg` : null,

@@ -2271,8 +2271,8 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 
 .lw-plan-ribbon {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 16px;
+  right: 16px;
   border-radius: 6px;
   padding: 5px 9px;
   background: linear-gradient(135deg, #ff9bd8, #ff4fb8);
@@ -2282,6 +2282,11 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   box-shadow: 0 10px 26px rgba(255, 79, 180, 0.42);
+}
+
+/* Ribbon is absolute top-right; keep the tier badge out of that band so nothing clips. */
+.lw-plan--ultimate .lw-plan-head {
+  padding-right: clamp(6.75rem, 36%, 9rem);
 }
 
 .lw-plan-tier-badge {
@@ -2433,7 +2438,7 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 
 .lw-checkout-matrix-table {
   width: 100%;
-  min-width: 560px;
+  min-width: 640px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -2499,6 +2504,8 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   font-size: 13px;
   font-weight: 500;
   text-align: left;
+  hyphens: auto;
+  overflow-wrap: anywhere;
 }
 
 .lw-checkout-matrix-cell {
@@ -2540,6 +2547,11 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   font-variant-numeric: tabular-nums;
   color: rgba(255, 245, 251, 0.92);
   white-space: nowrap;
+}
+
+.lw-checkout-matrix-metric-na {
+  color: rgba(255, 245, 251, 0.28);
+  font-weight: 600;
 }
 
 .lw-matrix-row {

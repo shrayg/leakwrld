@@ -1115,9 +1115,11 @@ export function AdminDashboard({ siteLabel, onLogout }) {
                   <div className="border border-[var(--color-border)] bg-[rgba(48,47,47,0.76)] p-4">
                     <h3 className="mb-3 text-sm font-semibold text-white">Trending creators (24h)</h3>
                     <p className="mb-2 text-xs text-white/45">
-                      Raw profile-page visits matching{' '}
-                      <code className="text-white/70">/creators/&lt;slug&gt;</code> in the last rolling 24 hours — same
-                      signal as the public <strong className="text-white/80">Trending</strong> sort on the creator index.
+                      Profile-page visits matching{' '}
+                      <code className="text-white/70">/creators/&lt;slug&gt;</code> in the last rolling 24 hours. The public
+                      creator index <strong className="text-white/80">Trending</strong> tab instead ranks by{' '}
+                      <strong className="text-white/80">media plays today</strong> (UTC day,{' '}
+                      <code className="text-white/70">media_session_start</code> events).
                     </p>
                     <div className="lw-admin-table-wrap max-h-[min(280px,40vh)] overflow-y-auto">
                       <table className="lw-admin-table">

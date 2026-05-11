@@ -48,8 +48,12 @@ export function CreatorCard({ creator, compact = false }) {
               <h3 className="truncate text-[15px] font-semibold text-white">{creator.name}</h3>
               <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[var(--color-text-muted)]">{creator.tagline}</p>
             </div>
-            <span className="rounded-[6px] border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70">
-              {creator.heat}
+            <span
+              className="rounded-[6px] border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 tabular-nums"
+              title="Total views (all media)"
+              aria-label={`${formatCount(creator.viewsAllTime ?? 0)} total views`}
+            >
+              {formatCount(creator.viewsAllTime ?? 0)}
             </span>
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">

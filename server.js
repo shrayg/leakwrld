@@ -225,6 +225,27 @@ function sumManifestByTierAcrossCreators() {
   return sums;
 }
 
+/** Video files only (manifest `kind` / extension), summed per vault tier across creators. */
+function sumManifestVideosByVaultTierAcrossCreators() {
+  const sums = { free: 0, tier1: 0, tier2: 0, tier3: 0 };
+  const videoExt = /\.(mp4|mov|webm|m4v|mkv|avi|wmv)$/i;
+  for (const creator of fallbackReadyCreators) {
+    const manifest = loadMediaManifest(creator.slug);
+    const items = manifest?.items;
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      const tier = String(item?.tier || '').toLowerCase();
+      if (!MANIFEST_TIER_KEYS.includes(tier)) continue;
+      const kind = String(item?.kind || '').toLowerCase();
+      const ext = String(item?.ext || '').toLowerCase();
+      const isVideo = kind === 'video' || videoExt.test(ext);
+      if (!isVideo) continue;
+      sums[tier] += 1;
+    }
+  }
+  return sums;
+}
+
 const checkoutLibraryMatrixCache = { at: 0, value: null };
 const CHECKOUT_LIBRARY_TTL_MS = 5 * 60 * 1000;
 
@@ -235,6 +256,7 @@ function getCheckoutLibraryMatrix() {
     return checkoutLibraryMatrixCache.value;
   }
   const s = sumManifestByTierAcrossCreators();
+  const v = sumManifestVideosByVaultTierAcrossCreators();
   const f = s.free;
   const t1 = s.tier1;
   const t2 = s.tier2;
@@ -246,6 +268,12 @@ function getCheckoutLibraryMatrix() {
     ultimate: {
       fileCount: f.count + t1.count + t2.count + t3.count,
       bytes: f.bytes + t1.bytes + t2.bytes + t3.bytes,
+    },
+    videoCountsByVault: {
+      free: v.free,
+      tier1: v.tier1,
+      tier2: v.tier2,
+      tier3: v.tier3,
     },
   };
   checkoutLibraryMatrixCache = { at: now, value };
@@ -1351,59 +1379,60 @@ async function routeApi(req, res, url) {
         : sortRaw === 'top_views' || sortRaw === 'topviews' || sortRaw === 'views'
           ? 'top_views'
           : 'default';
+    /** Default creator index order = all-time media views (same order as `sort=top_views`). */
+    const orderByAllTimeViews = sortKey === 'default' || sortKey === 'top_views';
     /** `?include=all` opts into seeing creators without R2 content (admin/debug). */
     const includeAll = url.searchParams.get('include') === 'all';
     let rows = includeAll ? fallbackCreators : fallbackReadyCreators;
-    let trendingFromDb = false;
-    let topViewsFromDb = false;
+    let creatorsFromDb = false;
     if (pool && (await ensureCatalogSeeded())) {
       try {
         const orderSql =
           sortKey === 'trending'
-            ? 'coalesce(trend.visits_24h, 0) desc, c.rank asc'
-            : sortKey === 'top_views'
-              ? 'coalesce(views.total_views, 0) desc, c.rank asc'
-            : 'c.rank asc';
+            ? 'coalesce(trend.views_today, 0) desc, coalesce(views.total_views, 0) desc, c.rank asc'
+            : 'coalesce(views.total_views, 0) desc, c.rank asc';
         const trendSelect =
-          sortKey === 'trending'
-            ? ', coalesce(trend.visits_24h, 0)::int as visits_24h'
-            : '';
-        const topViewsSelect =
-          sortKey === 'top_views'
-            ? ', coalesce(views.total_views, 0)::bigint as views_all_time'
-            : '';
+          sortKey === 'trending' ? ', coalesce(trend.views_today, 0)::int as views_today' : '';
         const trendJoin =
           sortKey === 'trending'
             ? `left join (
-                 select (regexp_match(split_part(v.path, '?', 1), '^/creators/([a-z0-9-]+)'))[1] as slug,
-                        count(*)::int as visits_24h
-                 from analytics_visits v
-                 where v.created_at > now() - interval '24 hours'
-                 group by 1
+                 select x.slug, count(*)::int as views_today
+                 from (
+                   select
+                     case
+                       when trim(e.path) like 'videos/%' then (regexp_match(split_part(trim(e.path), '?', 1), '^videos/([a-z0-9-]+)/'))[1]
+                       when trim(e.path) ~ '^short-.+' then (regexp_match(trim(e.path), '^short-(.+)$'))[1]
+                       else null
+                     end as slug
+                   from analytics_events e
+                   where e.event_type = 'media_session_start'
+                     and e.category = 'media'
+                     and e.created_at >= (date_trunc('day', (now() AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC')
+                     and e.created_at < ((date_trunc('day', (now() AT TIME ZONE 'UTC')) + interval '1 day') AT TIME ZONE 'UTC')
+                 ) x
+                 where x.slug is not null
+                 group by x.slug
                ) trend on trend.slug = c.slug`
             : '';
-        const topViewsJoin =
-          sortKey === 'top_views'
-            ? `left join (
+        const viewsJoin = `left join (
                  select m.creator_slug as slug, coalesce(sum(m.views), 0)::bigint as total_views
                  from media_items m
                  where m.status = 'published'
                  group by m.creator_slug
-               ) views on views.slug = c.slug`
-            : '';
+               ) views on views.slug = c.slug`;
         const out = await dbQuery(
           `select c.rank, c.name, c.slug, c.category, c.tagline, c.media_count, c.free_count, c.premium_count, c.heat, c.accent
-                 ${trendSelect}${topViewsSelect}
+                 , coalesce(views.total_views, 0)::bigint as views_all_time
+                 ${trendSelect}
            from creators c
+           ${viewsJoin}
            ${trendJoin}
-           ${topViewsJoin}
            where ($1 = '' or lower(c.name) like '%' || $1 || '%')
              and ($2 = '' or c.category = $2)
            order by ${orderSql}`,
           [q, category],
         );
-        trendingFromDb = sortKey === 'trending';
-        topViewsFromDb = sortKey === 'top_views';
+        creatorsFromDb = true;
         rows = out.rows.map((row) => {
           const seed = creatorBySlug.get(row.slug);
           return {
@@ -1419,6 +1448,7 @@ async function routeApi(req, res, url) {
             heat: Number(row.heat || 0),
             accent: row.accent || 'pink',
             viewsAllTime: Number(row.views_all_time || 0),
+            viewsToday: sortKey === 'trending' ? Number(row.views_today || 0) : undefined,
             thumbnail: thumbnailFor(row.slug),
             ready: readySlugSet.has(row.slug),
           };
@@ -1429,13 +1459,20 @@ async function routeApi(req, res, url) {
       }
     }
     rows = rows.filter((row) => (!q || row.name.toLowerCase().includes(q)) && (!category || row.category === category));
-    if (sortKey === 'trending' && !trendingFromDb) {
-      rows = [...rows].sort((a, b) => (b.heat || 0) - (a.heat || 0) || (a.rank || 999) - (b.rank || 999));
+    if (!creatorsFromDb) {
+      if (sortKey === 'trending') {
+        rows = [...rows].sort(
+          (a, b) =>
+            (b.viewsAllTime || 0) - (a.viewsAllTime || 0) || (a.rank || 999) - (b.rank || 999),
+        );
+      } else if (orderByAllTimeViews) {
+        rows = [...rows].sort(
+          (a, b) =>
+            (b.viewsAllTime || 0) - (a.viewsAllTime || 0) || (a.rank || 999) - (b.rank || 999),
+        );
+      }
     }
-    if (sortKey === 'top_views' && !topViewsFromDb) {
-      rows = [...rows].sort((a, b) => (b.heat || 0) - (a.heat || 0) || (a.rank || 999) - (b.rank || 999));
-    }
-    if (sortKey === 'top_views') {
+    if (orderByAllTimeViews || sortKey === 'trending') {
       rows = rows.map((row, index) => ({ ...row, rank: index + 1 }));
     }
     return sendJson(res, 200, { creators: rows });

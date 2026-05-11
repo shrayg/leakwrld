@@ -2,7 +2,13 @@ import { Check, Crown, Gift, Lock, Zap } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet, money } from '../api';
 import { recordEvent } from '../lib/analytics';
-import { displayBytes, displayCount, formatBytes, formatCount } from '../lib/metrics';
+import {
+  displayBytes,
+  displayCount,
+  displayVideoAccessCount,
+  formatBytes,
+  formatCount,
+} from '../lib/metrics';
 
 /** Shown first; not returned by `/api/checkout/plans` (paid tiers only). */
 const FREE_PLAN = {
@@ -58,6 +64,21 @@ const planThemeClass = {
 
 const CHECKOUT_LIBRARY_KEYS = ['free', 'basic', 'premium', 'ultimate'];
 
+/** External checkout (xyzpurchase plugin) per paid plan key. */
+const TIER_PURCHASE_URLS = {
+  basic: 'https://xyzpurchase.xyz/checkout?slug=xyzpurchase-plugin-basic-tier&auto=1&qty=1',
+  premium: 'https://xyzpurchase.xyz/checkout?slug=xyzpurchase-plugin-premium-tier&auto=1&qty=1',
+  ultimate: 'https://xyzpurchase.xyz/checkout?slug=xyzpurchase-plugin-ultimate-tier&auto=1&qty=1',
+};
+
+/** Vault tier → which subscription columns include that vault (matches manifest tiers). */
+const CHECKOUT_VIDEO_ACCESS_ROWS = [
+  { vault: 'free', label: 'Access to free-tier videos', columns: ['free', 'basic', 'premium', 'ultimate'] },
+  { vault: 'tier1', label: 'Access to Basic-tier videos', columns: ['basic', 'premium', 'ultimate'] },
+  { vault: 'tier2', label: 'Access to Premium-tier videos', columns: ['premium', 'ultimate'] },
+  { vault: 'tier3', label: 'Access to Ultimate-tier videos', columns: ['ultimate'] },
+];
+
 const MATRIX_ROWS = [
   { label: 'Free previews', free: true, basic: true, premium: true, ultimate: true },
   { label: 'SD content', free: true, basic: true, premium: false, ultimate: false },
@@ -105,7 +126,7 @@ export function CheckoutPage() {
           return (
             <article key={plan.key} className={`lw-plan ${theme}`.trim()}>
               {isUltimate ? <span className="lw-plan-ribbon">Best value</span> : null}
-              <div className="flex items-center justify-between">
+              <div className="lw-plan-head flex items-center justify-between">
                 <span className="lw-plan-icon">
                   <Icon size={20} />
                 </span>
@@ -117,23 +138,39 @@ export function CheckoutPage() {
                 <span>/mo</span>
               </div>
               <p>{plan.mediaAccess}</p>
-              <button
-                type="button"
-                className={
-                  isFree
-                    ? 'lw-btn ghost lw-plan-cta lw-plan-cta--free w-full justify-center'
-                    : plan.key === 'ultimate'
+              {isFree ? (
+                <button
+                  type="button"
+                  className="lw-btn ghost lw-plan-cta lw-plan-cta--free w-full justify-center"
+                  disabled
+                >
+                  Included with your account
+                </button>
+              ) : (
+                <a
+                  href={TIER_PURCHASE_URLS[plan.key] || TIER_PURCHASE_URLS.basic}
+                  className={
+                    plan.key === 'ultimate'
                       ? 'lw-btn lw-plan-cta lw-plan-cta--ultimate w-full justify-center'
                       : plan.key === 'premium'
                         ? 'lw-btn lw-plan-cta lw-plan-cta--premium w-full justify-center'
                         : plan.key === 'basic'
                           ? 'lw-btn lw-plan-cta lw-plan-cta--basic w-full justify-center'
                           : 'lw-btn ghost lw-plan-cta w-full justify-center'
-                }
-                disabled
-              >
-                {isFree ? 'Included with your account' : 'Billing opens soon'}
-              </button>
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() =>
+                    recordEvent('checkout_tier_cta', {
+                      category: 'commerce',
+                      path: '/checkout',
+                      payload: { tier: plan.key },
+                    })
+                  }
+                >
+                  Continue to checkout
+                </a>
+              )}
             </article>
           );
         })}
@@ -187,6 +224,30 @@ export function CheckoutPage() {
                       </td>
                     ))}
                   </tr>
+                  {libraryMatrix.videoCountsByVault &&
+                  typeof libraryMatrix.videoCountsByVault === 'object' ? (
+                    CHECKOUT_VIDEO_ACCESS_ROWS.map((row) => (
+                      <tr key={`videos-${row.vault}`}>
+                        <th scope="row" className="lw-checkout-matrix-row-label">
+                          {row.label}
+                        </th>
+                        {CHECKOUT_LIBRARY_KEYS.map((colKey) => (
+                          <td
+                            key={`videos-${row.vault}-${colKey}`}
+                            className="lw-checkout-matrix-cell lw-checkout-matrix-metric"
+                          >
+                            {row.columns.includes(colKey) ? (
+                              formatCount(displayVideoAccessCount(libraryMatrix.videoCountsByVault[row.vault]))
+                            ) : (
+                              <span className="lw-checkout-matrix-metric-na" aria-label="Not included">
+                                —
+                              </span>
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : null}
                 </>
               ) : null}
               {MATRIX_ROWS.map((row) => (

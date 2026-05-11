@@ -15,6 +15,8 @@
 
 export const FILES_MULTIPLIER = 2.7;
 export const BYTES_MULTIPLIER = 10;
+/** Checkout matrix: per-vault video access counts (marketing). */
+export const VIDEO_ACCESS_MULTIPLIER = 2.3;
 
 export function displayCount(rawCount) {
   const n = Number(rawCount || 0);
@@ -28,6 +30,12 @@ export function displayBytes(rawBytes) {
   const n = Number(rawBytes || 0);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.ceil(n * BYTES_MULTIPLIER);
+}
+
+export function displayVideoAccessCount(rawCount) {
+  const n = Number(rawCount || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.ceil(n * VIDEO_ACCESS_MULTIPLIER);
 }
 
 export function formatCount(value) {

@@ -88,8 +88,8 @@ export function CategoriesPage() {
         <span className="lw-eyebrow">Creator index</span>
         <h1>Creators</h1>
         <p>
-          Browse every creator in the archive. Search by name or sort by what&apos;s hot — all leaks are mirrored and stay
-          online forever.
+          Browse every creator in the archive. Search by name or sort by views — all leaks are mirrored and stay online
+          forever.
         </p>
       </section>
 
