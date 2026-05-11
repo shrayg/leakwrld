@@ -44,6 +44,13 @@ const PREFIX_RENAMES = [
   { from: 'Waifumia', to: 'waifumia' },
 ];
 
+/** Strip ` # ...` tail so URLs survive `.env` inline comments (dotenv-style). */
+function stripTrailingEnvComment(value) {
+  const s = String(value ?? '').trim();
+  const i = s.search(/\s#/);
+  return i >= 0 ? s.slice(0, i).trim() : s;
+}
+
 function loadEnvFile(filePath) {
   if (!existsSync(filePath)) return;
   const raw = readFileSync(filePath, 'utf8');
@@ -60,6 +67,7 @@ function loadEnvFile(filePath) {
     ) {
       value = value.slice(1, -1);
     }
+    value = stripTrailingEnvComment(value);
     if (process.env[key] == null) process.env[key] = value;
   }
 }
@@ -82,17 +90,22 @@ function copySourceHeader(bucket, key) {
 function getCredentials() {
   loadEnvFile(join(repoRoot, '.env'));
 
-  const accessKey =
-    process.env.R2_ACCESS_KEY_ID || process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID || '';
-  const secretKey =
-    process.env.R2_SECRET_ACCESS_KEY || process.env.RCLONE_CONFIG_R2_SECRET_ACCESS_KEY || '';
-  const accountId = process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || '';
-  let endpoint =
-    process.env.RCLONE_CONFIG_R2_ENDPOINT || process.env.R2_ENDPOINT || '';
+  const accessKey = stripTrailingEnvComment(
+    process.env.R2_ACCESS_KEY_ID || process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID || '',
+  );
+  const secretKey = stripTrailingEnvComment(
+    process.env.R2_SECRET_ACCESS_KEY || process.env.RCLONE_CONFIG_R2_SECRET_ACCESS_KEY || '',
+  );
+  const accountId = stripTrailingEnvComment(
+    process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || '',
+  );
+  let endpoint = stripTrailingEnvComment(
+    process.env.RCLONE_CONFIG_R2_ENDPOINT || process.env.R2_ENDPOINT || '',
+  );
   if (!endpoint && accountId) {
     endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
   }
-  const bucket = process.env.R2_BUCKET || 'leakwrld';
+  const bucket = stripTrailingEnvComment(process.env.R2_BUCKET || 'leakwrld');
 
   return { accessKey, secretKey, endpoint, bucket, accountId };
 }

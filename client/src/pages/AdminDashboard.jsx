@@ -1059,37 +1059,82 @@ export function AdminDashboard({ siteLabel, onLogout }) {
                   </div>
                 </div>
 
-                <div className="border border-[var(--color-border)] bg-[rgba(48,47,47,0.76)] p-4 xl:min-w-0">
-                  <h3 className="mb-3 text-sm font-semibold text-white">Top media by views</h3>
-                  <div className="lw-admin-table-wrap">
-                    <table className="lw-admin-table">
-                      <thead>
-                        <tr>
-                          <th>Title</th>
-                          <th>Creator</th>
-                          <th>Type</th>
-                          <th>Views</th>
-                          <th>Likes</th>
-                          <th>Like %</th>
-                          <th>Avg watch</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(dash.topMedia || []).map((r) => (
-                          <tr key={r.id}>
-                            <td className="max-w-[180px] truncate" title={r.title}>
-                              {r.title}
-                            </td>
-                            <td>{r.creatorSlug}</td>
-                            <td className="capitalize">{r.mediaType}</td>
-                            <td>{r.views}</td>
-                            <td>{r.likes}</td>
-                            <td>{r.likeRatio}%</td>
-                            <td>{formatDuration(r.avgWatchSeconds)}</td>
+                <div className="flex flex-col gap-6 xl:min-w-0">
+                  <div className="border border-[var(--color-border)] bg-[rgba(48,47,47,0.76)] p-4">
+                    <h3 className="mb-3 text-sm font-semibold text-white">Trending creators (24h)</h3>
+                    <p className="mb-2 text-xs text-white/45">
+                      Raw profile-page visits matching{' '}
+                      <code className="text-white/70">/creators/&lt;slug&gt;</code> in the last rolling 24 hours — same
+                      signal as the public <strong className="text-white/80">Trending</strong> sort on the creator index.
+                    </p>
+                    <div className="lw-admin-table-wrap max-h-[min(280px,40vh)] overflow-y-auto">
+                      <table className="lw-admin-table">
+                        <thead>
+                          <tr>
+                            <th>Creator</th>
+                            <th>Slug</th>
+                            <th>Visits</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {(dash.topCreatorsByProfileVisits24h || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="text-center text-sm text-white/45">
+                                No profile visits in the last 24 hours yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            (dash.topCreatorsByProfileVisits24h || []).map((r) => (
+                              <tr key={r.slug}>
+                                <td className="max-w-[160px] truncate" title={r.name}>
+                                  {r.name}
+                                </td>
+                                <td className="font-mono text-xs text-white/70">
+                                  <a className="text-[var(--color-primary-light)] hover:underline" href={`/creators/${r.slug}`}>
+                                    {r.slug}
+                                  </a>
+                                </td>
+                                <td>{Number(r.visits).toLocaleString()}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="border border-[var(--color-border)] bg-[rgba(48,47,47,0.76)] p-4 xl:min-w-0">
+                    <h3 className="mb-3 text-sm font-semibold text-white">Top media by views</h3>
+                    <div className="lw-admin-table-wrap">
+                      <table className="lw-admin-table">
+                        <thead>
+                          <tr>
+                            <th>Title</th>
+                            <th>Creator</th>
+                            <th>Type</th>
+                            <th>Views</th>
+                            <th>Likes</th>
+                            <th>Like %</th>
+                            <th>Avg watch</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(dash.topMedia || []).map((r) => (
+                            <tr key={r.id}>
+                              <td className="max-w-[180px] truncate" title={r.title}>
+                                {r.title}
+                              </td>
+                              <td>{r.creatorSlug}</td>
+                              <td className="capitalize">{r.mediaType}</td>
+                              <td>{r.views}</td>
+                              <td>{r.likes}</td>
+                              <td>{r.likeRatio}%</td>
+                              <td>{formatDuration(r.avgWatchSeconds)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               </div>

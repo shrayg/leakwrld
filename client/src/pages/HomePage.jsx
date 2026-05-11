@@ -4,7 +4,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet } from '../api';
 import { CREATORS, SHORTS } from '../data/catalog';
 import { CreatorCard, ShortCard } from '../components/CreatorCard';
-import { displayBytes, displayCount, formatBytes, formatCount } from '../lib/metrics';
+import { formatBytes, formatCount } from '../lib/metrics';
+
+/** Homepage archive files/bytes: displayed value = raw R2 bucket snapshot × 10 (see /api/stats). */
+function bucketTimesTen(raw) {
+  const n = Number(raw || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.ceil(n * 10);
+}
 
 function HeroTile({ creator, delay }) {
   const [broken, setBroken] = useState(false);
@@ -45,8 +52,7 @@ export function HomePage() {
   );
 
   const fallbackStats = useMemo(() => {
-    /** Conservative SSR fallback used only until the live /api/stats response arrives.
-     *  The marketing multipliers are applied at the display layer (see metrics.js). */
+    /** Conservative SSR fallback until /api/stats loads; homepage shows bucket totals × 10. */
     const seededFiles = CREATORS.reduce((sum, c) => sum + (c.mediaCount || 0), 0);
     return {
       creators: CREATORS.length,
@@ -89,56 +95,66 @@ export function HomePage() {
 
   return (
     <div className="space-y-8">
-      <section className="lw-hero">
-        <div className="lw-hero-media">
-          <div className="lw-hero-window">
-            {heroCreators.map((creator, index) => (
-              <HeroTile key={creator.slug} creator={creator} delay={index * 80} />
-            ))}
+      <div className="hidden space-y-4 lg:block">
+        <section className="lw-hero lw-home-hero">
+          <div className="lw-hero-media">
+            <div className="lw-hero-window">
+              {heroCreators.map((creator, index) => (
+                <HeroTile key={creator.slug} creator={creator} delay={index * 80} />
+              ))}
+            </div>
           </div>
-        </div>
 
-        <div className="lw-hero-copy">
-          <h1>The most trusted source for leaks.</h1>
-          <p>
-            Every file is mirrored, backed up, and re-uploaded to our archive the moment it drops. Nothing disappears,
-            nothing gets taken down — the most complete leaks library on the internet, with free previews and full
-            premium access.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Link to="/categories" className="lw-btn primary">
-              Browse creators
-              <ArrowRight size={16} />
-            </Link>
-            <Link to="/shorts" className="lw-btn ghost">
-              Watch shorts
-            </Link>
+          <div className="lw-hero-copy">
+            <h1>The most trusted source for leaks.</h1>
+            <p>
+              Every file is mirrored, backed up, and re-uploaded to our archive the moment it drops. Nothing
+              disappears, nothing gets taken down — the most complete leaks library on the internet, with free previews
+              and full premium access.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Link to="/categories" className="lw-btn primary">
+                Browse creators
+                <ArrowRight size={16} />
+              </Link>
+              <Link to="/shorts" className="lw-btn ghost">
+                Watch shorts
+              </Link>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="lw-stat">
-          <Archive size={18} />
-          <b>{formatCount(displayCount(stats.rawObjectCount))}</b>
-          <span>Files in the archive</span>
-        </div>
-        <div className="lw-stat">
-          <HardDrive size={18} />
-          <b>{formatBytes(displayBytes(stats.rawBytes))}</b>
-          <span>Total content backed up</span>
-        </div>
-        <div className="lw-stat">
-          <Users size={18} />
-          <b>{formatCount(stats.creators)}</b>
-          <span>Creators tracked</span>
-        </div>
-        <div className="lw-stat">
-          <ShieldCheck size={18} />
-          <b>Daily</b>
-          <span>Mirrored and re-uploaded</span>
-        </div>
-      </section>
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="lw-stat lw-stat--row">
+            <div className="lw-stat-top">
+              <Archive size={18} aria-hidden />
+              <b>{formatCount(bucketTimesTen(stats.rawObjectCount))}</b>
+            </div>
+            <span>Files in the archive</span>
+          </div>
+          <div className="lw-stat lw-stat--row">
+            <div className="lw-stat-top">
+              <HardDrive size={18} aria-hidden />
+              <b>{formatBytes(bucketTimesTen(stats.rawBytes))}</b>
+            </div>
+            <span>Total content backed up</span>
+          </div>
+          <div className="lw-stat lw-stat--row">
+            <div className="lw-stat-top">
+              <Users size={18} aria-hidden />
+              <b>{formatCount(stats.creators)}</b>
+            </div>
+            <span>Creators tracked</span>
+          </div>
+          <div className="lw-stat lw-stat--row">
+            <div className="lw-stat-top">
+              <ShieldCheck size={18} aria-hidden />
+              <b>Daily</b>
+            </div>
+            <span>Mirrored and re-uploaded</span>
+          </div>
+        </section>
+      </div>
 
       <section className="lw-section">
         <div className="lw-section-head">

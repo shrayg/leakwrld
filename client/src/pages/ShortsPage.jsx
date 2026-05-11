@@ -30,7 +30,7 @@ import { displayCount, formatCount } from '../lib/metrics';
 const NAV_LINKS = [
   { to: '/', label: 'Home' },
   { to: '/shorts', label: 'Shorts' },
-  { to: '/categories', label: 'Categories' },
+  { to: '/categories', label: 'Creators' },
   { to: '/checkout', label: 'Premium', premium: true },
 ];
 

@@ -9,7 +9,7 @@ import { UserAccountMenu } from './UserAccountMenu';
 const links = [
   { to: '/', label: 'Home' },
   { to: '/shorts', label: 'Shorts' },
-  { to: '/categories', label: 'Categories' },
+  { to: '/categories', label: 'Creators' },
   { to: '/checkout', label: 'Premium', premium: true },
 ];
 

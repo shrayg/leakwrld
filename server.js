@@ -114,6 +114,43 @@ function mediaStatsId(storageKey) {
   return mediaAnalytics.rowIdFromStorageKey(storageKey);
 }
 
+async function mediaStatsForStorageKeys(keys) {
+  const uniqueKeys = Array.from(new Set((keys || []).filter(Boolean)));
+  const stats = new Map();
+  for (const key of uniqueKeys) {
+    stats.set(key, { views: 0, likes: 0, dislikes: 0 });
+  }
+  if (!pool || !uniqueKeys.length) return stats;
+  try {
+    const { rows } = await dbQuery(
+      `select mi.storage_path,
+        coalesce(mi.views, 0)::int as views,
+        coalesce(mi.likes, 0)::int as likes,
+        coalesce(d.dislikes, 0)::int as dislikes
+       from media_items mi
+       left join (
+         select path as storage_path, count(*)::int as dislikes
+         from analytics_events
+         where event_type = 'media_dislike'
+           and path = any($1::text[])
+         group by path
+       ) d on d.storage_path = mi.storage_path
+       where mi.storage_path = any($1::text[])`,
+      [uniqueKeys],
+    );
+    for (const row of rows) {
+      stats.set(row.storage_path, {
+        views: Number(row.views || 0),
+        likes: Number(row.likes || 0),
+        dislikes: Number(row.dislikes || 0),
+      });
+    }
+  } catch (err) {
+    console.error('[media stats lookup]', err.code || '', err.message || err);
+  }
+  return stats;
+}
+
 function stableHash(value) {
   let hash = 2166136261;
   const s = String(value || '');
@@ -1246,19 +1283,43 @@ async function routeApi(req, res, url) {
   if (url.pathname === '/api/creators' && method === 'GET') {
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
     const category = String(url.searchParams.get('category') || '').trim();
+    const sortRaw = String(url.searchParams.get('sort') || 'default').trim().toLowerCase();
+    const sortKey = sortRaw === 'trending' ? 'trending' : 'default';
     /** `?include=all` opts into seeing creators without R2 content (admin/debug). */
     const includeAll = url.searchParams.get('include') === 'all';
     let rows = includeAll ? fallbackCreators : fallbackReadyCreators;
+    let trendingFromDb = false;
     if (pool && (await ensureCatalogSeeded())) {
       try {
+        const orderSql =
+          sortKey === 'trending'
+            ? 'coalesce(trend.visits_24h, 0) desc, c.rank asc'
+            : 'c.rank asc';
+        const trendSelect =
+          sortKey === 'trending'
+            ? ', coalesce(trend.visits_24h, 0)::int as visits_24h'
+            : '';
+        const trendJoin =
+          sortKey === 'trending'
+            ? `left join (
+                 select (regexp_match(split_part(v.path, '?', 1), '^/creators/([a-z0-9-]+)'))[1] as slug,
+                        count(*)::int as visits_24h
+                 from analytics_visits v
+                 where v.created_at > now() - interval '24 hours'
+                 group by 1
+               ) trend on trend.slug = c.slug`
+            : '';
         const out = await dbQuery(
-          `select rank, name, slug, category, tagline, media_count, free_count, premium_count, heat, accent
-           from creators
-           where ($1 = '' or lower(name) like '%' || $1 || '%')
-             and ($2 = '' or category = $2)
-           order by rank asc`,
+          `select c.rank, c.name, c.slug, c.category, c.tagline, c.media_count, c.free_count, c.premium_count, c.heat, c.accent
+                 ${trendSelect}
+           from creators c
+           ${trendJoin}
+           where ($1 = '' or lower(c.name) like '%' || $1 || '%')
+             and ($2 = '' or c.category = $2)
+           order by ${orderSql}`,
           [q, category],
         );
+        trendingFromDb = sortKey === 'trending';
         rows = out.rows.map((row) => {
           const seed = creatorBySlug.get(row.slug);
           return {
@@ -1283,6 +1344,9 @@ async function routeApi(req, res, url) {
       }
     }
     rows = rows.filter((row) => (!q || row.name.toLowerCase().includes(q)) && (!category || row.category === category));
+    if (sortKey === 'trending' && !trendingFromDb) {
+      rows = [...rows].sort((a, b) => (b.heat || 0) - (a.heat || 0) || (a.rank || 999) - (b.rank || 999));
+    }
     return sendJson(res, 200, { creators: rows });
   }
 
@@ -1320,8 +1384,17 @@ async function routeApi(req, res, url) {
     if (tier) items = items.filter((it) => it.tier === tier);
     if (kind) items = items.filter((it) => it.kind === kind);
     const total = items.length;
-    items = items.slice(offset, offset + limit).map((item, index) => {
-      if (allowedTierSet.has(item.tier)) return item;
+    const pageItems = items.slice(offset, offset + limit);
+    const statsByKey = await mediaStatsForStorageKeys(
+      pageItems.filter((item) => allowedTierSet.has(item.tier)).map((item) => item.key),
+    );
+    items = pageItems.map((item, index) => {
+      if (allowedTierSet.has(item.tier)) {
+        return {
+          ...item,
+          ...(statsByKey.get(item.key) || { views: 0, likes: 0, dislikes: 0 }),
+        };
+      }
       return {
         tier: item.tier,
         name: item.name,
@@ -1589,9 +1662,8 @@ async function routeApi(req, res, url) {
 
     /** Real R2 object count + bytes (refreshed by `npm run r2:count`); fall back to
      *  the seeded catalog totals if the snapshot is missing so the page never shows
-     *  zero. The client applies the marketing multipliers (see client/src/lib/metrics.js)
-     *  -- this endpoint always returns RAW values so any future
-     *  search/sort/threshold logic can use them safely. */
+     *  zero. The homepage shows archive totals as raw × 10; other surfaces may use
+     *  metrics.js display helpers. This endpoint always returns RAW bucket/catalog values. */
     const r2 = loadR2Stats();
     const rawCount = r2 ? r2.rawCount : fallbackCreators.reduce((sum, c) => sum + (c.mediaCount || 0), 0);
     const rawBytes = r2 ? r2.rawBytes : rawCount * 63 * 1024 * 1024;

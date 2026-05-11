@@ -1,51 +1,72 @@
 import { Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { apiGet } from '../api';
-import { CATEGORIES, CREATORS } from '../data/catalog';
+import { CREATORS } from '../data/catalog';
 import { CreatorCard } from '../components/CreatorCard';
 import { recordEvent } from '../lib/analytics';
+
+const SORT_FILTERS = [
+  { id: 'default', label: 'Default' },
+  { id: 'featured', label: 'Featured' },
+  { id: 'trending', label: 'Trending' },
+];
+
+/** Fisher–Yates shuffle (copy). */
+function shuffleCreators(list) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 
 export function CategoriesPage() {
   const [creators, setCreators] = useState(CREATORS);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('');
+  const [sortMode, setSortMode] = useState('default');
 
   useEffect(() => {
-    document.title = 'Categories - Leak World';
+    document.title = 'Creators - Leak World';
   }, []);
 
   useEffect(() => {
     const params = new URLSearchParams();
     if (query.trim()) params.set('q', query.trim());
-    if (category) params.set('category', category);
-    apiGet(`/api/creators?${params.toString()}`, { creators: CREATORS }).then((data) => {
+    if (sortMode === 'trending') params.set('sort', 'trending');
+    const qs = params.toString();
+    apiGet(qs ? `/api/creators?${qs}` : '/api/creators', { creators: CREATORS }).then((data) => {
       setCreators(data.creators || CREATORS);
     });
-  }, [query, category]);
+  }, [query, sortMode]);
 
   useEffect(() => {
     const t = setTimeout(() => {
-      recordEvent('categories_browse', {
+      recordEvent('creators_browse', {
         category: 'discovery',
         path: '/categories',
-        payload: { q: query.trim(), category: category || null },
+        payload: { q: query.trim(), sort: sortMode },
       });
     }, 650);
     return () => clearTimeout(t);
-  }, [query, category]);
+  }, [query, sortMode]);
 
-  const visible = creators.filter((creator) => {
-    const matchesQuery = !query.trim() || creator.name.toLowerCase().includes(query.trim().toLowerCase());
-    const matchesCategory = !category || creator.category === category;
-    return matchesQuery && matchesCategory;
-  });
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = creators.filter((creator) => !q || creator.name.toLowerCase().includes(q));
+    if (sortMode === 'featured') return shuffleCreators(filtered);
+    return filtered;
+  }, [creators, query, sortMode]);
 
   return (
     <div className="space-y-6">
       <section className="lw-page-head">
         <span className="lw-eyebrow">Creator index</span>
-        <h1>Categories</h1>
-        <p>Browse every creator in the archive. Search by name or filter by category — all leaks are mirrored and stay online forever.</p>
+        <h1>Creators</h1>
+        <p>
+          Browse every creator in the archive. Search by name or sort by what&apos;s hot — all leaks are mirrored and stay
+          online forever.
+        </p>
       </section>
 
       <section className="lw-toolbar">
@@ -54,23 +75,20 @@ export function CategoriesPage() {
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search the top 100" />
         </label>
         <div className="flex gap-2 overflow-x-auto pb-1">
-          <button type="button" className={`lw-filter ${category === '' ? 'active' : ''}`} onClick={() => setCategory('')}>
-            All
-          </button>
-          {CATEGORIES.map((item) => (
+          {SORT_FILTERS.map(({ id, label }) => (
             <button
               type="button"
-              key={item}
-              className={`lw-filter ${category === item ? 'active' : ''}`}
-              onClick={() => setCategory(item)}
+              key={id}
+              className={`lw-filter ${sortMode === id ? 'active' : ''}`}
+              onClick={() => setSortMode(id)}
             >
-              {item}
+              {label}
             </button>
           ))}
         </div>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <section className="lw-creator-grid">
         {visible.map((creator) => (
           <CreatorCard key={creator.slug} creator={creator} />
         ))}

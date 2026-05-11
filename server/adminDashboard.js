@@ -294,6 +294,7 @@ async function getDashboard(dbQuery, rangeKey = '7d') {
     eventTypes,
     topMedia,
     topCategoriesByVisits,
+    topCreatorsByProfileVisits24h,
     referralTotal,
     referral30,
     mediaTotals,
@@ -337,7 +338,7 @@ async function getDashboard(dbQuery, rangeKey = '7d') {
       `select coalesce(c.category, 'Unknown') as category_name, count(*)::int as visit_count
        from analytics_visits v
        inner join lateral (
-         select (regexp_match(v.path, '^/creators/([a-z0-9-]+)'))[1] as slug
+         select (regexp_match(split_part(v.path, '?', 1), '^/creators/([a-z0-9-]+)'))[1] as slug
        ) m on true
        left join creators c on c.slug = m.slug
        where v.created_at > now() - $1::interval
@@ -347,6 +348,20 @@ async function getDashboard(dbQuery, rangeKey = '7d') {
        limit 24`,
       [intervalPg],
     ),
+    dbQuery(`
+      select m.slug,
+             coalesce(max(c.name), m.slug) as creator_name,
+             count(*)::int as visit_count
+      from analytics_visits v
+      inner join lateral (
+        select (regexp_match(split_part(v.path, '?', 1), '^/creators/([a-z0-9-]+)'))[1] as slug
+      ) m on true
+      left join creators c on c.slug = m.slug
+      where v.created_at > now() - interval '24 hours'
+        and m.slug is not null
+      group by m.slug
+      order by visit_count desc
+      limit 32`),
     dbQuery(`select count(*)::int as c from referral_signups`),
     dbQuery(`select count(*)::int as c from referral_signups where created_at > now() - interval '30 days'`),
     dbQuery(`
@@ -426,6 +441,11 @@ async function getDashboard(dbQuery, rangeKey = '7d') {
     })),
     topCategoriesByVisits: topCategoriesByVisits.rows.map((r) => ({
       category: String(r.category_name || 'Unknown'),
+      visits: Number(r.visit_count) || 0,
+    })),
+    topCreatorsByProfileVisits24h: topCreatorsByProfileVisits24h.rows.map((r) => ({
+      slug: String(r.slug || ''),
+      name: String(r.creator_name || r.slug || ''),
       visits: Number(r.visit_count) || 0,
     })),
     geoCountries,

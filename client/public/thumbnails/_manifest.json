@@ -4,6 +4,10 @@
     "file": "aishah-sofey.jpg"
   },
   {
+    "slug": "alice-rosenblum",
+    "file": "alice-rosenblum.jpg"
+  },
+  {
     "slug": "alinaxrose",
     "file": "alinaxrose.jpg"
   },
@@ -44,6 +48,18 @@
     "file": "corinna-kopf.jpg"
   },
   {
+    "slug": "jameliz",
+    "file": "jameliz.jpg"
+  },
+  {
+    "slug": "julia-filippo",
+    "file": "julia-filippo.jpg"
+  },
+  {
+    "slug": "katiana-kay",
+    "file": "katiana-kay.jpg"
+  },
+  {
     "slug": "kira-pregiato",
     "file": "kira-pregiato.jpg"
   },
@@ -68,11 +84,19 @@
     "file": "sophie-rain.jpg"
   },
   {
+    "slug": "summerxiris",
+    "file": "summerxiris.jpg"
+  },
+  {
     "slug": "tana-mongeau",
     "file": "tana-mongeau.jpg"
   },
   {
     "slug": "vera-dijkmans",
     "file": "vera-dijkmans.jpg"
+  },
+  {
+    "slug": "waifumia",
+    "file": "waifumia.jpg"
   }
 ]

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, Heart, Lock, Play, Sparkles, Unlock, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Eye, Heart, Lock, Play, Sparkles, ThumbsDown, Unlock, X } from 'lucide-react';
 import { apiGet } from '../api';
 import { useAuth } from '../components/AuthContext';
 import { CREATORS } from '../data/catalog';
@@ -87,6 +87,7 @@ function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
 
 function LightboxFooter({ item, creatorSlug, index, total }) {
   const likeKey = `lw_mlk_${item.key}`;
+  const dislikeKey = `lw_mdk_${item.key}`;
   const [liked, setLiked] = useState(() => {
     try {
       return localStorage.getItem(likeKey) === '1';
@@ -94,6 +95,23 @@ function LightboxFooter({ item, creatorSlug, index, total }) {
       return false;
     }
   });
+  const [disliked, setDisliked] = useState(() => {
+    try {
+      return localStorage.getItem(dislikeKey) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      setLiked(localStorage.getItem(likeKey) === '1');
+      setDisliked(localStorage.getItem(dislikeKey) === '1');
+    } catch {
+      setLiked(false);
+      setDisliked(false);
+    }
+  }, [likeKey, dislikeKey]);
 
   function onLike(e) {
     e.stopPropagation();
@@ -107,21 +125,54 @@ function LightboxFooter({ item, creatorSlug, index, total }) {
     manifestMediaLike({ storageKey: item.key, creatorSlug });
   }
 
+  function onDislike(e) {
+    e.stopPropagation();
+    if (disliked) return;
+    try {
+      localStorage.setItem(dislikeKey, '1');
+    } catch {
+      /* ignore */
+    }
+    setDisliked(true);
+    recordEvent('media_dislike', {
+      path: item.key,
+      category: 'media',
+      payload: {
+        key: item.key,
+        creatorSlug,
+        tier: item.tier,
+        kind: item.kind || classifyMedia(item.name),
+      },
+    });
+  }
+
   return (
     <div className="lw-lightbox-meta flex flex-wrap items-center justify-between gap-3">
       <span>
         {index + 1} / {total}
       </span>
-      <button
-        type="button"
-        className={`lw-lightbox-like-btn ${liked ? 'is-liked' : ''}`}
-        onClick={onLike}
-        aria-pressed={liked}
-        aria-label={liked ? 'Liked' : 'Like'}
-      >
-        <Heart size={16} className="lw-lightbox-like-icon" fill={liked ? 'currentColor' : 'none'} />
-        {liked ? 'Liked' : 'Like'}
-      </button>
+      <div className="lw-lightbox-actions">
+        <button
+          type="button"
+          className={`lw-lightbox-like-btn ${liked ? 'is-liked' : ''}`}
+          onClick={onLike}
+          aria-pressed={liked}
+          aria-label={liked ? 'Liked' : 'Like'}
+        >
+          <Heart size={16} className="lw-lightbox-like-icon" fill={liked ? 'currentColor' : 'none'} />
+          {liked ? 'Liked' : 'Like'}
+        </button>
+        <button
+          type="button"
+          className={`lw-lightbox-like-btn ${disliked ? 'is-disliked' : ''}`}
+          onClick={onDislike}
+          aria-pressed={disliked}
+          aria-label={disliked ? 'Disliked' : 'Dislike'}
+        >
+          <ThumbsDown size={16} className="lw-lightbox-like-icon" fill={disliked ? 'currentColor' : 'none'} />
+          {disliked ? 'Disliked' : 'Dislike'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -136,6 +187,30 @@ function PaywallOverlay({ tier }) {
       <Link to="/checkout" className="lw-btn primary lw-paywall-cta">
         Unlock
       </Link>
+    </div>
+  );
+}
+
+function statCount(value) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function MediaTileStats({ item }) {
+  const views = statCount(item.views);
+  const likes = statCount(item.likes);
+  const dislikes = statCount(item.dislikes);
+  return (
+    <div className="lw-media-tile-stats">
+      <span>
+        <Eye size={13} />
+        {formatCount(views)}
+      </span>
+      <span title="Likes to dislikes">
+        <Heart size={12} />
+        {formatCount(likes)}:{formatCount(dislikes)}
+        <ThumbsDown size={12} />
+      </span>
     </div>
   );
 }
@@ -162,6 +237,7 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
         <span className="lw-media-tile-tier free">
           <Unlock size={11} /> Free
         </span>
+        <MediaTileStats item={item} />
       </button>
     );
   }
@@ -188,6 +264,7 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
         <span className="lw-media-tile-tier free">
           <Unlock size={11} /> Free
         </span>
+        <MediaTileStats item={item} />
       </button>
     );
   }
@@ -195,6 +272,7 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
   return (
     <div className={`lw-media-tile other accent-${accent}`} aria-label={`File: ${item.name}`}>
       <span className="text-xs text-white/60">{item.ext || 'file'}</span>
+      <MediaTileStats item={item} />
     </div>
   );
 }
