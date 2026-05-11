@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { recordEvent } from '../lib/analytics';
 import { money } from '../api';
-import { RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, RefreshCw, X } from 'lucide-react';
 import {
   Bar,
   BarChart,
@@ -260,7 +261,7 @@ function UserModerateModal({ user, onClose, onSaved }) {
   }
 
   return (
-    <div className="lw-auth-modal-root" role="presentation" style={{ zIndex: 200 }}>
+    <div className="lw-auth-modal-root" role="presentation" style={{ zIndex: 310 }}>
       <div className="lw-auth-modal-backdrop" aria-hidden onClick={onClose} />
       <div
         className="lw-auth-modal-panel"
@@ -706,6 +707,13 @@ export function AdminDashboard({ siteLabel, onLogout }) {
     <div className="lw-admin-dash mx-auto max-w-6xl px-4 py-8">
       <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
+          <Link
+            to="/"
+            className="lw-admin-back mb-4 inline-flex items-center gap-2 text-sm font-medium text-[var(--color-primary-light)] hover:underline"
+          >
+            <ArrowLeft size={18} aria-hidden />
+            Back to home
+          </Link>
           <h1 className="text-3xl font-semibold text-white">Admin dashboard</h1>
           <p className="mt-1 text-sm text-white/55">
             Single Postgres: users, referrals, media aggregates, traffic (
@@ -1060,6 +1068,50 @@ export function AdminDashboard({ siteLabel, onLogout }) {
                 </div>
 
                 <div className="flex flex-col gap-6 xl:min-w-0">
+                  <div className="border border-[var(--color-border)] bg-[rgba(48,47,47,0.76)] p-4">
+                    <h3 className="mb-3 text-sm font-semibold text-white">Top creators by all-time views</h3>
+                    <p className="mb-2 text-xs text-white/45">
+                      Sum of <code className="text-[var(--color-primary-light)]">media_items.views</code> grouped by creator
+                      across all published media.
+                    </p>
+                    <div className="lw-admin-table-wrap max-h-[min(280px,40vh)] overflow-y-auto">
+                      <table className="lw-admin-table">
+                        <thead>
+                          <tr>
+                            <th>Creator</th>
+                            <th>Slug</th>
+                            <th>Views</th>
+                            <th>Items</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(dash.topCreatorsByViewsAllTime || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="text-center text-sm text-white/45">
+                                No creator media view totals yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            (dash.topCreatorsByViewsAllTime || []).map((r) => (
+                              <tr key={r.slug}>
+                                <td className="max-w-[160px] truncate" title={r.name}>
+                                  {r.name}
+                                </td>
+                                <td className="font-mono text-xs text-white/70">
+                                  <a className="text-[var(--color-primary-light)] hover:underline" href={`/creators/${r.slug}`}>
+                                    {r.slug}
+                                  </a>
+                                </td>
+                                <td>{Number(r.totalViews).toLocaleString()}</td>
+                                <td>{Number(r.items).toLocaleString()}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                   <div className="border border-[var(--color-border)] bg-[rgba(48,47,47,0.76)] p-4">
                     <h3 className="mb-3 text-sm font-semibold text-white">Trending creators (24h)</h3>
                     <p className="mb-2 text-xs text-white/45">

@@ -202,6 +202,17 @@ function loadMediaManifest(slug) {
   }
 }
 
+/** Prefer stills for gallery; fall back to video, then any allowed item. */
+function pickRandomPreviewFromManifest(items, allowedTierSet, rng) {
+  const allowed = (items || []).filter((it) => it && it.key && allowedTierSet.has(it.tier));
+  if (!allowed.length) return null;
+  const images = allowed.filter((it) => (it.kind || '') === 'image');
+  const videos = allowed.filter((it) => (it.kind || '') === 'video');
+  const pool = images.length ? images : videos.length ? videos : allowed;
+  const idx = Math.min(pool.length - 1, Math.floor(rng() * pool.length));
+  return pool[idx] || null;
+}
+
 const R2_STATS_PATH = path.join(__dirname, 'data', 'r2-stats.json');
 let r2StatsCache = null;
 let r2StatsMtime = 0;
@@ -1284,20 +1295,32 @@ async function routeApi(req, res, url) {
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
     const category = String(url.searchParams.get('category') || '').trim();
     const sortRaw = String(url.searchParams.get('sort') || 'default').trim().toLowerCase();
-    const sortKey = sortRaw === 'trending' ? 'trending' : 'default';
+    const sortKey =
+      sortRaw === 'trending'
+        ? 'trending'
+        : sortRaw === 'top_views' || sortRaw === 'topviews' || sortRaw === 'views'
+          ? 'top_views'
+          : 'default';
     /** `?include=all` opts into seeing creators without R2 content (admin/debug). */
     const includeAll = url.searchParams.get('include') === 'all';
     let rows = includeAll ? fallbackCreators : fallbackReadyCreators;
     let trendingFromDb = false;
+    let topViewsFromDb = false;
     if (pool && (await ensureCatalogSeeded())) {
       try {
         const orderSql =
           sortKey === 'trending'
             ? 'coalesce(trend.visits_24h, 0) desc, c.rank asc'
+            : sortKey === 'top_views'
+              ? 'coalesce(views.total_views, 0) desc, c.rank asc'
             : 'c.rank asc';
         const trendSelect =
           sortKey === 'trending'
             ? ', coalesce(trend.visits_24h, 0)::int as visits_24h'
+            : '';
+        const topViewsSelect =
+          sortKey === 'top_views'
+            ? ', coalesce(views.total_views, 0)::bigint as views_all_time'
             : '';
         const trendJoin =
           sortKey === 'trending'
@@ -1309,17 +1332,28 @@ async function routeApi(req, res, url) {
                  group by 1
                ) trend on trend.slug = c.slug`
             : '';
+        const topViewsJoin =
+          sortKey === 'top_views'
+            ? `left join (
+                 select m.creator_slug as slug, coalesce(sum(m.views), 0)::bigint as total_views
+                 from media_items m
+                 where m.status = 'published'
+                 group by m.creator_slug
+               ) views on views.slug = c.slug`
+            : '';
         const out = await dbQuery(
           `select c.rank, c.name, c.slug, c.category, c.tagline, c.media_count, c.free_count, c.premium_count, c.heat, c.accent
-                 ${trendSelect}
+                 ${trendSelect}${topViewsSelect}
            from creators c
            ${trendJoin}
+           ${topViewsJoin}
            where ($1 = '' or lower(c.name) like '%' || $1 || '%')
              and ($2 = '' or c.category = $2)
            order by ${orderSql}`,
           [q, category],
         );
         trendingFromDb = sortKey === 'trending';
+        topViewsFromDb = sortKey === 'top_views';
         rows = out.rows.map((row) => {
           const seed = creatorBySlug.get(row.slug);
           return {
@@ -1334,6 +1368,7 @@ async function routeApi(req, res, url) {
             premiumCount: seed ? seed.premiumCount : Number(row.premium_count || 0),
             heat: Number(row.heat || 0),
             accent: row.accent || 'pink',
+            viewsAllTime: Number(row.views_all_time || 0),
             thumbnail: thumbnailFor(row.slug),
             ready: readySlugSet.has(row.slug),
           };
@@ -1347,7 +1382,51 @@ async function routeApi(req, res, url) {
     if (sortKey === 'trending' && !trendingFromDb) {
       rows = [...rows].sort((a, b) => (b.heat || 0) - (a.heat || 0) || (a.rank || 999) - (b.rank || 999));
     }
+    if (sortKey === 'top_views' && !topViewsFromDb) {
+      rows = [...rows].sort((a, b) => (b.heat || 0) - (a.heat || 0) || (a.rank || 999) - (b.rank || 999));
+    }
+    if (sortKey === 'top_views') {
+      rows = rows.map((row, index) => ({ ...row, rank: index + 1 }));
+    }
     return sendJson(res, 200, { creators: rows });
+  }
+
+  /** Random accessible catalog item for home gallery (tier-filtered like /media). */
+  const randomPreviewMatch = url.pathname.match(/^\/api\/creators\/([a-z0-9-]+)\/random-preview$/);
+  if (randomPreviewMatch && method === 'GET') {
+    const slug = randomPreviewMatch[1];
+    const c = creatorBySlug.get(slug);
+    if (!c) return sendJson(res, 404, { error: 'Creator not found.' });
+    const user = await currentUser(req);
+    const allowedTierSet = new Set(userManifestTiers(user));
+    const manifest = loadMediaManifest(slug);
+    const seed = String(url.searchParams.get('seed') || '').slice(0, 96);
+    const rand = seed ? seededRandom(`${slug}:${seed}`) : () => Math.random();
+
+    if (!manifest?.items?.length) {
+      return sendJson(res, 200, {
+        key: null,
+        kind: null,
+        tier: null,
+        fallbackThumbnail: thumbnailFor(slug),
+      });
+    }
+
+    const pick = pickRandomPreviewFromManifest(manifest.items, allowedTierSet, rand);
+    if (!pick) {
+      return sendJson(res, 200, {
+        key: null,
+        kind: null,
+        tier: null,
+        fallbackThumbnail: thumbnailFor(slug),
+      });
+    }
+    return sendJson(res, 200, {
+      key: pick.key,
+      kind: pick.kind || 'other',
+      tier: pick.tier,
+      name: pick.name,
+    });
   }
 
   /** Single creator detail (used by /creators/:slug page). */
@@ -1662,8 +1741,7 @@ async function routeApi(req, res, url) {
 
     /** Real R2 object count + bytes (refreshed by `npm run r2:count`); fall back to
      *  the seeded catalog totals if the snapshot is missing so the page never shows
-     *  zero. The homepage shows archive totals as raw × 10; other surfaces may use
-     *  metrics.js display helpers. This endpoint always returns RAW bucket/catalog values. */
+     *  zero. This endpoint always returns RAW bucket/catalog values. */
     const r2 = loadR2Stats();
     const rawCount = r2 ? r2.rawCount : fallbackCreators.reduce((sum, c) => sum + (c.mediaCount || 0), 0);
     const rawBytes = r2 ? r2.rawBytes : rawCount * 63 * 1024 * 1024;

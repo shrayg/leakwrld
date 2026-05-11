@@ -4,8 +4,16 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Eye, Heart, Lock, Play, Sparkles,
 import { apiGet } from '../api';
 import { useAuth } from '../components/AuthContext';
 import { CREATORS } from '../data/catalog';
-import { displayCount, formatCount } from '../lib/metrics';
-import { accountTierLabel, classifyMedia, isLockedTier, mediaUrl, TIER_LABELS } from '../lib/media';
+import { formatCount } from '../lib/metrics';
+import {
+  accountTierLabel,
+  canAccessManifestTier,
+  classifyMedia,
+  isLockedTier,
+  mediaUrl,
+  normalizeAccountTier,
+  TIER_LABELS,
+} from '../lib/media';
 import { recordEvent } from '../lib/analytics';
 import {
   manifestMediaLike,
@@ -13,9 +21,10 @@ import {
   manifestMediaSessionStart,
   mediaPlaybackSessionId,
 } from '../lib/mediaAnalytics';
+import { GridPagination } from '../components/GridPagination';
+import { useCatalogGridPageSize } from '../hooks/useGridPageSize';
 
 const TIER_ORDER = ['free', 'tier1', 'tier2', 'tier3'];
-const PAGE_SIZE = 60;
 
 function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
   const ref = useRef(null);
@@ -202,15 +211,20 @@ function MediaTileStats({ item }) {
   const dislikes = statCount(item.dislikes);
   return (
     <div className="lw-media-tile-stats">
-      <span>
-        <Eye size={13} />
+      <span title={`${formatCount(views)} views`} aria-label={`${formatCount(views)} views`}>
+        <Eye size={13} aria-hidden />
         {formatCount(views)}
       </span>
-      <span title="Likes to dislikes">
-        <Heart size={12} />
-        {formatCount(likes)}:{formatCount(dislikes)}
-        <ThumbsDown size={12} />
-      </span>
+      <div className="lw-media-tile-reactions" aria-label={`${formatCount(likes)} likes, ${formatCount(dislikes)} dislikes`}>
+        <span className="lw-media-tile-react" title={`${formatCount(likes)} likes`}>
+          <Heart size={12} aria-hidden />
+          {formatCount(likes)}
+        </span>
+        <span className="lw-media-tile-react" title={`${formatCount(dislikes)} dislikes`}>
+          <ThumbsDown size={12} aria-hidden />
+          {formatCount(dislikes)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -273,6 +287,57 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
     <div className={`lw-media-tile other accent-${accent}`} aria-label={`File: ${item.name}`}>
       <span className="text-xs text-white/60">{item.ext || 'file'}</span>
       <MediaTileStats item={item} />
+    </div>
+  );
+}
+
+function TierUpgradeModal({ tierKey, onClose }) {
+  const label = TIER_LABELS[tierKey] || tierKey;
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  return (
+    <div className="lw-upgrade-modal-root" role="dialog" aria-modal="true" aria-labelledby="lw-tier-upgrade-title">
+      <button type="button" className="lw-upgrade-modal-backdrop" aria-label="Close" onClick={onClose} />
+      <div className="lw-upgrade-modal-panel" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="lw-upgrade-modal-close" onClick={onClose} aria-label="Close">
+          <X size={18} />
+        </button>
+        <div className="lw-upgrade-modal-icon" aria-hidden>
+          <Lock size={22} />
+        </div>
+        <h2 id="lw-tier-upgrade-title" className="lw-upgrade-modal-title">
+          Upgrade to unlock the videos
+        </h2>
+        <p className="lw-upgrade-modal-lede">
+          <strong className="text-white">{label}</strong> isn&apos;t included on your current plan. Upgrade now to unlock
+          the full vault for this creator and the rest of the archive.
+        </p>
+        <ul className="lw-upgrade-modal-bullets">
+          <li>Upgrade now to unlock premium tiers and every drop.</li>
+          <li>Don&apos;t miss out — new leaks mirror in daily.</li>
+          <li>Instant access after checkout — no waiting.</li>
+        </ul>
+        <div className="lw-upgrade-modal-actions">
+          <Link to="/checkout" className="lw-btn primary justify-center" onClick={onClose}>
+            View plans & upgrade
+          </Link>
+          <button type="button" className="lw-btn ghost w-full justify-center" onClick={onClose}>
+            Maybe later
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -368,11 +433,21 @@ export function CreatorDetailPage() {
   const [totals, setTotals] = useState(null);
   const [items, setItems] = useState([]);
   const [tier, setTier] = useState('free');
+  const pageSize = useCatalogGridPageSize();
   const [pageOffset, setPageOffset] = useState(0);
-  const [pageInfo, setPageInfo] = useState({ offset: 0, limit: PAGE_SIZE, returned: 0, total: 0 });
+  const [pageInfo, setPageInfo] = useState({ offset: 0, limit: pageSize, returned: 0, total: 0 });
+  const lastPageSize = useRef(pageSize);
+
+  useEffect(() => {
+    if (lastPageSize.current !== pageSize) {
+      lastPageSize.current = pageSize;
+      setPageOffset(0);
+    }
+  }, [pageSize]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [upgradeModalTier, setUpgradeModalTier] = useState(null);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -405,18 +480,18 @@ export function CreatorDetailPage() {
   useEffect(() => {
     const id = ++requestId.current;
     setLoading(true);
-    const params = new URLSearchParams({ tier, limit: String(PAGE_SIZE), offset: String(pageOffset) });
+    const params = new URLSearchParams({ tier, limit: String(pageSize), offset: String(pageOffset) });
     apiGet(`/api/creators/${slug}/media?${params}`, {
       items: [],
-      page: { offset: pageOffset, limit: PAGE_SIZE, returned: 0, total: 0 },
+      page: { offset: pageOffset, limit: pageSize, returned: 0, total: 0 },
     }).then((data) => {
       if (id !== requestId.current) return;
       setItems(data.items || []);
-      setPageInfo(data.page || { offset: pageOffset, limit: PAGE_SIZE, returned: 0, total: 0 });
+      setPageInfo(data.page || { offset: pageOffset, limit: pageSize, returned: 0, total: 0 });
       if (data.totals) setTotals(data.totals);
       setLoading(false);
     });
-  }, [slug, tier, user?.tier, pageOffset]);
+  }, [slug, tier, user?.tier, pageOffset, pageSize]);
 
   useEffect(() => {
     setLightboxIndex(-1);
@@ -438,16 +513,32 @@ export function CreatorDetailPage() {
   }, [slug, tier]);
 
   const accountTier = user?.tier || 'free';
+  const accountTierNorm = normalizeAccountTier(accountTier);
+  const showCreatorUpgradeBanner = accountTierNorm !== 'ultimate' && accountTierNorm !== 'admin';
   const playableItems = useMemo(() => items.filter((it) => !it.locked && !isLockedTier(it.tier, accountTier)), [items, accountTier]);
+
+  function selectTier(t) {
+    if (canAccessManifestTier(accountTier, t)) {
+      setTier(t);
+      return;
+    }
+    setUpgradeModalTier(t);
+    recordEvent('creator_tier_locked_click', {
+      category: 'creator',
+      payload: { slug, tier: t },
+    });
+  }
   const totalForTier = Number(totals?.byTier?.[tier]?.count || pageInfo.total || 0);
-  const resolvedLimit = Number(pageInfo.limit || PAGE_SIZE);
+  const serverLimit = Number(pageInfo.limit || pageSize);
+  const serverReturned = Number(pageInfo.returned || items.length || 0);
+  /** Some backends can cap rows lower than requested. Use the real returned page width
+   *  so page count + next offset stay correct for every tier. */
+  const resolvedLimit = Math.max(1, serverReturned || serverLimit || pageSize);
   const resolvedOffset = Number(pageInfo.offset || 0);
   const rangeStart = totalForTier > 0 ? resolvedOffset + 1 : 0;
   const rangeEnd = totalForTier > 0 ? Math.min(totalForTier, resolvedOffset + items.length) : 0;
   const totalPages = Math.max(1, Math.ceil(totalForTier / resolvedLimit));
   const currentPage = Math.min(totalPages, Math.floor(resolvedOffset / resolvedLimit) + 1);
-  const canPrevPage = resolvedOffset > 0;
-  const canNextPage = resolvedOffset + Number(pageInfo.returned || items.length) < totalForTier;
 
   const openLightbox = useCallback(
     (item) => {
@@ -520,34 +611,51 @@ export function CreatorDetailPage() {
           <p>{creator?.tagline}</p>
           <div className="lw-creator-hero-stats">
             <span className="lw-tier-chip unlocked">
-              <Unlock size={12} /> {formatCount(displayCount(tierCounts.free.count))} free
+              <Unlock size={12} /> {formatCount(tierCounts.free.count)} free
             </span>
             <span className="lw-tier-chip locked">
-              <Lock size={12} /> {formatCount(displayCount(totals?.count || 0))} total
+              <Lock size={12} /> {formatCount(totals?.count || 0)} total
             </span>
           </div>
         </div>
       </section>
 
-      <section className="lw-toolbar">
-        <div className="flex items-center gap-2 text-[13px] text-white/70">
-          Browsing <b className="text-white">{TIER_LABELS[tier]}</b>
-          <span className="text-white/45">Your tier: {accountTierLabel(accountTier)}</span>
+      <section className="lw-toolbar lw-creator-tier-toolbar">
+        <div className="lw-creator-tier-toolbar-left">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-white/70">
+            Browsing <b className="text-white">{TIER_LABELS[tier]}</b>
+            <span className="text-white/45">Your tier: {accountTierLabel(accountTier)}</span>
+          </div>
+          {showCreatorUpgradeBanner ? (
+            <p className="lw-creator-upgrade-hint m-0 text-[13px] leading-snug text-white/60">
+              <Link to="/checkout" className="lw-creator-upgrade-link font-semibold text-[var(--color-primary-light)] hover:underline">
+                Upgrade to access more videos
+              </Link>{' '}
+              — unlock every tier and the full mirrored library.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {TIER_ORDER.map((t) => {
             const count = tierCounts[t]?.count || 0;
             const active = tier === t;
+            const lockedTab = !canAccessManifestTier(accountTier, t);
             return (
               <button
                 key={t}
                 type="button"
-                className={`lw-filter ${active ? 'active' : ''}`}
-                onClick={() => setTier(t)}
+                className={`lw-filter ${active ? 'active' : ''} ${lockedTab ? 'lw-filter--tier-locked' : ''}`}
+                aria-pressed={active}
+                aria-label={
+                  lockedTab && !active
+                    ? `${TIER_LABELS[t]} — requires upgrade (${formatCount(count)} items)`
+                    : `${TIER_LABELS[t]}, ${formatCount(count)} items`
+                }
+                onClick={() => selectTier(t)}
               >
                 {t === 'free' ? <Unlock size={12} /> : <Lock size={12} />}
                 {TIER_LABELS[t]}
-                <span className="text-white/60">{formatCount(displayCount(count))}</span>
+                <span className="text-white/60">{formatCount(count)}</span>
               </button>
             );
           })}
@@ -567,34 +675,20 @@ export function CreatorDetailPage() {
       )}
 
       {totalForTier > 0 ? (
-        <section className="lw-toolbar">
-          <div className="text-[13px] text-white/70">
-            Showing {formatCount(rangeStart)}-{formatCount(rangeEnd)} of {formatCount(displayCount(totalForTier))} {TIER_LABELS[tier]} files.
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={`lw-filter ${canPrevPage ? '' : 'opacity-50'}`}
-              disabled={!canPrevPage || loading}
-              onClick={() => setPageOffset(Math.max(0, resolvedOffset - resolvedLimit))}
-            >
-              <ChevronLeft size={13} />
-              Prev
-            </button>
-            <span className="min-w-[86px] text-center text-[12px] text-white/65">
-              Page {formatCount(currentPage)} / {formatCount(totalPages)}
+        <GridPagination
+          idPrefix="creator-media"
+          page={currentPage}
+          totalPages={totalPages}
+          disabled={loading}
+          onPrev={() => setPageOffset(Math.max(0, resolvedOffset - resolvedLimit))}
+          onNext={() => setPageOffset(resolvedOffset + resolvedLimit)}
+          summary={
+            <span className="text-[13px] text-white/70">
+              Showing {formatCount(rangeStart)}-{formatCount(rangeEnd)} of {formatCount(totalForTier)}{' '}
+              {TIER_LABELS[tier]} files.
             </span>
-            <button
-              type="button"
-              className={`lw-filter ${canNextPage ? '' : 'opacity-50'}`}
-              disabled={!canNextPage || loading}
-              onClick={() => setPageOffset(resolvedOffset + resolvedLimit)}
-            >
-              Next
-              <ChevronRight size={13} />
-            </button>
-          </div>
-        </section>
+          }
+        />
       ) : null}
 
       {lightboxIndex >= 0 ? (
@@ -606,6 +700,8 @@ export function CreatorDetailPage() {
           onNavigate={navigateLightbox}
         />
       ) : null}
+
+      {upgradeModalTier ? <TierUpgradeModal tierKey={upgradeModalTier} onClose={() => setUpgradeModalTier(null)} /> : null}
     </div>
   );
 }

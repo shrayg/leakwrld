@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, Lock, Play, Sparkles, Unlock } from 'lucide-react';
 import { useCatalogShortTelemetry } from '../hooks/useCatalogShortTelemetry';
-import { displayCount, formatCount } from '../lib/metrics';
+import { formatCount } from '../lib/metrics';
 import { catalogMediaLike } from '../lib/mediaAnalytics';
+import { classifyMedia, mediaUrl } from '../lib/media';
 
 export function CreatorCard({ creator, compact = false }) {
   const [thumbBroken, setThumbBroken] = useState(false);
@@ -30,13 +31,13 @@ export function CreatorCard({ creator, compact = false }) {
             </div>
           ) : null}
           <div className="lw-tier-chips">
-            <span className="lw-tier-chip unlocked" aria-label={`${formatCount(displayCount(creator.freeCount))} free files`}>
+            <span className="lw-tier-chip unlocked" aria-label={`${formatCount(creator.freeCount)} free files`}>
               <Unlock size={12} />
-              {formatCount(displayCount(creator.freeCount))}
+              {formatCount(creator.freeCount)}
             </span>
-            <span className="lw-tier-chip locked" aria-label={`${formatCount(displayCount(creator.mediaCount))} total files`}>
+            <span className="lw-tier-chip locked" aria-label={`${formatCount(creator.mediaCount)} total files`}>
               <Lock size={12} />
-              {formatCount(displayCount(creator.mediaCount))}
+              {formatCount(creator.mediaCount)}
             </span>
           </div>
         </div>
@@ -52,11 +53,11 @@ export function CreatorCard({ creator, compact = false }) {
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
             <span className="lw-mini-stat">
-              <b>{formatCount(displayCount(creator.mediaCount))}</b>
+              <b>{formatCount(creator.mediaCount)}</b>
               Media
             </span>
             <span className="lw-mini-stat">
-              <b>{formatCount(displayCount(creator.freeCount))}</b>
+              <b>{formatCount(creator.freeCount)}</b>
               Free
             </span>
             <span className="lw-mini-stat">
@@ -70,10 +71,13 @@ export function CreatorCard({ creator, compact = false }) {
   );
 }
 
-export function ShortCard({ item, index, to }) {
+export function ShortCard({ item, index, to, className = '' }) {
   const premium = item.tier !== 'free';
   const accent = index % 4 === 0 ? 'gold' : index % 3 === 0 ? 'cyan' : 'pink';
   const telemetry = useCatalogShortTelemetry(item);
+  const kind = item.kind || classifyMedia(item.name || item.title);
+  const previewSrc = item.key ? mediaUrl(item.key) : '';
+  const [previewBroken, setPreviewBroken] = useState(false);
 
   const [views, setViews] = useState(Number(item.views) || 0);
   const [likes, setLikes] = useState(Number(item.likes) || 0);
@@ -82,6 +86,9 @@ export function ShortCard({ item, index, to }) {
     setViews(Number(item.views) || 0);
     setLikes(Number(item.likes) || 0);
   }, [item.views, item.likes, item.id]);
+  useEffect(() => {
+    setPreviewBroken(false);
+  }, [item.id, item.key]);
 
   const likeKey = `lw_sl_${item.id}`;
   const [liked, setLiked] = useState(() => {
@@ -112,7 +119,7 @@ export function ShortCard({ item, index, to }) {
   }
 
   return (
-    <article ref={telemetry.rootRef} className="relative lw-card overflow-hidden p-0">
+    <article ref={telemetry.rootRef} className={`relative lw-card overflow-hidden p-0 ${className}`.trim()}>
       <Link
         to={to || `/creators/${item.creatorSlug}`}
         className="block"
@@ -120,6 +127,28 @@ export function ShortCard({ item, index, to }) {
         aria-label={`Open ${item.creatorName} from ${item.title}`}
       >
         <div className={`lw-short-preview accent-${accent}`}>
+          {previewSrc && !previewBroken ? (
+            kind === 'video' ? (
+              <video
+                className="lw-short-preview-media"
+                src={previewSrc}
+                muted
+                playsInline
+                preload="metadata"
+                crossOrigin="anonymous"
+                onError={() => setPreviewBroken(true)}
+              />
+            ) : (
+              <img
+                className="lw-short-preview-media"
+                src={previewSrc}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onError={() => setPreviewBroken(true)}
+              />
+            )
+          ) : null}
           <span className="lw-rank">{item.duration}</span>
           <span className="lw-play pointer-events-none" aria-hidden>
             <Play size={22} fill="currentColor" />

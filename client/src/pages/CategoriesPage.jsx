@@ -3,7 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { apiGet } from '../api';
 import { CREATORS } from '../data/catalog';
 import { CreatorCard } from '../components/CreatorCard';
+import { GridPagination } from '../components/GridPagination';
 import { recordEvent } from '../lib/analytics';
+import { formatCount } from '../lib/metrics';
+import { useCatalogGridPageSize } from '../hooks/useGridPageSize';
 
 const SORT_FILTERS = [
   { id: 'default', label: 'Default' },
@@ -25,6 +28,8 @@ export function CategoriesPage() {
   const [creators, setCreators] = useState(CREATORS);
   const [query, setQuery] = useState('');
   const [sortMode, setSortMode] = useState('default');
+  const [page, setPage] = useState(1);
+  const pageSize = useCatalogGridPageSize();
 
   useEffect(() => {
     document.title = 'Creators - Leak World';
@@ -58,6 +63,25 @@ export function CategoriesPage() {
     return filtered;
   }, [creators, query, sortMode]);
 
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
+  const pageClamped = Math.min(page, totalPages);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, sortMode, creators.length]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pagedCreators = useMemo(() => {
+    const start = (pageClamped - 1) * pageSize;
+    return visible.slice(start, start + pageSize);
+  }, [visible, pageClamped, pageSize]);
+
+  const rangeStart = visible.length === 0 ? 0 : (pageClamped - 1) * pageSize + 1;
+  const rangeEnd = visible.length === 0 ? 0 : Math.min(visible.length, pageClamped * pageSize);
+
   return (
     <div className="space-y-6">
       <section className="lw-page-head">
@@ -89,10 +113,25 @@ export function CategoriesPage() {
       </section>
 
       <section className="lw-creator-grid">
-        {visible.map((creator) => (
+        {pagedCreators.map((creator) => (
           <CreatorCard key={creator.slug} creator={creator} />
         ))}
       </section>
+
+      {visible.length > 0 ? (
+        <GridPagination
+          idPrefix="creators-index"
+          page={pageClamped}
+          totalPages={totalPages}
+          onPrev={() => setPage((p) => Math.max(1, p - 1))}
+          onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+          summary={
+            <span className="text-[13px] text-white/70">
+              Showing {formatCount(rangeStart)}-{formatCount(rangeEnd)} of {formatCount(visible.length)} creators
+            </span>
+          }
+        />
+      ) : null}
     </div>
   );
 }

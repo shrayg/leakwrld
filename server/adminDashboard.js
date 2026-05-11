@@ -293,6 +293,7 @@ async function getDashboard(dbQuery, rangeKey = '7d') {
     sessionsOnline5m,
     eventTypes,
     topMedia,
+    topCreatorsByViewsAllTime,
     topCategoriesByVisits,
     topCreatorsByProfileVisits24h,
     referralTotal,
@@ -334,6 +335,17 @@ async function getDashboard(dbQuery, rangeKey = '7d') {
       where status = 'published'
       order by views desc nulls last
       limit 16`),
+    dbQuery(`
+      select m.creator_slug as slug,
+             coalesce(max(c.name), m.creator_slug) as creator_name,
+             count(*)::int as items,
+             coalesce(sum(m.views), 0)::bigint as total_views
+      from media_items m
+      left join creators c on c.slug = m.creator_slug
+      where m.status = 'published'
+      group by m.creator_slug
+      order by total_views desc, items desc, slug asc
+      limit 32`),
     dbQuery(
       `select coalesce(c.category, 'Unknown') as category_name, count(*)::int as visit_count
        from analytics_visits v
@@ -438,6 +450,12 @@ async function getDashboard(dbQuery, rangeKey = '7d') {
       likeRatio: Number(r.like_ratio),
       avgWatchSeconds: Number(r.avg_watch_seconds),
       watchSessions: r.watch_sessions,
+    })),
+    topCreatorsByViewsAllTime: topCreatorsByViewsAllTime.rows.map((r) => ({
+      slug: String(r.slug || ''),
+      name: String(r.creator_name || r.slug || ''),
+      items: Number(r.items) || 0,
+      totalViews: Number(r.total_views) || 0,
     })),
     topCategoriesByVisits: topCategoriesByVisits.rows.map((r) => ({
       category: String(r.category_name || 'Unknown'),

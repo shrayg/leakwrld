@@ -1,4 +1,6 @@
+import { ArrowLeft } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { recordPageView } from '../lib/analytics';
 import { AdminDashboard } from './AdminDashboard';
 
@@ -76,6 +78,13 @@ export function AdminPage() {
   return (
     <div className="lw-admin-page min-h-screen bg-[var(--color-bg)] px-4 py-16 text-[var(--color-text)]">
       <div className="lw-admin-inner mx-auto max-w-lg">
+        <Link
+          to="/"
+          className="lw-admin-back mb-6 inline-flex items-center gap-2 text-sm font-medium text-[var(--color-primary-light)] hover:underline"
+        >
+          <ArrowLeft size={18} aria-hidden />
+          Back to home
+        </Link>
         <h1 className="mb-1 text-2xl font-semibold text-white">Admin</h1>
         <p className="mb-8 text-sm text-white/55">Restricted area — administrator password required.</p>
 

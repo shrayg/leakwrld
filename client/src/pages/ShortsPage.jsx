@@ -18,7 +18,7 @@ import { apiGet } from '../api';
 import { useAuth } from '../components/AuthContext';
 import { UserAccountMenu } from '../components/UserAccountMenu';
 import { recordEvent } from '../lib/analytics';
-import { mediaUrl, TIER_LABELS } from '../lib/media';
+import { mediaUrl, normalizeAccountTier, TIER_LABELS } from '../lib/media';
 import {
   manifestMediaLike,
   manifestMediaProgress,
@@ -720,6 +720,8 @@ export function ShortsPage() {
 
   const tierLabels = access.manifestTiers.map((tier) => TIER_LABELS[tier] || tier).join(', ');
   const filterLabel = `${activeCreatorSet.size}/${allCreatorSlugs.length || 0}`;
+  const accountTierNorm = normalizeAccountTier(user?.tier);
+  const showUpgradeShortsCta = accountTierNorm !== 'ultimate' && accountTierNorm !== 'admin';
 
   return (
     <div className="lw-shorts-page">
@@ -737,16 +739,27 @@ export function ShortsPage() {
           <button type="button" className="lw-shorts-top-btn" aria-label="Open menu" onClick={() => setNavOpen(true)}>
             <Menu size={20} />
           </button>
-          <button
-            type="button"
-            className="lw-shorts-filter-trigger"
-            aria-label="Open shorts filters"
-            aria-expanded={filterOpen}
-            onClick={() => setFilterOpen((open) => !open)}
-          >
-            <Filter size={17} />
-            <span>{filterLabel}</span>
-          </button>
+          <div className="lw-shorts-topbar-center">
+            <button
+              type="button"
+              className="lw-shorts-filter-trigger"
+              aria-label="Open shorts filters"
+              aria-expanded={filterOpen}
+              onClick={() => setFilterOpen((open) => !open)}
+            >
+              <Filter size={17} />
+              <span>{filterLabel}</span>
+            </button>
+            {showUpgradeShortsCta ? (
+              <Link
+                to="/checkout"
+                className="lw-shorts-upgrade-pill"
+                onClick={() => recordEvent('shorts_upgrade_cta', { category: 'shorts', path: '/shorts' })}
+              >
+                Upgrade to see more videos
+              </Link>
+            ) : null}
+          </div>
           <div className="lw-shorts-account">
             {authLoading ? (
               <span className="lw-shorts-top-btn" aria-label="Checking account">
