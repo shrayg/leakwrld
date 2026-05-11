@@ -139,7 +139,7 @@ export function CheckoutPage() {
           One subscription, the entire mirrored archive. Pick a tier to continue to secure checkout — existing accounts keep all
           their saved creators when you upgrade.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
           <button type="button" className="lw-filter lw-filter--upgrade-cta" onClick={() => setRedeemOpen(true)}>
             Redeem your purchase tier
           </button>
@@ -197,16 +197,25 @@ export function CheckoutPage() {
                   }
                 >
                   {plan.key === 'ultimate'
-                    ? 'Purchase Ultimate Tier'
+                    ? `Buy Ultimate • ${money(plan.priceCents)}/mo`
                     : plan.key === 'premium'
-                      ? 'Purchase Premium Tier'
-                      : 'Purchase Basic Tier'}
+                      ? `Buy Premium • ${money(plan.priceCents)}/mo`
+                      : `Buy Basic • ${money(plan.priceCents)}/mo`}
                 </button>
               )}
             </article>
           );
         })}
       </section>
+
+      <div className="flex flex-wrap justify-center gap-2">
+        <button type="button" className="lw-filter lw-filter--upgrade-cta" onClick={() => setRedeemOpen(true)}>
+          Redeem your purchase tier
+        </button>
+        <a className="lw-filter" href="https://t.me/leakwrldcom" target="_blank" rel="noopener noreferrer">
+          Reach out to support
+        </a>
+      </div>
 
       {pendingCheckoutTier ? (
         <CheckoutRedirectModal
@@ -342,7 +351,7 @@ function CheckoutRedirectModal({ tierKey, onClose, onRedeem }) {
       <button type="button" className="lw-upgrade-modal-backdrop" aria-label="Close" onClick={onClose} />
       <div className="lw-upgrade-modal-panel" onClick={(e) => e.stopPropagation()}>
         <button type="button" className="lw-upgrade-modal-close" onClick={onClose} aria-label="Close">
-          ×
+          <span className="lw-close-glyph" aria-hidden />
         </button>
         <div className="lw-upgrade-modal-icon" aria-hidden>
           <Crown size={22} />
@@ -397,7 +406,7 @@ function RedeemPurchaseModal({ onClose }) {
       <button type="button" className="lw-upgrade-modal-backdrop" aria-label="Close" onClick={onClose} />
       <div className="lw-upgrade-modal-panel" onClick={(e) => e.stopPropagation()}>
         <button type="button" className="lw-upgrade-modal-close" onClick={onClose} aria-label="Close">
-          ×
+          <span className="lw-close-glyph" aria-hidden />
         </button>
         <div className="lw-upgrade-modal-icon" aria-hidden>
           <Crown size={22} />
