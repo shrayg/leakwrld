@@ -1,6 +1,5 @@
 import THUMBNAIL_SLUGS from './thumbnails.json';
 import MEDIA_SUMMARY from './media-summary.json';
-import EXTRA_CREATORS from './extra-creators.json';
 
 const THUMBNAIL_SET = new Set(THUMBNAIL_SLUGS);
 const MEDIA_BY_SLUG = new Map(MEDIA_SUMMARY.map((e) => [e.slug, e]));
@@ -75,26 +74,10 @@ function seededMetric(rank, base, spread) {
   return base + ((rank * 37) % spread);
 }
 
-const baseSlugSet = new Set(CREATOR_NAMES.map((n) => slugify(n)));
-const extraCreatorsFiltered = (Array.isArray(EXTRA_CREATORS) ? EXTRA_CREATORS : []).filter(
-  (e) =>
-    e &&
-    typeof e.slug === 'string' &&
-    /^[a-z0-9-]+$/.test(e.slug) &&
-    typeof e.name === 'string' &&
-    e.name.trim() &&
-    !baseSlugSet.has(e.slug),
-);
-
-const CREATOR_ENTRIES = [
-  ...CREATOR_NAMES.map((name) => ({ name, slug: slugify(name) })),
-  ...extraCreatorsFiltered.map((e) => ({ name: e.name.trim(), slug: e.slug })),
-];
-
-const ALL_CREATORS = CREATOR_ENTRIES.map((entry, index) => {
+const ALL_CREATORS = CREATOR_NAMES.map((name, index) => {
   const rank = index + 1;
   const category = CATEGORIES[index % CATEGORIES.length];
-  const { name, slug } = entry;
+  const slug = slugify(name);
   const real = MEDIA_BY_SLUG.get(slug);
   const mediaCount = real ? real.count : seededMetric(rank, 24, 420);
   const freeCount = real ? real.free : seededMetric(rank, 4, 18);
