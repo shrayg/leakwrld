@@ -3,38 +3,11 @@ import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet } from '../api';
 import { CREATORS, SHORTS } from '../data/catalog';
-import { ShortCard } from '../components/CreatorCard';
+import { CreatorCard, ShortCard } from '../components/CreatorCard';
+import { GridPagination } from '../components/GridPagination';
 import { TopCreatorsGallery } from '../components/TopCreatorsGallery';
-import { useHomeShortsPageSize } from '../hooks/useGridPageSize';
+import { useCatalogGridPageSize, useHomeShortsPageSize } from '../hooks/useGridPageSize';
 import { formatBytes, formatCount } from '../lib/metrics';
-
-function HeroTile({ creator, delay }) {
-  const [broken, setBroken] = useState(false);
-  const showImage = Boolean(creator.thumbnail) && !broken;
-  return (
-    <Link
-      to={`/creators/${creator.slug}`}
-      className={`lw-hero-tile accent-${creator.accent || 'pink'}`}
-      style={{ animationDelay: `${delay}ms` }}
-      aria-label={`Open ${creator.name}`}
-    >
-      {showImage ? (
-        <img
-          src={creator.thumbnail}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onError={() => setBroken(true)}
-          className="lw-hero-tile-img"
-        />
-      ) : null}
-      <div className="lw-hero-tile-meta">
-        <span>#{creator.rank}</span>
-        <b>{creator.name}</b>
-      </div>
-    </Link>
-  );
-}
 
 export function HomePage() {
   const [creators, setCreators] = useState(CREATORS);
@@ -58,6 +31,8 @@ export function HomePage() {
     };
   }, []);
   const [stats, setStats] = useState(fallbackStats);
+  const [creatorPage, setCreatorPage] = useState(1);
+  const creatorPageSize = useCatalogGridPageSize();
   const shortsRowSize = useHomeShortsPageSize();
 
   useEffect(() => {
@@ -79,27 +54,29 @@ export function HomePage() {
     apiGet('/api/stats', fallbackStats).then((data) => setStats({ ...fallbackStats, ...data }));
   }, [fallbackStats]);
 
+  const creatorTotalPages = Math.max(1, Math.ceil(creators.length / creatorPageSize));
+  const creatorPageClamped = Math.min(creatorPage, creatorTotalPages);
+  const pagedCreators = useMemo(() => {
+    const start = (creatorPageClamped - 1) * creatorPageSize;
+    return creators.slice(start, start + creatorPageSize);
+  }, [creators, creatorPageClamped, creatorPageSize]);
+
   const rowShorts = useMemo(() => shorts.slice(0, Math.max(1, shortsRowSize)), [shorts, shortsRowSize]);
 
-  /** Hero feature row: prefer the highest-ranked creators that have a real thumbnail
-   *  so the marquee never shows a placeholder gradient next to a real photo. Falls
-   *  back to top-ranked if fewer than 6 have thumbnails. */
-  const heroCreators = useMemo(() => {
-    const withThumb = creators.filter((c) => c.thumbnail).slice(0, 6);
-    if (withThumb.length >= 6) return withThumb;
-    const remaining = creators.filter((c) => !c.thumbnail).slice(0, 6 - withThumb.length);
-    return [...withThumb, ...remaining];
-  }, [creators]);
+  useEffect(() => {
+    if (creatorPage > creatorTotalPages) setCreatorPage(creatorTotalPages);
+  }, [creatorPage, creatorTotalPages]);
+
+  const creatorRangeStart = creators.length === 0 ? 0 : (creatorPageClamped - 1) * creatorPageSize + 1;
+  const creatorRangeEnd = creators.length === 0 ? 0 : Math.min(creators.length, creatorPageClamped * creatorPageSize);
 
   return (
     <div className="space-y-8">
       <div className="hidden space-y-4 lg:block">
         <section className="lw-hero lw-home-hero">
           <div className="lw-hero-media">
-            <div className="lw-hero-window">
-              {heroCreators.map((creator, index) => (
-                <HeroTile key={creator.slug} creator={creator} delay={index * 80} />
-              ))}
+            <div className="lw-hero-window lw-hero-window--gallery">
+              <TopCreatorsGallery creators={creators} variant="hero" />
             </div>
           </div>
 
@@ -165,7 +142,24 @@ export function HomePage() {
             <ArrowRight size={15} />
           </Link>
         </div>
-        <TopCreatorsGallery creators={creators} />
+        <div className="lw-creator-grid">
+          {pagedCreators.map((creator) => (
+            <CreatorCard key={creator.slug} creator={creator} />
+          ))}
+        </div>
+        <GridPagination
+          idPrefix="home-creators"
+          page={creatorPageClamped}
+          totalPages={creatorTotalPages}
+          onPrev={() => setCreatorPage((p) => Math.max(1, p - 1))}
+          onNext={() => setCreatorPage((p) => Math.min(creatorTotalPages, p + 1))}
+          summary={
+            <span className="text-[13px] text-white/70">
+              Showing {formatCount(creatorRangeStart)}-{formatCount(creatorRangeEnd)} of {formatCount(creators.length)}{' '}
+              creators
+            </span>
+          }
+        />
       </section>
 
       <section className="lw-section">

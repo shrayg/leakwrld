@@ -6,7 +6,8 @@ import { classifyMedia, mediaUrl } from '../lib/media';
 
 const CYCLE_MS = 6500;
 
-export function TopCreatorsGallery({ creators }) {
+/** @param {{ creators: unknown[], variant?: 'default' | 'hero' }} props */
+export function TopCreatorsGallery({ creators, variant = 'default' }) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [preview, setPreview] = useState({ key: null, kind: null, fallbackThumbnail: null });
@@ -68,9 +69,11 @@ export function TopCreatorsGallery({ creators }) {
   const url = usePrimary ? primarySrc : fallbackSrc;
   const isVideo = usePrimary && kind === 'video';
 
+  const rootClass = variant === 'hero' ? 'lw-top-gallery lw-top-gallery--hero' : 'lw-top-gallery';
+
   return (
     <div
-      className="lw-top-gallery"
+      className={rootClass}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >

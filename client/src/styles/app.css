@@ -605,6 +605,35 @@ input {
     #211f20;
 }
 
+/** Hero slideshow (replaces the 2x3 tile grid in `.lw-hero-media`). */
+.lw-hero-window--gallery {
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  min-height: 280px;
+  overflow: visible;
+}
+
+.lw-hero-window--gallery .lw-top-gallery {
+  flex: 1;
+  min-height: 0;
+}
+
+.lw-top-gallery--hero {
+  gap: 10px;
+  margin-top: 0;
+}
+
+.lw-top-gallery--hero .lw-top-gallery-tile {
+  min-height: 200px;
+  max-height: min(36vh, 340px);
+  aspect-ratio: 16 / 10;
+}
+
+.lw-top-gallery--hero .lw-top-gallery-controls {
+  flex-shrink: 0;
+}
+
 .lw-hero-tile {
   position: relative;
   display: block;
@@ -956,12 +985,25 @@ input {
     align-self: center;
   }
 
-  .lw-home-hero .lw-hero-window {
+  .lw-home-hero .lw-hero-window:not(.lw-hero-window--gallery) {
     height: 220px;
     min-height: 200px;
     max-height: 236px;
     gap: 8px;
     padding: 8px;
+  }
+
+  .lw-home-hero .lw-hero-window--gallery {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .lw-home-hero .lw-top-gallery--hero .lw-top-gallery-tile {
+    min-height: 160px;
+    max-height: 200px;
   }
 
   .lw-home-hero .lw-hero-tile-meta {
