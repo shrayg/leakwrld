@@ -29,6 +29,8 @@
     "media:sync:slug": "node scripts/r2-build-media-manifests.mjs --slug=",
     "thumbs:gen": "node scripts/generate-thumbnails.mjs",
     "thumbs:gen:force": "node scripts/generate-thumbnails.mjs --force",
+    "media:pipeline": "node scripts/r2-media-pipeline.mjs",
+    "media:pipeline:dry": "node scripts/r2-media-pipeline.mjs --dry-run",
     "worker:dev": "wrangler dev --config worker/wrangler.jsonc",
     "worker:deploy": "wrangler deploy --config worker/wrangler.jsonc"
   },
@@ -45,6 +47,7 @@
     "recharts": "^2.15.4"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1045.0",
     "@tailwindcss/postcss": "^4.2.4",
     "@tailwindcss/vite": "^4.2.4",
     "@vitejs/plugin-react": "^4.3.4",
