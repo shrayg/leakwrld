@@ -44,6 +44,7 @@ const adminHourly = require('./server/adminHourly');
 const adminDashboard = require('./server/adminDashboard');
 const adminUserActions = require('./server/adminUserActions');
 const mediaAnalytics = require('./server/mediaAnalytics');
+const { getSupabaseAdminClient, supabaseEnabled } = require('./server/supabaseClient');
 const { resolveCountryCode } = require('./server/geoCountry');
 
 const thumbnailLookup = new Map(fallbackCreators.map((c) => [c.slug, c.thumbnail]));
@@ -540,6 +541,20 @@ function verifyPassword(password, stored) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+function extractSellAuthProductId(invoice) {
+  try {
+    const items = invoice?.items || invoice?.invoice_json?.items || invoice?.invoiceJson?.items;
+    if (!Array.isArray(items)) return null;
+    for (const it of items) {
+      const pid = it?.product?.id ?? it?.product_id ?? it?.productId;
+      if (pid != null && String(pid).trim()) return String(pid).trim();
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 async function readJson(req, maxBytes = 64 * 1024) {
   return await new Promise((resolve, reject) => {
     let total = 0;
@@ -782,6 +797,128 @@ async function routeApi(req, res, url) {
   if (url.pathname === '/api/session' && method === 'GET') {
     const user = await currentUser(req);
     return sendJson(res, 200, { authed: !!user, user });
+  }
+
+  if (url.pathname === '/api/redeem' && method === 'POST') {
+    if (!pool) return sendJson(res, 503, { error: 'Postgres is not configured. Set DATABASE_URL.' });
+    if (!supabaseEnabled()) return sendJson(res, 503, { error: 'Redeem is not configured.' });
+    const user = await currentUser(req);
+    if (!user) return sendJson(res, 401, { error: 'Login required.' });
+    const body = await readJson(req);
+    const emailRaw = String(body.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) return sendJson(res, 400, { error: 'Enter a valid email.' });
+
+    const sb = getSupabaseAdminClient();
+    if (!sb) return sendJson(res, 503, { error: 'Redeem is not configured.' });
+
+    const { data: invoices, error } = await sb
+      .from('sellauth_invoices')
+      .select('*')
+      .eq('email', emailRaw)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (error) {
+      console.error('[redeem]', error);
+      return sendJson(res, 500, { error: 'Redeem lookup failed.' });
+    }
+    const invoiceList = Array.isArray(invoices) ? invoices : [];
+    if (invoiceList.length === 0) return sendJson(res, 404, { error: 'No purchase found for that email.' });
+
+    const isPaidStatus = (raw) => /paid|complete|completed|success|successful|processed|confirming/i.test(String(raw || ''));
+    const paid = invoiceList.find((x) => isPaidStatus(x.status)) || null;
+    if (!paid) return sendJson(res, 400, { error: 'Purchase exists but is not marked paid yet.' });
+
+    const productId = String(
+      paid.product_id || extractSellAuthProductId(paid.invoice_json || paid) || '',
+    ).trim();
+    const inferred =
+      productId === '713938'
+        ? 'ultimate'
+        : productId === '713936'
+          ? 'premium'
+          : productId === '713867'
+            ? 'basic'
+            : null;
+    if (!inferred) return sendJson(res, 400, { error: 'Could not infer tier from invoice (missing product id).' });
+
+    const invoiceId = Number(paid.sellauth_invoice_id);
+    if (!Number.isFinite(invoiceId) || invoiceId <= 0) return sendJson(res, 400, { error: 'Invoice id is invalid.' });
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+
+      await client.query(
+        `create table if not exists sellauth_redemptions (
+          sellauth_invoice_id bigint primary key,
+          redeemed_at timestamptz not null default now(),
+          user_id uuid not null references users (id) on delete cascade,
+          email text not null,
+          tier_granted text not null check (tier_granted in ('basic','premium','ultimate','admin')),
+          unique_id text,
+          status text,
+          invoice_json jsonb not null default '{}'::jsonb
+        )`,
+      );
+
+      const already = await client.query(
+        'select sellauth_invoice_id from sellauth_redemptions where sellauth_invoice_id = $1 limit 1',
+        [invoiceId],
+      );
+      if (already.rows[0]) {
+        await client.query('rollback');
+        return sendJson(res, 409, { error: 'That invoice has already been redeemed.' });
+      }
+
+      await client.query('update users set email = $2, tier = $3, updated_at = now() where id = $1', [
+        user.id,
+        emailRaw,
+        inferred,
+      ]);
+
+      await client
+        .query(
+          `insert into payments (user_id, provider, amount_cents, currency, plan_label, tier_granted, screenshot_url, notes)
+           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            user.id,
+            'xyzpurchase',
+            Number(String(paid.paid_usd || paid.price_usd || paid.price || '0').replace(/[^0-9.]/g, '')) * 100 || 0,
+            paid.currency ? String(paid.currency) : 'USD',
+            `sellauth:product:${productId}`,
+            inferred,
+            null,
+            `sellauth_invoice_id=${invoiceId} status=${String(paid.status || '').slice(0, 48)} product_id=${productId}`,
+          ],
+        )
+        .catch(() => {});
+
+      await client.query(
+        `insert into sellauth_redemptions (sellauth_invoice_id, user_id, email, tier_granted, unique_id, status, invoice_json)
+         values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+        [
+          invoiceId,
+          user.id,
+          emailRaw,
+          inferred,
+          paid.unique_id ? String(paid.unique_id) : null,
+          paid.status ? String(paid.status) : null,
+          JSON.stringify(paid.invoice_json || {}),
+        ],
+      );
+
+      await client.query('commit');
+    } catch (err) {
+      await client.query('rollback').catch(() => {});
+      console.error('[redeem]', err);
+      return sendJson(res, 500, { error: 'Redeem failed.' });
+    } finally {
+      client.release();
+    }
+
+    const refreshed = await currentUser(req);
+    return sendJson(res, 200, { ok: true, user: refreshed, tier: inferred, invoiceId });
   }
 
   if (url.pathname === '/api/auth/signup' && method === 'POST') {
@@ -1301,6 +1438,26 @@ async function routeApi(req, res, url) {
       console.error('[admin payments]', err);
       return sendJson(res, 500, { error: 'Query failed.' });
     }
+  }
+
+  if (url.pathname === '/api/admin/supabase-payments' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!supabaseEnabled()) return sendJson(res, 503, { error: 'Supabase is not configured.' });
+    const sb = getSupabaseAdminClient();
+    if (!sb) return sendJson(res, 503, { error: 'Supabase is not configured.' });
+    const limit = Math.min(200, Math.max(10, Number(url.searchParams.get('limit') || 50) || 50));
+    const { data, error } = await sb
+      .from('sellauth_invoices')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) {
+      console.error('[admin supabase payments]', error);
+      return sendJson(res, 500, { error: 'Supabase query failed.' });
+    }
+    return sendJson(res, 200, { ok: true, invoices: data || [] });
   }
 
   if (url.pathname === '/api/admin/traffic-sources' && method === 'GET') {

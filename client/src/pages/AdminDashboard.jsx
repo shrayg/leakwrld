@@ -440,6 +440,9 @@ export function AdminDashboard({ siteLabel, onLogout }) {
   const [paymentsRows, setPaymentsRows] = useState([]);
   const [paymentsTotal, setPaymentsTotal] = useState(0);
   const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [supabaseInvoicesRows, setSupabaseInvoicesRows] = useState([]);
+  const [supabaseInvoicesErr, setSupabaseInvoicesErr] = useState('');
+  const [supabaseInvoicesLoading, setSupabaseInvoicesLoading] = useState(false);
 
   const [trafficRange, setTrafficRange] = useState('48h');
   const [trafficReport, setTrafficReport] = useState(null);
@@ -562,6 +565,21 @@ export function AdminDashboard({ siteLabel, onLogout }) {
     }
   }, [tab, paymentsPage, paymentsSearch, paymentsRange]);
 
+  const loadSupabaseInvoices = useCallback(async () => {
+    if (tab !== 'payments') return;
+    setSupabaseInvoicesLoading(true);
+    setSupabaseInvoicesErr('');
+    const { ok, data } = await adminFetch(`/api/admin/supabase-payments?limit=80`);
+    if (!ok) {
+      setSupabaseInvoicesRows([]);
+      setSupabaseInvoicesErr(data.error || 'Could not load Supabase invoices');
+      setSupabaseInvoicesLoading(false);
+      return;
+    }
+    setSupabaseInvoicesRows(Array.isArray(data.invoices) ? data.invoices : []);
+    setSupabaseInvoicesLoading(false);
+  }, [tab]);
+
   useEffect(() => {
     if (tab !== 'payments') return;
     loadPaymentsSummary();
@@ -571,6 +589,11 @@ export function AdminDashboard({ siteLabel, onLogout }) {
     if (tab !== 'payments') return;
     loadPaymentsPage();
   }, [tab, loadPaymentsPage]);
+
+  useEffect(() => {
+    if (tab !== 'payments') return;
+    loadSupabaseInvoices();
+  }, [tab, loadSupabaseInvoices]);
 
   function refreshPayments() {
     loadPaymentsSummary();
@@ -1394,6 +1417,64 @@ export function AdminDashboard({ siteLabel, onLogout }) {
           </div>
 
           {paymentsSummaryErr ? <p className="lw-form-error">{paymentsSummaryErr}</p> : null}
+
+          <div className="lw-admin-chart border border-[var(--color-border)] bg-[rgba(48,47,47,0.76)] p-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">SellAuth invoices (latest)</h3>
+              <button
+                type="button"
+                className="lw-btn ghost inline-flex items-center gap-2 px-4 py-2 text-xs"
+                disabled={supabaseInvoicesLoading}
+                onClick={loadSupabaseInvoices}
+              >
+                <RefreshCw size={14} className={supabaseInvoicesLoading ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-white/45">
+              Records from <code className="text-[var(--color-primary-light)]">public.sellauth_invoices</code> in Supabase (used
+              for email-based tier redemption).
+            </p>
+            {supabaseInvoicesErr ? <p className="lw-form-error">{supabaseInvoicesErr}</p> : null}
+            {supabaseInvoicesLoading ? (
+              <p className="text-sm text-white/55">Loading SellAuth invoices…</p>
+            ) : supabaseInvoicesRows.length === 0 ? (
+              <p className="text-sm text-white/50">No SellAuth invoices found yet.</p>
+            ) : (
+              <div className="lw-admin-table-wrap max-h-[min(320px,50vh)] overflow-y-auto">
+                <table className="lw-admin-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Created</th>
+                      <th>Email</th>
+                      <th>Status</th>
+                      <th>Tier</th>
+                      <th>Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {supabaseInvoicesRows.map((r) => (
+                      <tr key={r.sellauth_invoice_id}>
+                        <td className="font-mono text-xs text-white/65">{r.sellauth_invoice_id}</td>
+                        <td className="whitespace-nowrap text-xs text-white/70">
+                          {r.created_at ? String(r.created_at).replace('T', ' ').replace('Z', '') : '—'}
+                        </td>
+                        <td className="max-w-[220px] truncate" title={r.email}>
+                          {r.email}
+                        </td>
+                        <td className="capitalize">{r.status || '—'}</td>
+                        <td className="max-w-[220px] truncate font-mono text-xs text-white/60" title={r.unique_id || ''}>
+                          {r.unique_id || '—'}
+                        </td>
+                        <td className="text-xs text-white/70">{r.paid_usd || r.price_usd || r.price || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
           {paymentsSummaryBusy && !paymentsSummary ? (
             <p className="text-white/55">Loading payments…</p>

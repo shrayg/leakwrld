@@ -91,6 +91,8 @@ const MATRIX_ROWS = [
 
 export function CheckoutPage() {
   const [plans, setPlans] = useState(fallbackPlans);
+  const [redeemOpen, setRedeemOpen] = useState(false);
+  const [pendingCheckoutTier, setPendingCheckoutTier] = useState(/** @type {null | string} */ (null));
   const [libraryMatrix, setLibraryMatrix] = useState(
     /** @type {Record<string, { fileCount: number; bytes: number }> | null} */ (null),
   );
@@ -104,17 +106,47 @@ export function CheckoutPage() {
     });
   }, []);
 
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      const v = String(p.get('redeem') || '').trim().toLowerCase();
+      if (v === '1' || v === 'true' || v === 'yes') setRedeemOpen(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const displayPlans = useMemo(() => {
     const paid = Array.isArray(plans) ? plans.filter((p) => p && p.key !== 'free') : [];
     return [FREE_PLAN, ...paid];
   }, [plans]);
+
+  function openCheckoutPrompt(tierKey) {
+    setPendingCheckoutTier(String(tierKey || 'basic'));
+    recordEvent('checkout_pre_redirect_open', { category: 'commerce', path: '/checkout', payload: { tier: tierKey } });
+  }
+
+  function closeCheckoutPrompt() {
+    setPendingCheckoutTier(null);
+  }
 
   return (
     <div className="space-y-6">
       <section className="lw-page-head">
         <span className="lw-eyebrow">Membership</span>
         <h1>Premium access</h1>
-        <p>One subscription, the entire mirrored archive. Pick a tier — billing opens shortly. Existing accounts keep all their saved creators when you upgrade.</p>
+        <p>
+          One subscription, the entire mirrored archive. Pick a tier to continue to secure checkout — existing accounts keep all
+          their saved creators when you upgrade.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className="lw-filter lw-filter--upgrade-cta" onClick={() => setRedeemOpen(true)}>
+            Redeem your purchase tier
+          </button>
+          <a className="lw-filter" href="https://t.me/leakwrldcom" target="_blank" rel="noopener noreferrer">
+            Reach out to support
+          </a>
+        </div>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -147,8 +179,8 @@ export function CheckoutPage() {
                   Included with your account
                 </button>
               ) : (
-                <a
-                  href={TIER_PURCHASE_URLS[plan.key] || TIER_PURCHASE_URLS.basic}
+                <button
+                  type="button"
                   className={
                     plan.key === 'ultimate'
                       ? 'lw-btn lw-plan-cta lw-plan-cta--ultimate w-full justify-center'
@@ -158,23 +190,30 @@ export function CheckoutPage() {
                           ? 'lw-btn lw-plan-cta lw-plan-cta--basic w-full justify-center'
                           : 'lw-btn ghost lw-plan-cta w-full justify-center'
                   }
-                  target="_blank"
-                  rel="noopener noreferrer"
                   onClick={() =>
-                    recordEvent('checkout_tier_cta', {
-                      category: 'commerce',
-                      path: '/checkout',
-                      payload: { tier: plan.key },
-                    })
+                    openCheckoutPrompt(plan.key)
                   }
                 >
                   Continue to checkout
-                </a>
+                </button>
               )}
             </article>
           );
         })}
       </section>
+
+      {pendingCheckoutTier ? (
+        <CheckoutRedirectModal
+          tierKey={pendingCheckoutTier}
+          onClose={closeCheckoutPrompt}
+          onRedeem={() => {
+            closeCheckoutPrompt();
+            setRedeemOpen(true);
+          }}
+        />
+      ) : null}
+
+      {redeemOpen ? <RedeemPurchaseModal onClose={() => setRedeemOpen(false)} /> : null}
 
       <section className="lw-matrix lw-matrix--checkout" aria-labelledby="lw-checkout-matrix-heading">
         <h2 id="lw-checkout-matrix-heading" className="lw-checkout-matrix-title">
@@ -268,6 +307,120 @@ export function CheckoutPage() {
           </table>
         </div>
       </section>
+    </div>
+  );
+}
+
+function CheckoutRedirectModal({ tierKey, onClose, onRedeem }) {
+  const [secondsLeft, setSecondsLeft] = useState(5);
+  const url = TIER_PURCHASE_URLS[tierKey] || TIER_PURCHASE_URLS.basic;
+
+  useEffect(() => {
+    setSecondsLeft(5);
+    const startedAt = Date.now();
+    const t = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      const left = Math.max(0, 5 - elapsed);
+      setSecondsLeft(left);
+    }, 250);
+    return () => clearInterval(t);
+  }, [tierKey]);
+
+  useEffect(() => {
+    if (secondsLeft > 0) return;
+    window.location.assign(url);
+  }, [secondsLeft, url]);
+
+  return (
+    <div className="lw-upgrade-modal-root" role="dialog" aria-modal="true" aria-label="Continue to checkout" onClick={onClose}>
+      <button type="button" className="lw-upgrade-modal-backdrop" aria-label="Close" onClick={onClose} />
+      <div className="lw-upgrade-modal-panel" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="lw-upgrade-modal-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+        <div className="lw-upgrade-modal-icon" aria-hidden>
+          <Crown size={22} />
+        </div>
+        <h2 className="lw-upgrade-modal-title">Remember your email</h2>
+        <p className="lw-upgrade-modal-lede">
+          Use the same email at checkout so you can redeem your tier instantly after purchase.
+        </p>
+        <div className="lw-upgrade-modal-actions">
+          <button
+            type="button"
+            className="lw-btn primary w-full justify-center"
+            onClick={() => window.location.assign(url)}
+            disabled={secondsLeft > 0}
+          >
+            {secondsLeft > 0 ? `Continue in ${secondsLeft}s` : 'Continue to checkout'}
+          </button>
+          <button type="button" className="lw-btn ghost w-full justify-center" onClick={onRedeem}>
+            Redeem your access
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RedeemPurchaseModal({ onClose }) {
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState({ loading: false, error: '', ok: false });
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    if (status.loading) return;
+    setStatus({ loading: true, error: '', ok: false });
+    try {
+      const res = await fetch('/api/redeem', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Redeem failed.');
+      setStatus({ loading: false, error: '', ok: true });
+      window.setTimeout(onClose, 900);
+    } catch (err) {
+      setStatus({ loading: false, error: String(err?.message || 'Redeem failed.'), ok: false });
+    }
+  }
+
+  return (
+    <div className="lw-upgrade-modal-root" role="dialog" aria-modal="true" aria-label="Redeem your purchase" onClick={onClose}>
+      <button type="button" className="lw-upgrade-modal-backdrop" aria-label="Close" onClick={onClose} />
+      <div className="lw-upgrade-modal-panel" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="lw-upgrade-modal-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+        <div className="lw-upgrade-modal-icon" aria-hidden>
+          <Crown size={22} />
+        </div>
+        <h2 className="lw-upgrade-modal-title">Redeem your purchase tier</h2>
+        <p className="lw-upgrade-modal-lede">
+          Enter the email you used at checkout to activate your tier. Payments can take about a minute to show up in our system
+          after checkout completes.
+        </p>
+        <form onSubmit={onSubmit} className="mt-3 grid gap-2">
+          <input
+            className="lw-input"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+            autoComplete="email"
+          />
+          {status.error ? <div className="text-xs text-red-300">{status.error}</div> : null}
+          {status.ok ? <div className="text-xs text-green-300">Redeemed. Your tier is now active.</div> : null}
+          <button type="submit" className="lw-btn primary w-full justify-center" disabled={status.loading}>
+            {status.loading ? 'Checking…' : 'Redeem access'}
+          </button>
+          <a className="lw-btn ghost w-full justify-center" href="https://t.me/leakwrldcom" target="_blank" rel="noopener noreferrer">
+            Reach out to support
+          </a>
+        </form>
+      </div>
     </div>
   );
 }
