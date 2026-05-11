@@ -6,7 +6,7 @@ import { CREATORS, SHORTS } from '../data/catalog';
 import { CreatorCard, ShortCard } from '../components/CreatorCard';
 import { GridPagination } from '../components/GridPagination';
 import { TopCreatorsGallery } from '../components/TopCreatorsGallery';
-import { useCatalogGridPageSize, useHomeShortsPageSize } from '../hooks/useGridPageSize';
+import { useHomeTopCreatorsPageSize, useHomeShortsPageSize } from '../hooks/useGridPageSize';
 import { formatBytes, formatCount } from '../lib/metrics';
 
 export function HomePage() {
@@ -32,7 +32,7 @@ export function HomePage() {
   }, []);
   const [stats, setStats] = useState(fallbackStats);
   const [creatorPage, setCreatorPage] = useState(1);
-  const creatorPageSize = useCatalogGridPageSize();
+  const creatorPageSize = useHomeTopCreatorsPageSize();
   const shortsRowSize = useHomeShortsPageSize();
 
   useEffect(() => {

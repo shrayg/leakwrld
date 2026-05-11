@@ -4,6 +4,7 @@ import { Heart, Lock, Play, Sparkles, Unlock } from 'lucide-react';
 import { useCatalogShortTelemetry } from '../hooks/useCatalogShortTelemetry';
 import { formatCount } from '../lib/metrics';
 import { catalogMediaLike } from '../lib/mediaAnalytics';
+import { AdminCopyStorageKeyButton } from './AdminCopyStorageKeyButton';
 import { classifyMedia, mediaUrl } from '../lib/media';
 
 export function CreatorCard({ creator, compact = false }) {
@@ -161,6 +162,7 @@ export function ShortCard({ item, index, to, className = '' }) {
           ) : (
             <span className="lw-tier-chip free">Free</span>
           )}
+          {kind === 'image' && item.key ? <AdminCopyStorageKeyButton storageKey={item.key} variant="short" /> : null}
         </div>
         <div className="p-3">
           <h3 className="truncate text-[14px] font-semibold text-white">{item.title}</h3>

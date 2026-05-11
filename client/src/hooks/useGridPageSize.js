@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react';
 /** In sync with `.lw-creator-grid` / `.lw-media-grid` in app.css */
 export const CATALOG_GRID_ROWS_PER_PAGE = 6;
 
+/** Homepage "Top creators" only — fewer rows so the section stays compact. */
+export const HOME_TOP_CREATORS_ROWS = 2;
+
 export function getCatalogGridColumns(width) {
   const w = Number(width);
   if (!Number.isFinite(w) || w <= 520) return 1;
@@ -36,6 +39,25 @@ export function useCatalogGridPageSize() {
   useEffect(() => {
     function sync() {
       const next = getCatalogGridColumns(window.innerWidth) * CATALOG_GRID_ROWS_PER_PAGE;
+      setPageSize((p) => (p === next ? p : next));
+    }
+    sync();
+    window.addEventListener('resize', sync);
+    return () => window.removeEventListener('resize', sync);
+  }, []);
+
+  return pageSize;
+}
+
+/** Same column breakpoints as `useCatalogGridPageSize`, but only **two** rows of cards (home featured strip). */
+export function useHomeTopCreatorsPageSize() {
+  const [pageSize, setPageSize] = useState(
+    () => getCatalogGridColumns(defaultWidth()) * HOME_TOP_CREATORS_ROWS,
+  );
+
+  useEffect(() => {
+    function sync() {
+      const next = getCatalogGridColumns(window.innerWidth) * HOME_TOP_CREATORS_ROWS;
       setPageSize((p) => (p === next ? p : next));
     }
     sync();

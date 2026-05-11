@@ -202,6 +202,56 @@ function loadMediaManifest(slug) {
   }
 }
 
+const MANIFEST_TIER_KEYS = ['free', 'tier1', 'tier2', 'tier3'];
+
+function sumManifestByTierAcrossCreators() {
+  const sums = {
+    free: { count: 0, bytes: 0 },
+    tier1: { count: 0, bytes: 0 },
+    tier2: { count: 0, bytes: 0 },
+    tier3: { count: 0, bytes: 0 },
+  };
+  for (const creator of fallbackReadyCreators) {
+    const manifest = loadMediaManifest(creator.slug);
+    const by = manifest?.totals?.byTier;
+    if (!by || typeof by !== 'object') continue;
+    for (const key of MANIFEST_TIER_KEYS) {
+      const cell = by[key];
+      if (!cell) continue;
+      sums[key].count += Number(cell.count || 0);
+      sums[key].bytes += Number(cell.bytes || 0);
+    }
+  }
+  return sums;
+}
+
+const checkoutLibraryMatrixCache = { at: 0, value: null };
+const CHECKOUT_LIBRARY_TTL_MS = 5 * 60 * 1000;
+
+/** Cumulative files + bytes each subscription tier can access (manifest tiers). */
+function getCheckoutLibraryMatrix() {
+  const now = Date.now();
+  if (checkoutLibraryMatrixCache.value && now - checkoutLibraryMatrixCache.at < CHECKOUT_LIBRARY_TTL_MS) {
+    return checkoutLibraryMatrixCache.value;
+  }
+  const s = sumManifestByTierAcrossCreators();
+  const f = s.free;
+  const t1 = s.tier1;
+  const t2 = s.tier2;
+  const t3 = s.tier3;
+  const value = {
+    free: { fileCount: f.count, bytes: f.bytes },
+    basic: { fileCount: f.count + t1.count, bytes: f.bytes + t1.bytes },
+    premium: { fileCount: f.count + t1.count + t2.count, bytes: f.bytes + t1.bytes + t2.bytes },
+    ultimate: {
+      fileCount: f.count + t1.count + t2.count + t3.count,
+      bytes: f.bytes + t1.bytes + t2.bytes + t3.bytes,
+    },
+  };
+  checkoutLibraryMatrixCache = { at: now, value };
+  return value;
+}
+
 /** Prefer stills for gallery; fall back to video, then any allowed item. */
 function pickRandomPreviewFromManifest(items, allowedTierSet, rng) {
   const allowed = (items || []).filter((it) => it && it.key && allowedTierSet.has(it.tier));
@@ -1709,11 +1759,33 @@ async function routeApi(req, res, url) {
   if (url.pathname === '/api/checkout/plans' && method === 'GET') {
     return sendJson(res, 200, {
       plans: [
-        { key: 'basic', name: 'Basic', tier: 1, priceCents: 999, mediaAccess: 'Free previews plus full access to the basic vault.' },
-        { key: 'premium', name: 'Premium', tier: 2, priceCents: 2499, mediaAccess: 'Every premium video, photo set, and priority on creator requests.' },
-        { key: 'ultimate', name: 'Ultimate', tier: 3, priceCents: 3999, mediaAccess: 'Everything in Premium plus skip-the-queue priority access during peak hours.' },
+        {
+          key: 'basic',
+          name: 'Basic',
+          tier: 1,
+          priceCents: 999,
+          mediaAccess:
+            'Full basic vault with SD-quality streaming. Free previews everywhere — upgrade when you want deeper archives.',
+        },
+        {
+          key: 'premium',
+          name: 'Premium',
+          tier: 2,
+          priceCents: 2499,
+          mediaAccess:
+            'HD content across premium videos and photo sets, full archive access, plus priority on creator requests.',
+        },
+        {
+          key: 'ultimate',
+          name: 'Ultimate',
+          tier: 3,
+          priceCents: 3999,
+          mediaAccess:
+            'Everything in Premium in HD, plus skip-the-queue priority during peak hours — maximum access and polish.',
+        },
       ],
       paymentsEnabled: false,
+      libraryMatrix: getCheckoutLibraryMatrix(),
     });
   }
 

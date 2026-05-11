@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronUp,
+  Crown,
   Filter,
   Heart,
   Menu,
@@ -365,7 +366,17 @@ function FilterPanel({
         </div>
         <div className="lw-shorts-filter-tier">
           <span>Your tier: {access?.userTierLabel || access?.userTier || 'Free'}</span>
-          <b>{unlockable > 0 ? `Upgrade to unlock ${formatCount(unlockable)} more videos` : 'All videos unlocked'}</b>
+          {unlockable > 0 ? (
+            <Link
+              to="/checkout"
+              className="lw-shorts-upgrade-pill lw-shorts-filter-tier-upgrade"
+              onClick={() => recordEvent('shorts_filter_upgrade', { category: 'shorts', path: '/shorts' })}
+            >
+              Upgrade to unlock {formatCount(unlockable)} more videos
+            </Link>
+          ) : (
+            <b>All videos unlocked</b>
+          )}
         </div>
         <button type="button" className="lw-icon-btn" aria-label="Close filters" onClick={onClose}>
           <X size={18} />
@@ -753,10 +764,12 @@ export function ShortsPage() {
             {showUpgradeShortsCta ? (
               <Link
                 to="/checkout"
-                className="lw-shorts-upgrade-pill"
+                className="lw-shorts-filter-trigger lw-shorts-top-upgrade-link"
+                aria-label="Upgrade to premium"
                 onClick={() => recordEvent('shorts_upgrade_cta', { category: 'shorts', path: '/shorts' })}
               >
-                Upgrade to see more videos
+                <Crown size={17} aria-hidden />
+                <span>Upgrade</span>
               </Link>
             ) : null}
           </div>

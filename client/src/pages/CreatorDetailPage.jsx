@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, Eye, Heart, Lock, Play, Sparkles, ThumbsDown, Unlock, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Crown,
+  Eye,
+  Heart,
+  Lock,
+  Play,
+  Sparkles,
+  ThumbsDown,
+  Unlock,
+  X,
+} from 'lucide-react';
 import { apiGet } from '../api';
 import { useAuth } from '../components/AuthContext';
 import { CREATORS } from '../data/catalog';
@@ -21,6 +34,7 @@ import {
   manifestMediaSessionStart,
   mediaPlaybackSessionId,
 } from '../lib/mediaAnalytics';
+import { AdminCopyStorageKeyButton } from '../components/AdminCopyStorageKeyButton';
 import { GridPagination } from '../components/GridPagination';
 import { useCatalogGridPageSize } from '../hooks/useGridPageSize';
 
@@ -246,13 +260,16 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
 
   if (kind === 'image') {
     return (
-      <button type="button" className="lw-media-tile" onClick={() => onOpen(item)} aria-label="View image">
-        <img src={src} alt="" loading="lazy" decoding="async" />
-        <span className="lw-media-tile-tier free">
-          <Unlock size={11} /> Free
-        </span>
-        <MediaTileStats item={item} />
-      </button>
+      <div className="lw-media-tile-outer">
+        <button type="button" className="lw-media-tile" onClick={() => onOpen(item)} aria-label="View image">
+          <img src={src} alt="" loading="lazy" decoding="async" />
+          <span className="lw-media-tile-tier free">
+            <Unlock size={11} /> Free
+          </span>
+          <MediaTileStats item={item} />
+        </button>
+        <AdminCopyStorageKeyButton storageKey={item.key} variant="tile" />
+      </div>
     );
   }
 
@@ -287,6 +304,63 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
     <div className={`lw-media-tile other accent-${accent}`} aria-label={`File: ${item.name}`}>
       <span className="text-xs text-white/60">{item.ext || 'file'}</span>
       <MediaTileStats item={item} />
+    </div>
+  );
+}
+
+/** Free-only upsell: ~1/5 of video opens on creator media grid (see `openLightbox`). */
+const MISSING_OUT_PROMO_CHANCE = 0.2;
+
+function MissingOutUpgradeModal({ onUpgrade, onContinueWatching }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onContinueWatching();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onContinueWatching]);
+
+  return (
+    <div
+      className="lw-upgrade-modal-root lw-missing-out-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="lw-missing-out-title"
+    >
+      <button type="button" className="lw-upgrade-modal-backdrop" aria-label="Close" onClick={onContinueWatching} />
+      <div className="lw-upgrade-modal-panel" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="lw-upgrade-modal-close" onClick={onContinueWatching} aria-label="Close">
+          <X size={18} />
+        </button>
+        <div className="lw-upgrade-modal-icon" aria-hidden>
+          <Sparkles size={22} />
+        </div>
+        <h2 id="lw-missing-out-title" className="lw-upgrade-modal-title">
+          You are missing out
+        </h2>
+        <p className="lw-upgrade-modal-lede">
+          Upgrade to unlock more videos, full tiers for every creator, and the complete mirrored archive — free previews
+          only scratch the surface.
+        </p>
+        <ul className="lw-upgrade-modal-bullets">
+          <li>Premium unlocks tiered vaults and thousands more clips.</li>
+          <li>New leaks mirror in daily — stay ahead with full access.</li>
+          <li>Instant access after checkout.</li>
+        </ul>
+        <div className="lw-upgrade-modal-actions">
+          <Link to="/checkout" className="lw-btn primary justify-center" onClick={onUpgrade}>
+            Upgrade to unlock more content
+          </Link>
+          <button type="button" className="lw-btn ghost w-full justify-center" onClick={onContinueWatching}>
+            Continue watching
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -416,7 +490,10 @@ function Lightbox({ items, index, creatorSlug, onClose, onNavigate }) {
             className="lw-lightbox-video"
           />
         ) : (
-          <img src={src} alt="" className="lw-lightbox-image" />
+          <>
+            <img src={src} alt="" className="lw-lightbox-image" />
+            {kind === 'image' ? <AdminCopyStorageKeyButton storageKey={item.key} variant="lightbox" /> : null}
+          </>
         )}
         <LightboxFooter item={item} creatorSlug={creatorSlug} index={index} total={items.length} />
       </div>
@@ -448,6 +525,8 @@ export function CreatorDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const [upgradeModalTier, setUpgradeModalTier] = useState(null);
+  const [missingOutPromoOpen, setMissingOutPromoOpen] = useState(false);
+  const pendingLightboxIndexRef = useRef(null);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -498,6 +577,13 @@ export function CreatorDetailPage() {
   }, [slug, tier, pageOffset]);
 
   useEffect(() => {
+    if (accountTierNorm !== 'free') {
+      pendingLightboxIndexRef.current = null;
+      setMissingOutPromoOpen(false);
+    }
+  }, [accountTierNorm]);
+
+  useEffect(() => {
     if (!creator || creator.slug !== slug) return;
     recordEvent('creator_profile_view', {
       category: 'creator',
@@ -516,6 +602,13 @@ export function CreatorDetailPage() {
   const accountTierNorm = normalizeAccountTier(accountTier);
   const showCreatorUpgradeBanner = accountTierNorm !== 'ultimate' && accountTierNorm !== 'admin';
   const playableItems = useMemo(() => items.filter((it) => !it.locked && !isLockedTier(it.tier, accountTier)), [items, accountTier]);
+
+  useEffect(() => {
+    if (accountTierNorm !== 'free') {
+      pendingLightboxIndexRef.current = null;
+      setMissingOutPromoOpen(false);
+    }
+  }, [accountTierNorm]);
 
   function selectTier(t) {
     if (canAccessManifestTier(accountTier, t)) {
@@ -540,23 +633,69 @@ export function CreatorDetailPage() {
   const totalPages = Math.max(1, Math.ceil(totalForTier / resolvedLimit));
   const currentPage = Math.min(totalPages, Math.floor(resolvedOffset / resolvedLimit) + 1);
 
+  const continueAfterMissingOutPromo = useCallback(() => {
+    setMissingOutPromoOpen(false);
+    const idx = pendingLightboxIndexRef.current;
+    pendingLightboxIndexRef.current = null;
+    if (idx == null || idx < 0) return;
+    const item = playableItems[idx];
+    if (!item) return;
+    setLightboxIndex(idx);
+    recordEvent('media_lightbox_open', {
+      category: 'media',
+      payload: {
+        slug,
+        key: item.key,
+        kind: item.kind || classifyMedia(item.name),
+        tier: item.tier,
+      },
+    });
+  }, [playableItems, slug]);
+
+  const dismissMissingOutForUpgrade = useCallback(() => {
+    pendingLightboxIndexRef.current = null;
+    setMissingOutPromoOpen(false);
+    recordEvent('creator_missing_out_promo_upgrade_click', {
+      category: 'creator',
+      payload: { slug },
+    });
+  }, [slug]);
+
   const openLightbox = useCallback(
     (item) => {
       const idx = playableItems.findIndex((it) => it.key === item.key);
-      if (idx >= 0) {
-        setLightboxIndex(idx);
-        recordEvent('media_lightbox_open', {
-          category: 'media',
+      if (idx < 0) return;
+
+      const kind = item.kind || classifyMedia(item.name);
+      const showMissingOut =
+        accountTierNorm === 'free' && kind === 'video' && Math.random() < MISSING_OUT_PROMO_CHANCE;
+
+      if (showMissingOut) {
+        pendingLightboxIndexRef.current = idx;
+        setMissingOutPromoOpen(true);
+        recordEvent('creator_missing_out_promo', {
+          category: 'creator',
           payload: {
             slug,
             key: item.key,
-            kind: item.kind || classifyMedia(item.name),
             tier: item.tier,
           },
         });
+        return;
       }
+
+      setLightboxIndex(idx);
+      recordEvent('media_lightbox_open', {
+        category: 'media',
+        payload: {
+          slug,
+          key: item.key,
+          kind,
+          tier: item.tier,
+        },
+      });
     },
-    [playableItems, slug],
+    [playableItems, slug, accountTierNorm],
   );
 
   const navigateLightbox = useCallback(
@@ -659,6 +798,21 @@ export function CreatorDetailPage() {
               </button>
             );
           })}
+          {showCreatorUpgradeBanner ? (
+            <Link
+              to="/checkout"
+              className="lw-filter lw-filter--upgrade-cta"
+              onClick={() =>
+                recordEvent('creator_tier_strip_upgrade', {
+                  category: 'creators',
+                  payload: { slug },
+                })
+              }
+            >
+              <Crown size={12} aria-hidden />
+              Upgrade to unlock more content
+            </Link>
+          ) : null}
         </div>
       </section>
 
@@ -698,6 +852,13 @@ export function CreatorDetailPage() {
           creatorSlug={slug}
           onClose={() => setLightboxIndex(-1)}
           onNavigate={navigateLightbox}
+        />
+      ) : null}
+
+      {missingOutPromoOpen ? (
+        <MissingOutUpgradeModal
+          onContinueWatching={continueAfterMissingOutPromo}
+          onUpgrade={dismissMissingOutForUpgrade}
         />
       ) : null}
 

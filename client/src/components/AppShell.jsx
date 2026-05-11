@@ -95,12 +95,14 @@ export function AppShell() {
           </div>
         </div>
 
-        <nav className="lw-nav-tabs" aria-label="Main navigation">
-          {links.map((link) => (
-            <NavLink key={link.to} to={link.to} end={link.to === '/'} className={navClass(link)}>
-              {link.label}
-            </NavLink>
-          ))}
+        <nav className="lw-nav-tabs-outer" aria-label="Main navigation">
+          <div className="lw-nav-tabs-scroll">
+            {links.map((link) => (
+              <NavLink key={link.to} to={link.to} end={link.to === '/'} className={navClass(link)}>
+                {link.label}
+              </NavLink>
+            ))}
+          </div>
         </nav>
       </header>
 
@@ -166,7 +168,7 @@ export function AppShell() {
         </>
       ) : null}
 
-      <main className={`lw-main mx-auto w-full max-w-[1440px] px-3 pb-20 pt-[136px] sm:px-4 lg:px-6 ${isShorts ? 'lw-main--shorts' : ''}`}>
+      <main className={`lw-main mx-auto w-full max-w-[1440px] px-3 pb-20 pt-[148px] sm:px-4 lg:px-6 ${isShorts ? 'lw-main--shorts' : ''}`}>
         <Outlet />
       </main>
 

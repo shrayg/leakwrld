@@ -84,6 +84,10 @@ export function accountTierLabel(accountTier) {
   return TIER_LABELS[normalizeAccountTier(accountTier)] || 'Free';
 }
 
+export function isAdminAccountTier(accountTier) {
+  return normalizeAccountTier(accountTier) === 'admin';
+}
+
 export function canAccessManifestTier(accountTier, manifestTier) {
   return manifestTiersForAccountTier(accountTier).includes(String(manifestTier || 'free').toLowerCase());
 }
