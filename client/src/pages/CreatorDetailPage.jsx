@@ -14,6 +14,7 @@ import {
   Unlock,
   X,
 } from 'lucide-react';
+import { useNearViewport } from '../hooks/useNearViewport';
 import { apiGet } from '../api';
 import { useAuth } from '../components/AuthContext';
 import { CREATORS } from '../data/catalog';
@@ -290,6 +291,10 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
   const locked = item.locked || isLockedTier(item.tier, accountTier);
   const kind = item.kind || classifyMedia(item.name);
   const src = mediaUrl(item.key);
+  const [tileRef, tileNear] = useNearViewport({
+    disabled: locked,
+    rootMargin: '260px',
+  });
 
   /** Locked items show only a blurred placeholder + paywall; we never
    *  emit an <img> with the locked URL so the browser never even fetches it. */
@@ -303,9 +308,18 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
 
   if (kind === 'image') {
     return (
-      <div className="lw-media-tile-outer">
-        <button type="button" className="lw-media-tile" onClick={() => onOpen(item)} aria-label="View image">
-          <img src={src} alt="" loading="lazy" decoding="async" />
+      <div ref={tileRef} className="lw-media-tile-outer">
+        <button
+          type="button"
+          className={`lw-media-tile accent-${accent}`}
+          onClick={() => onOpen(item)}
+          aria-label="View image"
+        >
+          {tileNear ? (
+            <img src={src} alt="" loading="lazy" decoding="async" />
+          ) : (
+            <div className="lw-media-tile-poster" aria-hidden />
+          )}
           <span className="lw-media-tile-tier free">
             <Unlock size={11} /> Free
           </span>
@@ -317,19 +331,29 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
   }
 
   if (kind === 'video') {
-    /** Grid used to show only a gradient — looked “broken” on prod. A muted
-     *  `preload="metadata"` fetch shows the first frame like a poster (same URL as lightbox).
+    /** Near-viewport gate avoids `preload="metadata"` storms on long grids.
+     *  When visible, muted metadata fetch shows the first frame (same URL as lightbox).
      *  `crossOrigin="anonymous"` matches Worker CORS when `VITE_R2_PUBLIC_BASE` is cross-origin. */
     return (
-      <button type="button" className="lw-media-tile" onClick={() => onOpen(item)} aria-label="Play video">
-        <video
-          className="lw-media-tile-video-el"
-          src={src}
-          muted
-          playsInline
-          preload="metadata"
-          crossOrigin="anonymous"
-        />
+      <button
+        ref={tileRef}
+        type="button"
+        className={`lw-media-tile accent-${accent}`}
+        onClick={() => onOpen(item)}
+        aria-label="Play video"
+      >
+        {tileNear ? (
+          <video
+            className="lw-media-tile-video-el"
+            src={src}
+            muted
+            playsInline
+            preload="metadata"
+            crossOrigin="anonymous"
+          />
+        ) : (
+          <div className="lw-media-tile-poster" aria-hidden />
+        )}
         <div className="lw-media-tile-video-overlay" aria-hidden>
           <span className="lw-play big">
             <Play size={28} fill="currentColor" />

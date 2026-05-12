@@ -78,7 +78,7 @@ function main() {
   }
 
   console.log('');
-  console.log('Done. Next: npm run media:sync && npm run thumbs:gen  (then deploy)');
+  console.log('Done. Next: npm run media:sync && npm run thumbs:convert  (then deploy)');
 }
 
 main();

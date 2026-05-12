@@ -2,6 +2,7 @@ import { ChevronDown } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { accountTierLabel } from '../lib/media';
+import { TELEGRAM_URL } from '../lib/referral';
 import { UserAvatar } from './UserAvatar';
 
 export function UserAccountMenu({ user, logout, variant = 'desktop', onAfterNavigate }) {
@@ -90,6 +91,16 @@ export function UserAccountMenu({ user, logout, variant = 'desktop', onAfterNavi
           >
             Upgrade
           </Link>
+          <a
+            className="lw-user-menu-item"
+            role="menuitem"
+            href={TELEGRAM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={wrapNavigate()}
+          >
+            Contact support
+          </a>
           <button
             type="button"
             className="lw-user-menu-item lw-user-menu-item--logout"

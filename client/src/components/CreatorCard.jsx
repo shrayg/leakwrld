@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, Lock, Play, Sparkles, Unlock } from 'lucide-react';
+import { useNearViewport } from '../hooks/useNearViewport';
 import { useCatalogShortTelemetry } from '../hooks/useCatalogShortTelemetry';
 import { formatCount } from '../lib/metrics';
 import { catalogMediaLike } from '../lib/mediaAnalytics';
@@ -93,6 +94,11 @@ export function ShortCard({ item, index, to, className = '' }) {
   const previewSrc = item.key ? mediaUrl(item.key) : '';
   const [previewBroken, setPreviewBroken] = useState(false);
   const fetchPriority = index < 4 ? 'high' : 'low';
+  const [previewRootRef, previewNear] = useNearViewport({
+    disabled: index < 4,
+    rootMargin: '200px',
+  });
+  const loadPreview = index < 4 || previewNear;
 
   const [views, setViews] = useState(Number(item.views) || 0);
   const [likes, setLikes] = useState(Number(item.likes) || 0);
@@ -141,8 +147,8 @@ export function ShortCard({ item, index, to, className = '' }) {
         onClick={onOpenShort}
         aria-label={`Open ${item.creatorName} from ${item.title}`}
       >
-        <div className={`lw-short-preview accent-${accent}`}>
-          {previewSrc && !previewBroken ? (
+        <div ref={previewRootRef} className={`lw-short-preview accent-${accent}`}>
+          {previewSrc && !previewBroken && loadPreview ? (
             kind === 'video' ? (
               <video
                 className="lw-short-preview-media"

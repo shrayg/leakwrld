@@ -6,6 +6,7 @@ import { AuthModal } from './AuthModal';
 import { useAuth } from './AuthContext';
 import { ReferralModals } from './referral/ReferralModals';
 import { ReferralWelcomeBanner } from './referral/ReferralWelcomeBanner';
+import { SiteFooter } from './SiteFooter';
 import { UserAccountMenu } from './UserAccountMenu';
 
 const links = [
@@ -186,6 +187,8 @@ export function AppShell() {
         <ReferralWelcomeBanner />
         <Outlet />
       </main>
+
+      <SiteFooter />
 
       <AuthModal />
       <ReferralModals />

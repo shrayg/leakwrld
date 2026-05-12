@@ -3437,6 +3437,8 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 /* ─── Referral program — shared design tokens ───────────────────────────── */
 
 .lw-ref-gold {
+  position: relative;
+  display: inline-block;
   background: linear-gradient(95deg, #ffd86b 5%, #fff5b4 35%, #ffd86b 65%, #b78a26 95%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
@@ -3444,11 +3446,81 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   color: transparent;
   font-weight: 700;
   animation: lw-ref-shimmer 6s linear infinite;
+  /* No outline on focus — the burst is the focus affordance. The component
+     uses tabIndex={-1} anyway, so this is belt-and-suspenders. */
+  outline: none;
+  transition: filter 240ms ease-out;
+  /* `will-change` is intentionally omitted: this element only animates
+     during hover, and listing it would force a compositor layer all the
+     time. */
+}
+.lw-ref-gold:hover,
+.lw-ref-gold:focus-visible {
+  filter: drop-shadow(0 0 8px rgba(255, 213, 107, 0.55))
+    drop-shadow(0 0 2px rgba(255, 245, 180, 0.7));
 }
 
 @keyframes lw-ref-shimmer {
   0% { background-position: 0% 50%; }
   100% { background-position: 200% 50%; }
+}
+
+/* ─── Sparkle burst (fires on hover / focus / touch via JS class-remount) */
+
+.lw-ref-gold-burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Allow particles to fly past the text box without clipping. */
+  overflow: visible;
+}
+
+.lw-ref-gold-spark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--size, 5px);
+  height: var(--size, 5px);
+  border-radius: 50%;
+  background: radial-gradient(circle, #fffcde 0%, #ffd86b 45%, transparent 72%);
+  box-shadow:
+    0 0 6px rgba(255, 224, 130, 0.95),
+    0 0 14px rgba(255, 200, 80, 0.55);
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  animation: lw-ref-gold-spark var(--duration, 620ms) cubic-bezier(0.22, 0.61, 0.36, 1) var(--delay, 0ms) 1 both;
+}
+
+@keyframes lw-ref-gold-spark {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+  18% {
+    transform: translate(-50%, -50%) scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform:
+      translate(calc(-50% + var(--dx, 30px)), calc(-50% + var(--dy, -20px)))
+      scale(0.15);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lw-ref-gold {
+    animation: none;
+    transition: none;
+  }
+  .lw-ref-gold:hover,
+  .lw-ref-gold:focus-visible {
+    filter: none;
+  }
+  .lw-ref-gold-burst {
+    /* Don't paint particles at all for reduced-motion users. */
+    display: none;
+  }
 }
 
 .lw-ref-bar {
@@ -3634,6 +3706,41 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   box-shadow: 0 8px 22px rgba(242, 104, 184, 0.3);
 }
 .lw-ref-cta-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(242, 104, 184, 0.45); }
+
+/* Variant of the primary CTA used for the "Get referrals fast" entry point.
+   Green-coded to match the badge inside the modal and reinforce the
+   "instant / fast" affordance. The icon gap is tight so the lightning bolt
+   reads as part of the label, not a separate ornament. */
+.lw-ref-cta-fast {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: linear-gradient(135deg, #22dc82 0%, #14a85f 100%);
+  color: #08210f;
+  box-shadow: 0 8px 22px rgba(34, 220, 130, 0.32);
+}
+.lw-ref-cta-fast:hover {
+  box-shadow: 0 10px 28px rgba(34, 220, 130, 0.45);
+}
+
+/* Lower-emphasis sibling of the primary CTA. We pair it with `.lw-ref-cta-fast`
+   so the loud green button is the obvious first click and "Share my link"
+   is the calmer alternative. */
+.lw-ref-cta-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.lw-ref-cta-secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+  transform: translateY(-1px);
+}
 .lw-ref-more-btn {
   display: inline-flex;
   align-items: center;
@@ -3927,50 +4034,128 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   font-size: 13px;
   cursor: pointer;
 }
-.lw-ref-fast-reddit {
-  display: flex;
+/* ─── "Get referrals fast" modal — pornyard-style quick playbook ─────── */
+
+.lw-fast { padding: 22px; }
+.lw-fast-badge {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  background: linear-gradient(135deg, #ff4500, #d33b06);
-  color: #fff;
-  text-decoration: none;
-  border-radius: 10px;
-  font-weight: 700;
-  margin-bottom: 14px;
-}
-.lw-ref-fast-steps {
-  margin: 0 0 14px;
-  padding-left: 22px;
-  color: var(--color-text);
-  font-size: 14px;
-  line-height: 1.55;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
-}
-.lw-ref-fast-copybox {
-  border: 1px dashed rgba(255, 216, 107, 0.4);
-  background: rgba(0, 0, 0, 0.3);
-  padding: 12px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  /* Green pill — uses our brand green for "go / fast / available". */
+  background: rgba(35, 220, 130, 0.14);
+  border: 1px solid rgba(35, 220, 130, 0.45);
+  color: #22dc82;
   margin-bottom: 12px;
 }
-.lw-ref-fast-copytext {
-  font-family: ui-monospace, monospace;
-  font-size: 13px;
-  color: #fff5b4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.lw-fast-badge svg {
+  /* Slight orange flash on the bolt so the badge reads "instant / power". */
+  color: #ffa726;
+  fill: #ffa726;
 }
-.lw-ref-fast-copyhint { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; }
-.lw-ref-fast-foot { font-size: 12px; color: var(--color-text-muted); margin: 0; }
+.lw-fast-title {
+  margin: 0 0 14px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #fff;
+}
+.lw-fast-reddit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 18px;
+  /* Dark plum-red glow that echoes Reddit's brand without copying it. */
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(255, 69, 0, 0.18) 0%, transparent 55%),
+    rgba(60, 16, 16, 0.55);
+  border: 1px solid rgba(255, 69, 0, 0.35);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  margin-bottom: 18px;
+  transition: background 160ms ease, border-color 160ms ease, transform 80ms ease;
+}
+.lw-fast-reddit-btn:hover {
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(255, 69, 0, 0.32) 0%, transparent 55%),
+    rgba(78, 22, 22, 0.7);
+  border-color: rgba(255, 69, 0, 0.6);
+}
+.lw-fast-reddit-btn:active { transform: translateY(1px); }
+.lw-fast-reddit-btn svg { flex-shrink: 0; }
+
+.lw-fast-steps {
+  list-style: decimal;
+  margin: 0 0 18px;
+  padding-left: 22px;
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 1.65;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lw-fast-steps li::marker { color: var(--color-text); font-weight: 700; }
+
+.lw-fast-comment {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.lw-fast-comment-text {
+  flex: 1;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  /* Allow the link half to wrap once on narrow viewports so the copy button
+     stays visible without a horizontal scrollbar. */
+  word-break: break-word;
+  line-height: 1.4;
+}
+.lw-fast-comment-copy {
+  flex-shrink: 0;
+  width: 56px;
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 140ms ease, color 140ms ease;
+}
+.lw-fast-comment-copy:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+.lw-fast-comment-copy:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.lw-fast-foot {
+  margin: 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
 
 /* ─── Account page (referrals tab) ─────────────────────────────────────── */
 
@@ -4703,6 +4888,104 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 }
 .lw-refpage-playbook-block--warning h3 { color: #ff8484; }
 .lw-refpage-playbook-block .lw-guide-tpl h4 { margin: 0; font-size: 14px; font-weight: 700; }
+
+/* ── Global site footer ──────────────────────────────────────────────── */
+.lw-footer {
+  margin-top: 48px;
+  padding: 32px 16px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.32) 100%);
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+.lw-footer-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) minmax(0, 1.2fr);
+  align-items: start;
+}
+.lw-footer-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lw-footer-brand-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--color-text);
+  letter-spacing: 0.02em;
+}
+.lw-footer-brand-sub { font-size: 12.5px; color: var(--color-text-muted); }
+.lw-footer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-content: flex-start;
+}
+.lw-footer-link {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: 13px;
+  transition: color 120ms ease;
+}
+.lw-footer-link:hover { color: var(--color-text); }
+.lw-footer-contact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.lw-footer-tg {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(56, 144, 235, 0.14);
+  border: 1px solid rgba(56, 144, 235, 0.36);
+  color: #9fd1ff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+.lw-footer-tg:hover {
+  background: rgba(56, 144, 235, 0.22);
+  border-color: rgba(56, 144, 235, 0.5);
+  transform: translateY(-1px);
+}
+.lw-footer-tg-handle {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: #cae6ff;
+}
+.lw-footer-contact-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+.lw-footer-baseline {
+  max-width: 1440px;
+  margin: 18px auto 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.lw-footer-baseline-dot { opacity: 0.5; }
+@media (max-width: 720px) {
+  .lw-footer-inner {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+}
 
 /* ── Referral welcome banner (guest landing via ?ref=) ───────────────── */
 .lw-ref-welcome {

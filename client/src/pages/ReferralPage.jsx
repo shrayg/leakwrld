@@ -1,24 +1,17 @@
 import {
   AlertTriangle,
   BookOpen,
-  Check,
   Copy,
   ExternalLink,
   Gift,
   Lightbulb,
   Send,
-  ShieldAlert,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../components/AuthContext';
 import { GoldPremiumFx } from '../components/referral/GoldPremiumFx';
-import {
-  POST_TEMPLATES,
-  SUBREDDITS,
-  TIPS,
-  UTM_TEMPLATES,
-  WARNINGS,
-} from '../data/referralPlaybook';
+import { CREATORS } from '../data/catalog';
+import { TIPS, WARNINGS } from '../data/referralPlaybook';
 import {
   buildShareUrls,
   copyText,
@@ -27,14 +20,36 @@ import {
   savePayoutHandle,
 } from '../lib/referral';
 
+/** Build a Reddit search URL biased toward fresh, link-friendly threads.
+ *  Picks a random creator from our catalog and a random "leak" / "leaks"
+ *  suffix so every click of "Open active leak threads" lands the user on a
+ *  different live feed — avoids both the burnout of staring at the same
+ *  thread list and any "all our users post in r/leaks" footprint Reddit
+ *  could pattern-match on. */
+function randomLeakSearchUrl() {
+  const names = CREATORS.map((c) => (c && c.name ? String(c.name) : '')).filter(Boolean);
+  /** Defensive fallback — should never fire because CREATORS is bundled
+   *  with the client, but if it did, send the user to a generic search. */
+  if (!names.length) {
+    return 'https://www.reddit.com/search/?q=leaks&type=posts&t=week';
+  }
+  const name = names[Math.floor(Math.random() * names.length)];
+  const suffix = Math.random() < 0.5 ? 'leak' : 'leaks';
+  const q = encodeURIComponent(`${name} ${suffix}`);
+  return `https://www.reddit.com/search/?q=${q}&type=posts&t=week`;
+}
+
 /**
  * /refer — the single, authoritative referral page.
  *
  * Contains:
- *   1. Hero      — pitch + the user's link with copy & share controls
- *   2. Metrics   — signups, lifetime tier, earnings, pending payout
- *   3. Program   — tier ladder + cash revshare ladder + rules + payout CTA
- *   4. Playbook  — "how to get referrals fast" (post templates, subs, tips, warnings)
+ *   1. Hero      — pitch + the user's link with copy & share controls (Reddit / X)
+ *   2. Playbook  — "how to get referrals fast": two-minute version + tips +
+ *                  "don't get banned" rules. Lives above metrics on purpose:
+ *                  most users open this page to *learn how to earn*, not to
+ *                  re-check the same dashboard they just left.
+ *   3. Metrics   — signups, lifetime tier, earnings, pending payout
+ *   4. Program   — tier ladder + cash revshare ladder + rules + payout CTA
  *
  * Guests see the explainer + playbook with a placeholder link, plus a signup
  * CTA. Authed users get their real link wired everywhere and live metrics.
@@ -76,13 +91,12 @@ export function ReferralPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  /** Real link if authed, deterministic placeholder otherwise — keeps the
-   *  templates and UTM examples meaningful for guests browsing the page. */
+  /** Real link if authed, deterministic placeholder otherwise — guests still
+   *  see a sensible-looking link example in the hero card. */
   const link = status?.shareUrl || status?.longUrl || status?.url || 'https://leakwrld.com/r/YOURCODE';
   const code = status?.code || 'YOURCODE';
   const share = useMemo(() => buildShareUrls(link), [link]);
   const telegram = status?.telegramPayoutUrl || program?.telegramPayoutUrl || '';
-  const fastReddit = program?.redditFastUrl || 'https://www.reddit.com/search/?q=leaks&type=posts&t=week';
 
   async function doCopy(value, label, idForCopiedState) {
     if (!value) return;
@@ -94,16 +108,13 @@ export function ReferralPage() {
     setToast(ok ? `${label} copied.` : `Could not copy ${label.toLowerCase()}.`);
   }
 
-  async function copyTemplate(template) {
-    const body = String(template.body || '').replaceAll('{{link}}', link);
-    await doCopy(body, 'Template', template.id);
-  }
-
-  async function copyLinkWithUtm(extra = '') {
-    const sep = link.includes('?') ? '&' : '?';
-    const out = extra ? `${link}${sep}${extra}` : link;
-    await doCopy(out, 'Link', `link-${extra || 'plain'}`);
-  }
+  /** Opens a freshly-randomised Reddit search every time it's invoked so
+   *  repeat-clickers get a different creator each time. */
+  const openRandomLeakThreads = useCallback((event) => {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    const url = randomLeakSearchUrl();
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, []);
 
   async function handleSaveHandle() {
     const v = handle.trim();
@@ -133,6 +144,12 @@ export function ReferralPage() {
         onSignup={() => openAuthModal('signup')}
       />
 
+      <PlaybookSection
+        copiedId={copiedId}
+        onCopyLink={() => doCopy(link, 'Link', 'link-plain')}
+        onOpenLeakThreads={openRandomLeakThreads}
+      />
+
       {user ? (
         <MetricsSection
           status={status}
@@ -147,15 +164,6 @@ export function ReferralPage() {
       )}
 
       <HowItWorksSection status={status} program={program} telegram={telegram} />
-
-      <PlaybookSection
-        link={link}
-        copiedId={copiedId}
-        fastReddit={fastReddit}
-        onCopyLink={() => doCopy(link, 'Link', 'link-plain')}
-        onCopyTemplate={copyTemplate}
-        onCopyLinkWithUtm={copyLinkWithUtm}
-      />
 
       <div className="lw-ref-toast" aria-live="polite">
         {toast}
@@ -226,10 +234,6 @@ function HeroSection({ user, link, code, share, program, copiedId, onCopyLink, o
             <a className="lw-refpage-share-btn" href={share.xPost} target="_blank" rel="noopener noreferrer">
               <span>X / Twitter</span>
               <span className="lw-refpage-share-sub">New post</span>
-            </a>
-            <a className="lw-refpage-share-btn" href={share.telegram} target="_blank" rel="noopener noreferrer">
-              <span>Telegram</span>
-              <span className="lw-refpage-share-sub">Share</span>
             </a>
           </div>
         </div>
@@ -462,7 +466,7 @@ function HowItWorksSection({ status, program, telegram }) {
 
 /* ──────────────────────────────────────────────────────────────────────── */
 
-function PlaybookSection({ link, copiedId, fastReddit, onCopyLink, onCopyTemplate, onCopyLinkWithUtm }) {
+function PlaybookSection({ copiedId, onCopyLink, onOpenLeakThreads }) {
   return (
     <section className="lw-refpage-section" aria-labelledby="lw-refpage-fast-title">
       <header className="lw-refpage-section-head">
@@ -495,74 +499,16 @@ function PlaybookSection({ link, copiedId, fastReddit, onCopyLink, onCopyTemplat
           </li>
         </ol>
         <div className="lw-refpage-twomin-actions">
-          <a className="lw-btn primary" href={fastReddit} target="_blank" rel="noopener noreferrer">
+          {/* Random creator + leak/leaks each click — handler regenerates the
+              Reddit search URL on every press so repeat-clickers cycle through
+              different live threads instead of staring at the same feed. */}
+          <button type="button" className="lw-btn primary" onClick={onOpenLeakThreads}>
             <Send size={14} aria-hidden /> Open active leak threads
             <ExternalLink size={14} aria-hidden />
-          </a>
+          </button>
           <button type="button" className="lw-btn ghost" onClick={onCopyLink}>
             <Copy size={14} aria-hidden /> {copiedId === 'link-plain' ? 'Copied!' : 'Copy your link'}
           </button>
-        </div>
-      </div>
-
-      <div className="lw-refpage-playbook-block">
-        <h3>
-          <Copy size={16} aria-hidden /> Post templates
-        </h3>
-        <p>
-          Click any template to copy it with your link auto-inserted. Rotate templates so Reddit's
-          spam filter doesn't flag you.
-        </p>
-        <div className="lw-guide-tpl-grid">
-          {POST_TEMPLATES.map((t) => (
-            <article key={t.id} className="lw-guide-tpl">
-              <header>
-                <h4>{t.label}</h4>
-                <p>{t.use}</p>
-              </header>
-              <pre className="lw-guide-tpl-body">{String(t.body).replaceAll('{{link}}', link)}</pre>
-              <button type="button" className="lw-btn primary" onClick={() => onCopyTemplate(t)}>
-                {copiedId === t.id ? (
-                  <>
-                    <Check size={14} aria-hidden /> Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy size={14} aria-hidden /> Copy template
-                  </>
-                )}
-              </button>
-            </article>
-          ))}
-        </div>
-      </div>
-
-      <div className="lw-refpage-playbook-block">
-        <h3>
-          <ExternalLink size={16} aria-hidden /> Where to post
-        </h3>
-        <p>
-          Verified-safe subreddits. <strong>Curated list</strong> — venues that don't auto-remove
-          links and have active demand. Always re-check the sub's rules before posting.
-        </p>
-        <div className="lw-guide-subs">
-          {SUBREDDITS.map((s) => (
-            <a
-              key={s.name}
-              className="lw-guide-sub"
-              href={`https://www.reddit.com/${s.name.replace(/^r\//, 'r/')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <div className="lw-guide-sub-head">
-                <strong>{s.name}</strong>
-                <span className={`lw-guide-sub-mode mode-${s.mode}`}>
-                  {s.mode === 'post' ? 'Post + comment' : 'Comment only'}
-                </span>
-              </div>
-              <p>{s.notes}</p>
-            </a>
-          ))}
         </div>
       </div>
 
@@ -575,32 +521,6 @@ function PlaybookSection({ link, copiedId, fastReddit, onCopyLink, onCopyTemplat
             <li key={i}>{tip}</li>
           ))}
         </ul>
-      </div>
-
-      <div className="lw-refpage-playbook-block">
-        <h3>
-          <ShieldAlert size={16} aria-hidden /> Tracking links (UTM)
-        </h3>
-        <p>
-          UTM-tag your links if you want to see which platforms drive the most signups in the admin
-          dashboard. Click any preset to copy your link with the UTM pre-attached.
-        </p>
-        <div className="lw-guide-utm-grid">
-          {UTM_TEMPLATES.map((u) => (
-            <button
-              type="button"
-              key={u.name}
-              className="lw-guide-utm"
-              onClick={() => onCopyLinkWithUtm(u.value)}
-            >
-              <span className="lw-guide-utm-name">{u.name}</span>
-              <code className="lw-guide-utm-code">{u.value}</code>
-              <span className="lw-guide-utm-action">
-                {copiedId === `link-${u.value}` ? 'Copied!' : 'Copy link with UTM'}
-              </span>
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="lw-refpage-playbook-block lw-refpage-playbook-block--warning">

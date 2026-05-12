@@ -7,6 +7,11 @@ import { apiGet, apiPost } from '../api';
  *  so `rateBps / 100` gives a human-readable percentage.
  */
 
+/** Canonical Leak World Telegram URL — mirrors server/referralProgram.js
+ *  TELEGRAM_URL_DEFAULT so the link still surfaces if /api/referral/program
+ *  is briefly unavailable or the client is still hydrating. */
+export const TELEGRAM_URL = 'https://t.me/leakwrldcom';
+
 const PROGRAM_FALLBACK = {
   ok: true,
   memo: {
@@ -22,7 +27,7 @@ const PROGRAM_FALLBACK = {
     { threshold: 10, rateBps: 1000, label: '10% revshare' },
     { threshold: 30, rateBps: 2000, label: '20% revshare' },
   ],
-  telegramPayoutUrl: '',
+  telegramPayoutUrl: TELEGRAM_URL,
   redditFastUrl: 'https://www.reddit.com/search/?q=leaks&type=posts&t=week',
 };
 
@@ -44,7 +49,7 @@ const STATUS_FALLBACK = {
   earnedCents: 0,
   paidCents: 0,
   pendingCents: 0,
-  telegramPayoutUrl: '',
+  telegramPayoutUrl: TELEGRAM_URL,
 };
 
 export async function fetchReferralProgram() {

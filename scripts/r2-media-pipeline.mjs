@@ -5,7 +5,7 @@
  *  1. Rename legacy `videos/<Title Case>/` prefixes → `videos/<slug>/` via R2 S3 API.
  *  2. Inject `RCLONE_CONFIG_R2_*` so rclone can list the bucket.
  *  3. `npm run media:sync` — rebuild manifests + media-summary JSON.
- *  4. `npm run thumbs:gen` — thumbnails into client/public/thumbnails.
+ *  4. `npm run thumbs:convert` — JPEG creator thumbs → WebP in client/public/thumbnails (local).
  *  5. `npm run r2:count` — refresh data/r2-stats.json (optional).
  *
  * Requires in `.env` (see `env.r2.example`):
@@ -268,8 +268,8 @@ async function main() {
   runNpmScript('media:sync');
 
   if (!args.skipThumbs) {
-    console.log('\n=== thumbs:gen ===');
-    runNpmScript('thumbs:gen');
+    console.log('\n=== thumbs:convert ===');
+    runNpmScript('thumbs:convert');
   }
 
   if (!args.skipCount) {

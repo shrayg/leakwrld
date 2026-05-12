@@ -1,3 +1,4 @@
+import { Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
@@ -15,7 +16,7 @@ import { GoldPremiumFx } from './GoldPremiumFx';
  * unlocked" success state.
  */
 export function HomeReferralTeaser() {
-  const { user, openAuthModal, openReferral } = useAuth();
+  const { user, openAuthModal, openReferral, openFastModal } = useAuth();
   const isAuthed = !!user;
   const [status, setStatus] = useState(null);
 
@@ -91,9 +92,20 @@ export function HomeReferralTeaser() {
       </div>
       <div className="lw-ref-teaser-actions">
         {isAuthed ? (
-          <button type="button" className="lw-ref-cta-primary" onClick={openReferral}>
-            Get your link
-          </button>
+          <>
+            {/* "Get referrals fast" is the fastest path to a real signup — surfaced
+                directly here so users don't have to dig through the share modal. */}
+            <button
+              type="button"
+              className="lw-ref-cta-primary lw-ref-cta-fast"
+              onClick={openFastModal}
+            >
+              <Zap size={14} aria-hidden /> Get referrals fast
+            </button>
+            <button type="button" className="lw-ref-cta-secondary" onClick={openReferral}>
+              Share my link
+            </button>
+          </>
         ) : (
           <button type="button" className="lw-ref-cta-primary" onClick={() => openAuthModal('signup')}>
             Sign up to earn

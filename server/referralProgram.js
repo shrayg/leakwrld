@@ -88,12 +88,20 @@ function trackCreditIp(existing, ip) {
   return { list, duplicate: false };
 }
 
+/** Canonical Leak World Telegram URL. Used for payout requests, support, and
+ *  every "contact us" surface across the site. Single source of truth so we
+ *  don't end up with stale links scattered through the codebase. Override in
+ *  production via LW_TELEGRAM_PAYOUT_URL if it ever needs to point somewhere
+ *  else. */
+const TELEGRAM_URL_DEFAULT = 'https://t.me/leakwrldcom';
+
 const PROGRAM_RULES = {
   tierLadder: TIER_LADDER,
   revshareLadder: REVSHARE_LADDER,
-  /** Telegram payout deep-link; the client renders a "Message us on Telegram"
-   *  button when this is set. Override in production via env. */
-  telegramPayoutUrl: () => String(process.env.LW_TELEGRAM_PAYOUT_URL || '').trim(),
+  /** Telegram deep-link surfaced as "Message us on Telegram" / "Contact
+   *  support" buttons. Defaults to @leakwrldcom. */
+  telegramPayoutUrl: () =>
+    String(process.env.LW_TELEGRAM_PAYOUT_URL || TELEGRAM_URL_DEFAULT).trim(),
   /** Public reddit search link the "Get referrals fast" modal sends users to. */
   redditFastUrl: () =>
     String(process.env.LW_REDDIT_FAST_URL || 'https://www.reddit.com/search/?q=leaks&type=posts&t=week').trim(),
@@ -109,6 +117,7 @@ module.exports = {
   TIER_RANK,
   MAX_CREDIT_IPS,
   PROGRAM_RULES,
+  TELEGRAM_URL_DEFAULT,
   nextTierGoal,
   nextRevshareGoal,
   entitlementsFor,
