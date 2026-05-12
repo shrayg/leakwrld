@@ -6,7 +6,8 @@
  *
  * Idempotent: skips creators whose thumbnail already exists unless --force is passed.
  *
- * R2 access uses RCLONE_CONFIG_R2_* env vars (see Shell session).
+ * R2 access: reads repo `.env` and maps `R2_*` → `RCLONE_CONFIG_R2_*` (same as media pipeline).
+ * Remote must be named `r2`, bucket `leakwrld`, prefix `videos/` (see REMOTE constant).
  *
  * Usage:
  *   node scripts/generate-thumbnails.mjs           # only missing
@@ -29,6 +30,79 @@ const require = createRequire(import.meta.url);
 const { creators } = require(join(repoRoot, 'server', 'catalog.js'));
 
 const args = parseArgs(process.argv.slice(2));
+
+/** Strip ` # ...` tail so values survive `.env` inline comments. */
+function stripTrailingEnvComment(value) {
+  const s = String(value ?? '').trim();
+  const i = s.search(/\s#/);
+  return i >= 0 ? s.slice(0, i).trim() : s;
+}
+
+function loadEnvFile(filePath) {
+  if (!existsSync(filePath)) return;
+  const raw = readFileSync(filePath, 'utf8');
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    value = stripTrailingEnvComment(value);
+    if (process.env[key] == null) process.env[key] = value;
+  }
+}
+
+/** rclone reads `RCLONE_CONFIG_<remote>_*`; Cloudflare R2 uses S3-compatible backend. */
+function ensureRcloneEnvFromDotenv() {
+  loadEnvFile(join(repoRoot, '.env'));
+
+  const accessKey = stripTrailingEnvComment(
+    process.env.R2_ACCESS_KEY_ID || process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID || '',
+  );
+  const secretKey = stripTrailingEnvComment(
+    process.env.R2_SECRET_ACCESS_KEY || process.env.RCLONE_CONFIG_R2_SECRET_ACCESS_KEY || '',
+  );
+  let endpoint = stripTrailingEnvComment(
+    process.env.RCLONE_CONFIG_R2_ENDPOINT || process.env.R2_ENDPOINT || '',
+  );
+  const accountId = stripTrailingEnvComment(process.env.R2_ACCOUNT_ID || '');
+  if (!endpoint && accountId) {
+    endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+  }
+
+  if (!accessKey || !secretKey || !endpoint) {
+    console.error(`
+[thumbs:gen] Missing R2 S3 API credentials for rclone.
+
+Add to ${join(repoRoot, '.env')} (same names as env.r2.example):
+
+  R2_ACCESS_KEY_ID=...
+  R2_SECRET_ACCESS_KEY=...
+  R2_ACCOUNT_ID=<Cloudflare account id>
+
+Endpoint defaults to https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com
+
+Or set RCLONE_CONFIG_R2_ACCESS_KEY_ID, RCLONE_CONFIG_R2_SECRET_ACCESS_KEY,
+RCLONE_CONFIG_R2_ENDPOINT explicitly.
+
+Requires: rclone installed; remote name "r2" is configured purely via env (no rclone.conf needed).
+`);
+    process.exit(1);
+  }
+
+  process.env.RCLONE_CONFIG_R2_TYPE = process.env.RCLONE_CONFIG_R2_TYPE || 's3';
+  process.env.RCLONE_CONFIG_R2_PROVIDER = process.env.RCLONE_CONFIG_R2_PROVIDER || 'Cloudflare';
+  process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID = accessKey;
+  process.env.RCLONE_CONFIG_R2_SECRET_ACCESS_KEY = secretKey;
+  process.env.RCLONE_CONFIG_R2_ENDPOINT = endpoint;
+}
 
 const REMOTE = 'r2:leakwrld/videos';
 const OUT_DIR = join(repoRoot, 'client', 'public', 'thumbnails');
@@ -246,6 +320,18 @@ async function processCreator(creator) {
 }
 
 async function main() {
+  ensureRcloneEnvFromDotenv();
+
+  const probe = spawnSync('rclone', ['lsf', 'r2:leakwrld/videos', '--max-depth', '1'], {
+    encoding: 'utf8',
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  if (probe.status !== 0) {
+    console.error('[thumbs:gen] rclone cannot list r2:leakwrld/videos — check credentials and bucket name.');
+    console.error(probe.stderr?.trim() || probe.stdout?.trim() || '(no output)');
+    process.exit(1);
+  }
+
   const targets = args.slug ? creators.filter((c) => c.slug === args.slug) : creators;
   if (targets.length === 0) {
     console.error(`No creators matched ${args.slug ? `slug=${args.slug}` : '(empty)'}`);
