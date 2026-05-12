@@ -145,7 +145,7 @@ const creators = creatorNames.map((name, index) => {
     viewsAllTime,
     heat: Math.max(42, 100 - Math.floor(rank / 2)),
     accent: ['pink', 'gold', 'cyan', 'green'][index % 4],
-    thumbnail: thumbnailSlugs.has(slug) ? `/thumbnails/${slug}.jpg` : null,
+    thumbnail: thumbnailSlugs.has(slug) ? `/thumbnails/${slug}.webp` : null,
     ...(creatorThumbOverrides[slug] || {}),
     /** "ready" = R2 has real content for this creator; the public catalog
      *  filters on this so empty placeholders don't appear in the grid. */

@@ -1,12 +1,10 @@
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
 import { apiPost } from '../api';
 import { getVisitorKey, recordEvent } from '../lib/analytics';
 import { useAuth } from './AuthContext';
 
 export function AuthModal() {
-  const location = useLocation();
   const {
     authModalOpen,
     authModalMode,
@@ -65,15 +63,17 @@ export function AuthModal() {
     if (cooldownSec > 0) return;
     setBusy(true);
     setError('');
+    /** Referral attribution is intentionally NOT a form field — the user's
+     *  6-char code is system-generated at signup, and the referrer's code is
+     *  carried by the `lw_ref` cookie (set on the first request with ?ref=)
+     *  with an IP-table fallback. Nothing typed at signup time. */
     try {
-      const refTrim = new URLSearchParams(location.search).get('ref')?.trim();
       if (isSignup) {
         await apiPost('/api/auth/signup', {
           email: form.email.trim() || undefined,
           username: form.username,
           password: form.password,
           confirmPassword: form.confirmPassword,
-          ...(refTrim ? { referralCode: refTrim } : {}),
           visitorKey: getVisitorKey(),
           referrer: typeof document !== 'undefined' ? document.referrer || undefined : undefined,
         });

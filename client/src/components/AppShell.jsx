@@ -4,6 +4,8 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { recordEvent, recordPageView } from '../lib/analytics';
 import { AuthModal } from './AuthModal';
 import { useAuth } from './AuthContext';
+import { ReferralModals } from './referral/ReferralModals';
+import { ReferralWelcomeBanner } from './referral/ReferralWelcomeBanner';
 import { UserAccountMenu } from './UserAccountMenu';
 
 const links = [
@@ -43,11 +45,23 @@ export function AppShell() {
     if (loading) return;
     const params = new URLSearchParams(search);
     const a = params.get('auth');
-    if (a !== 'login' && a !== 'signup') return;
-    if (!user) openAuthModal(a);
-    params.delete('auth');
-    const qs = params.toString();
-    navigate(`${pathname}${qs ? `?${qs}` : ''}`, { replace: true });
+    const refParam = params.get('ref');
+    /** If a guest lands here via a referral link (?ref= in the URL), pop the
+     *  signup modal automatically — these are high-intent visits we don't
+     *  want to lose to passive browsing. We deliberately leave `?ref=` in
+     *  the URL so it survives a hard refresh and downstream `captureReferralCookie`
+     *  on the server keeps refreshing the cookie / IP visit row. */
+    const wantAuth = a === 'login' || a === 'signup';
+    const wantReferralSignup = !!refParam && !user;
+    if (!wantAuth && !wantReferralSignup) return;
+    if (!user) openAuthModal(wantAuth ? a : 'signup');
+    if (wantAuth) {
+      /** `?auth=` is a one-shot trigger — strip it after opening the modal
+       *  so a back/forward navigation doesn't re-pop the dialog. */
+      params.delete('auth');
+      const qs = params.toString();
+      navigate(`${pathname}${qs ? `?${qs}` : ''}`, { replace: true });
+    }
   }, [search, pathname, navigate, openAuthModal, loading, user]);
 
   return (
@@ -169,10 +183,12 @@ export function AppShell() {
       ) : null}
 
       <main className={`lw-main mx-auto w-full max-w-[1440px] px-3 pb-20 pt-[148px] sm:px-4 lg:px-6 ${isShorts ? 'lw-main--shorts' : ''}`}>
+        <ReferralWelcomeBanner />
         <Outlet />
       </main>
 
       <AuthModal />
+      <ReferralModals />
     </div>
   );
 }

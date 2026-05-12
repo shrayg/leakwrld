@@ -27,6 +27,12 @@ import {
   mediaPlaybackSessionId,
 } from '../lib/mediaAnalytics';
 import { displayCount, formatCount } from '../lib/metrics';
+import { pickR2ResourceTiming, recordMediaLoadTiming } from '../lib/mediaLoadTelemetry';
+import {
+  buildShortsFeedQueryString,
+  SHORTS_FEED_INITIAL_LIMIT,
+  SHORTS_FEED_LOAD_MORE_LIMIT,
+} from '../lib/shortsFeed';
 
 const NAV_LINKS = [
   { to: '/', label: 'Home' },
@@ -37,7 +43,6 @@ const NAV_LINKS = [
 
 const EMPTY_FILTERS = { creators: [], categories: [] };
 const REACTION_PREFIX = 'lw_short_reaction_';
-const FEED_PAGE_SIZE = 240;
 
 function storageGet(key) {
   try {
@@ -74,7 +79,48 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
   const playbackId = useMemo(() => mediaPlaybackSessionId(), [item.key]);
   const [playing, setPlaying] = useState(false);
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const stallCountRef = useRef(0);
+  const metaReportedRef = useRef(false);
+  const loadStartedAtRef = useRef(0);
+  const readyRef = useRef(false);
+  const loadErrorRef = useRef(false);
   const isImage = item.kind === 'image' || String(item.ext || '').toLowerCase() === '.gif';
+
+  useEffect(() => {
+    readyRef.current = ready;
+  }, [ready]);
+  useEffect(() => {
+    loadErrorRef.current = loadError;
+  }, [loadError]);
+
+  const baseMediaSrc = useMemo(() => mediaUrl(item.key), [item.key]);
+  const mediaSrc = useMemo(() => {
+    if (!retryNonce) return baseMediaSrc;
+    const sep = baseMediaSrc.includes('?') ? '&' : '?';
+    return `${baseMediaSrc}${sep}lwRetry=${retryNonce}`;
+  }, [baseMediaSrc, retryNonce]);
+
+  useEffect(() => {
+    setReady(false);
+    setLoadError(false);
+    setTimedOut(false);
+    setRetryNonce(0);
+    stallCountRef.current = 0;
+    metaReportedRef.current = false;
+  }, [item.id, item.key]);
+
+  useEffect(() => {
+    if (!isActive) return undefined;
+    loadStartedAtRef.current = Date.now();
+    const timer = window.setTimeout(() => {
+      if (readyRef.current || loadErrorRef.current) return;
+      setTimedOut(true);
+    }, 22_000);
+    return () => window.clearTimeout(timer);
+  }, [isActive, item.key]);
 
   useEffect(() => {
     if (isImage) return;
@@ -181,9 +227,23 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
     };
 
     const onLoaded = () => {
+      setTimedOut(false);
+      setLoadError(false);
       setReady(true);
       sendDuration();
       startSession();
+      if (!metaReportedRef.current) {
+        metaReportedRef.current = true;
+        const elapsed = Math.max(0, Date.now() - loadStartedAtRef.current);
+        const timing = pickR2ResourceTiming(video.currentSrc || mediaSrc);
+        recordMediaLoadTiming({
+          surface: 'shorts_video',
+          storageKey: item.key,
+          metadataMs: elapsed,
+          stallCount: stallCountRef.current,
+          ...timing,
+        });
+      }
     };
     const onTime = () => flushProgress(false);
     const onPause = () => {
@@ -196,12 +256,29 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
     };
     const onEnded = () => flushProgress(true);
 
+    const onWaiting = () => {
+      stallCountRef.current += 1;
+    };
+
+    const onVideoError = () => {
+      setLoadError(true);
+      setReady(false);
+      recordMediaLoadTiming({
+        surface: 'shorts_video',
+        storageKey: item.key,
+        error: 'video_error',
+        code: video.error?.code,
+      });
+    };
+
     if (video.readyState >= 1) onLoaded();
     video.addEventListener('loadedmetadata', onLoaded);
     video.addEventListener('timeupdate', onTime);
     video.addEventListener('pause', onPause);
     video.addEventListener('play', onPlay);
     video.addEventListener('ended', onEnded);
+    video.addEventListener('waiting', onWaiting);
+    video.addEventListener('error', onVideoError);
 
     return () => {
       flushProgress(true);
@@ -210,8 +287,10 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
       video.removeEventListener('pause', onPause);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('ended', onEnded);
+      video.removeEventListener('waiting', onWaiting);
+      video.removeEventListener('error', onVideoError);
     };
-  }, [isActive, item, playbackId, isImage]);
+  }, [isActive, item, playbackId, isImage, mediaSrc]);
 
   const togglePlayback = useCallback(() => {
     if (!isActive || isImage) return;
@@ -230,6 +309,47 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
     }
   }, [isActive, isImage]);
 
+  const onRetryMedia = useCallback(
+    (e) => {
+      e.stopPropagation();
+      setLoadError(false);
+      setTimedOut(false);
+      setReady(false);
+      metaReportedRef.current = false;
+      stallCountRef.current = 0;
+      setRetryNonce((n) => n + 1);
+      window.setTimeout(() => {
+        const v = videoRef.current;
+        if (v && !isImage) v.load();
+      }, 0);
+    },
+    [isImage],
+  );
+
+  const onImageLoad = useCallback(() => {
+    setTimedOut(false);
+    setLoadError(false);
+    setReady(true);
+    const elapsed = Math.max(0, Date.now() - loadStartedAtRef.current);
+    const timing = pickR2ResourceTiming(mediaSrc);
+    recordMediaLoadTiming({
+      surface: 'shorts_image',
+      storageKey: item.key,
+      metadataMs: elapsed,
+      ...timing,
+    });
+  }, [item.key, mediaSrc]);
+
+  const onImageError = useCallback(() => {
+    setLoadError(true);
+    setReady(false);
+    recordMediaLoadTiming({ surface: 'shorts_image', storageKey: item.key, error: 'image_error' });
+  }, [item.key]);
+
+  const videoPreload = isActive ? 'auto' : 'none';
+  const showBlocking = isActive && !ready && !loadError && !timedOut;
+  const showRecover = isActive && (loadError || timedOut);
+
   return (
     <article
       className={`lw-short-slide ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
@@ -239,25 +359,33 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
       {isImage ? (
         <img
           className="lw-short-video lw-short-image"
-          src={mediaUrl(item.key)}
+          src={mediaSrc}
           alt=""
           loading={isActive ? 'eager' : 'lazy'}
           decoding="async"
-          onLoad={() => setReady(true)}
+          onLoad={onImageLoad}
+          onError={onImageError}
         />
       ) : (
         <video
           ref={videoRef}
           className="lw-short-video"
-          src={mediaUrl(item.key)}
-          preload="auto"
+          src={mediaSrc}
+          preload={videoPreload}
           autoPlay={isActive}
           playsInline
           loop
           muted={muted}
-          crossOrigin="anonymous"
         />
       )}
+      {showRecover ? (
+        <div className="lw-short-recover-overlay" role="alert">
+          <p className="lw-short-recover-msg">{loadError ? 'Media error' : 'Taking too long'}</p>
+          <button type="button" className="lw-short-retry lw-btn ghost" onClick={onRetryMedia}>
+            Retry
+          </button>
+        </div>
+      ) : null}
       <button
         type="button"
         className="lw-short-play-surface"
@@ -265,7 +393,7 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
         tabIndex={isActive ? 0 : -1}
         onClick={togglePlayback}
       >
-        {!ready ? <span className="lw-short-loading">Loading</span> : null}
+        {showBlocking ? <span className="lw-short-loading">Loading</span> : null}
         {ready && !isImage && !playing ? (
           <span className="lw-short-play-float">
             <Play size={34} fill="currentColor" />
@@ -467,6 +595,17 @@ export function ShortsPage() {
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
 
+  const allCreatorSlugs = useMemo(() => filters.creators.map((creator) => creator.slug), [filters.creators]);
+  const allCategorySlugs = useMemo(() => filters.categories.map((category) => category.slug), [filters.categories]);
+  const activeCreatorSet = useMemo(
+    () => new Set(selectedCreators || allCreatorSlugs),
+    [selectedCreators, allCreatorSlugs],
+  );
+  const activeCategorySet = useMemo(
+    () => new Set(selectedCategories || allCategorySlugs),
+    [selectedCategories, allCategorySlugs],
+  );
+
   useEffect(() => {
     document.title = 'Shorts - Leak World';
     document.body.classList.add('lw-shorts-active-body');
@@ -490,8 +629,22 @@ export function ShortsPage() {
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
     initialFeedSeed.current = null;
-    const seed = encodeURIComponent(feedSeedRef.current);
-    apiGet(`/api/shorts/feed?limit=${FEED_PAGE_SIZE}&offset=0&seed=${seed}`, { shorts: [], filters: EMPTY_FILTERS, access: { userTier: 'free', manifestTiers: ['free'] }, page: { offset: 0, returned: 0, total: 0 } })
+    const seedRaw = feedSeedRef.current;
+    const qs = buildShortsFeedQueryString({
+      limit: SHORTS_FEED_INITIAL_LIMIT,
+      offset: 0,
+      seed: seedRaw,
+      allCreatorSlugs,
+      allCategorySlugs,
+      selectedCreators,
+      selectedCategories,
+    });
+    apiGet(`/api/shorts/feed?${qs}`, {
+      shorts: [],
+      filters: EMPTY_FILTERS,
+      access: { userTier: 'free', manifestTiers: ['free'] },
+      page: { offset: 0, returned: 0, total: 0 },
+    })
       .then((data) => {
         if (cancelled || requestId !== requestSeq.current) return;
         setShorts(data?.shorts || []);
@@ -504,14 +657,23 @@ export function ShortsPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.tier]);
+  }, [user?.tier, selectedCreators, selectedCategories]);
 
   const loadMore = useCallback(() => {
     const nextOffset = Number(pageInfo.offset || 0) + Number(pageInfo.returned || 0);
     if (loading || loadingMore || nextOffset <= 0 || nextOffset >= Number(pageInfo.total || 0)) return;
     setLoadingMore(true);
-    const seed = encodeURIComponent(feedSeedRef.current);
-    apiGet(`/api/shorts/feed?limit=${FEED_PAGE_SIZE}&offset=${nextOffset}&seed=${seed}`, { shorts: [], page: pageInfo })
+    const seedRaw = feedSeedRef.current;
+    const qs = buildShortsFeedQueryString({
+      limit: SHORTS_FEED_LOAD_MORE_LIMIT,
+      offset: nextOffset,
+      seed: seedRaw,
+      allCreatorSlugs,
+      allCategorySlugs,
+      selectedCreators,
+      selectedCategories,
+    });
+    apiGet(`/api/shorts/feed?${qs}`, { shorts: [], page: pageInfo })
       .then((data) => {
         const nextItems = data?.shorts || [];
         setShorts((prev) => {
@@ -525,18 +687,15 @@ export function ShortsPage() {
         if (data?.page) setPageInfo(data.page);
       })
       .finally(() => setLoadingMore(false));
-  }, [loading, loadingMore, pageInfo]);
-
-  const allCreatorSlugs = useMemo(() => filters.creators.map((creator) => creator.slug), [filters.creators]);
-  const allCategorySlugs = useMemo(() => filters.categories.map((category) => category.slug), [filters.categories]);
-  const activeCreatorSet = useMemo(
-    () => new Set(selectedCreators || allCreatorSlugs),
-    [selectedCreators, allCreatorSlugs],
-  );
-  const activeCategorySet = useMemo(
-    () => new Set(selectedCategories || allCategorySlugs),
-    [selectedCategories, allCategorySlugs],
-  );
+  }, [
+    loading,
+    loadingMore,
+    pageInfo,
+    allCreatorSlugs,
+    allCategorySlugs,
+    selectedCreators,
+    selectedCategories,
+  ]);
 
   const visibleShorts = useMemo(
     () => shorts.filter((item) => {
@@ -580,7 +739,7 @@ export function ShortsPage() {
     if (loading || loadingMore) return;
     if (activeCreatorSet.size === 0 || activeCategorySet.size === 0) return;
     if (Number(pageInfo.offset || 0) + Number(pageInfo.returned || 0) >= Number(pageInfo.total || 0)) return;
-    if (visibleShorts.length === 0 || activeIndex >= Math.max(0, visibleShorts.length - 5)) {
+    if (visibleShorts.length === 0 || activeIndex >= Math.max(0, visibleShorts.length - 2)) {
       loadMore();
     }
   }, [

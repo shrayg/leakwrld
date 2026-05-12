@@ -20,6 +20,21 @@ create table if not exists users (
   password_hash text,
   auth_provider text not null default 'local' check (auth_provider in ('local', 'google', 'discord', 'other')),
   tier text not null default 'free' check (tier in ('free', 'basic', 'premium', 'ultimate', 'admin')),
+  /** Lifetime tier earned via the referral program — never decays. The effective
+   *  tier returned to the client is max(tier, lifetime_tier). */
+  lifetime_tier text check (lifetime_tier in ('free', 'basic', 'premium', 'ultimate')),
+  tier_granted_at timestamptz,
+  /** Cash referral revenue share. Unlocked at 10 counted signups (10%),
+   *  bumped to 20% at 30. Stored in basis points to avoid float math. */
+  revshare_unlocked_at timestamptz,
+  revshare_rate_bps integer not null default 0
+    check (revshare_rate_bps >= 0 and revshare_rate_bps <= 10000),
+  referral_earned_cents bigint not null default 0 check (referral_earned_cents >= 0),
+  referral_paid_cents bigint not null default 0 check (referral_paid_cents >= 0),
+  referral_payout_handle text,
+  /** Anti-fraud: track which signup IPs have already given this user a credit.
+   *  Capped to 256 entries in application code. */
+  referral_credit_ips jsonb not null default '[]'::jsonb,
   referral_code text not null unique
     check (referral_code ~ '^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$'),
   referred_by_user_id uuid references users (id) on delete set null,
@@ -49,19 +64,29 @@ create table if not exists referral_signups (
   referrer_user_id uuid not null references users (id) on delete cascade,
   referred_user_id uuid not null unique references users (id) on delete cascade,
   referral_code_used text not null,
+  /** `false` when the signup was flagged at insert time (same-IP block,
+   *  duplicate-IP credit, etc.). Uncounted rows preserve the link for
+   *  reporting but don't bump the referrer's signup total. */
+  counted boolean not null default true,
+  fraud_reason text,
   created_at timestamptz not null default now()
 );
 
 create index if not exists referral_signups_referrer_idx on referral_signups (referrer_user_id);
 create index if not exists referral_signups_created_idx on referral_signups (created_at desc);
+create index if not exists referral_signups_counted_idx on referral_signups (counted, referrer_user_id);
+create index if not exists referral_signups_recent_idx on referral_signups (created_at desc)
+  where counted = true;
 
 create or replace function bump_referrer_signups_count()
 returns trigger as $$
 begin
-  update users
-     set referral_signups_count = referral_signups_count + 1,
-         updated_at = now()
-   where id = new.referrer_user_id;
+  if new.counted then
+    update users
+       set referral_signups_count = referral_signups_count + 1,
+           updated_at = now()
+     where id = new.referrer_user_id;
+  end if;
   return new;
 end;
 $$ language plpgsql;
@@ -190,6 +215,54 @@ create table if not exists payments (
 
 create index if not exists payments_user_idx on payments (user_id);
 create index if not exists payments_created_idx on payments (created_at desc);
+
+-- ─── Referral visits: IP → code tracking ────────────────────────────────────
+--
+-- Records the most recent referral code seen for each IP so signup attribution
+-- survives cleared cookies / new browsers / cross-device on the same network.
+-- See database/migrations/008_referral_visits.sql for the rationale.
+
+create table if not exists referral_visits (
+  ip text primary key,
+  code text not null check (code ~ '^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$'),
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now()
+);
+
+create index if not exists referral_visits_last_seen_idx on referral_visits (last_seen_at desc);
+create index if not exists referral_visits_code_idx on referral_visits (code);
+
+-- ─── Referral rewards ledger ────────────────────────────────────────────────
+--
+-- Every reward (tier grant, revshare unlock, accrual, cash payout) is a row.
+-- Lets us reconstruct any user's reward history and total payouts without
+-- guessing from `users` columns.
+
+create table if not exists referral_rewards (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  referrer_user_id uuid not null references users (id) on delete cascade,
+  referred_user_id uuid references users (id) on delete set null,
+  source_payment_id uuid references payments (id) on delete set null,
+  reward_type text not null check (reward_type in (
+    'lifetime_tier_grant',
+    'revshare_unlocked',
+    'revshare_accrual',
+    'cash_payout'
+  )),
+  tier_granted text check (tier_granted in ('basic', 'premium', 'ultimate')),
+  revshare_rate_bps integer check (revshare_rate_bps >= 0 and revshare_rate_bps <= 10000),
+  amount_cents integer check (amount_cents >= 0),
+  status text not null default 'granted' check (status in (
+    'granted', 'pending_payout', 'paid', 'revoked'
+  )),
+  notes text
+);
+
+create index if not exists referral_rewards_referrer_idx on referral_rewards (referrer_user_id, created_at desc);
+create index if not exists referral_rewards_type_idx on referral_rewards (reward_type);
+create index if not exists referral_rewards_status_idx on referral_rewards (status, created_at desc);
+create index if not exists referral_rewards_payment_idx on referral_rewards (source_payment_id);
 
 -- ─── Queue placeholders ──────────────────────────────────────────────────────
 

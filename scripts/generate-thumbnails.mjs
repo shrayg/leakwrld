@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Pick one image per creator from R2 (videos/<slug>/free/ first, then tier1/),
- * download it, resize+center-crop to 600x375 (16:10) via ffmpeg, and save to
- * client/public/thumbnails/<slug>.jpg.
+ * download it, resize+center-crop to 600x375 (16:10) via ffmpeg (libwebp), and save to
+ * client/public/thumbnails/<slug>.webp.
  *
  * Idempotent: skips creators whose thumbnail already exists unless --force is passed.
  *
@@ -32,6 +32,7 @@ const args = parseArgs(process.argv.slice(2));
 
 const REMOTE = 'r2:leakwrld/videos';
 const OUT_DIR = join(repoRoot, 'client', 'public', 'thumbnails');
+const OUT_EXT = '.webp';
 const WIDTH = 600;
 const HEIGHT = 375;
 const TIER_PRIORITY = ['free', 'tier1', 'tier2', 'tier3'];
@@ -152,8 +153,10 @@ function pickThumbnailFile(slug) {
   return null;
 }
 
-/** Cover-fit + center-crop to WIDTHxHEIGHT, output as JPEG quality ~3. */
+/** Cover-fit + center-crop to WIDTHxHEIGHT, encode WebP (smaller than JPEG at similar quality). */
 const COVER_VF = `scale=if(gt(a\\,${WIDTH}/${HEIGHT})\\,-2\\,${WIDTH}):if(gt(a\\,${WIDTH}/${HEIGHT})\\,${HEIGHT}\\,-2),crop=${WIDTH}:${HEIGHT}`;
+/** ffmpeg must be built with libwebp (standard builds include it). */
+const WEBP_QUALITY = '82';
 
 function ffmpegResizeImage(inputPath, outputPath) {
   const ffArgs = [
@@ -161,8 +164,8 @@ function ffmpegResizeImage(inputPath, outputPath) {
     '-loglevel', 'error',
     '-i', inputPath,
     '-vf', COVER_VF,
-    '-pix_fmt', 'yuvj420p',
-    '-q:v', '3',
+    '-c:v', 'libwebp',
+    '-quality', WEBP_QUALITY,
     outputPath,
   ];
   const r = spawnSync('ffmpeg', ffArgs, { encoding: 'utf8' });
@@ -182,8 +185,8 @@ function ffmpegVideoKeyframe(inputPath, outputPath) {
     '-i', inputPath,
     '-frames:v', '1',
     '-vf', COVER_VF,
-    '-pix_fmt', 'yuvj420p',
-    '-q:v', '3',
+    '-c:v', 'libwebp',
+    '-quality', WEBP_QUALITY,
     outputPath,
   ];
   const r = spawnSync('ffmpeg', ffArgs, { encoding: 'utf8' });
@@ -195,7 +198,8 @@ function ffmpegVideoKeyframe(inputPath, outputPath) {
 
 async function processCreator(creator) {
   const slug = creator.slug;
-  const outPath = join(OUT_DIR, `${slug}.jpg`);
+  const outPath = join(OUT_DIR, `${slug}${OUT_EXT}`);
+  const legacyJpg = join(OUT_DIR, `${slug}.jpg`);
 
   if (!args.force && existsSync(outPath)) {
     return { slug, status: 'exists', size: statSync(outPath).size };
@@ -224,6 +228,9 @@ async function processCreator(creator) {
   if (!r.ok) {
     return { slug, status: 'ffmpeg-failed', stderr: r.stderr };
   }
+  try {
+    if (existsSync(legacyJpg)) rmSync(legacyJpg, { force: true });
+  } catch {}
   return {
     slug,
     status: 'ok',
@@ -307,7 +314,7 @@ async function main() {
     .map((r) => r.slug);
   const ready = [...new Set([...(Array.isArray(previousSlugs) ? previousSlugs : []), ...batchSlugs])].sort();
 
-  const publicManifest = ready.map((slug) => ({ slug, file: `${slug}.jpg` }));
+  const publicManifest = ready.map((slug) => ({ slug, file: `${slug}${OUT_EXT}` }));
   const publicManifestPath = join(OUT_DIR, '_manifest.json');
   writeFileSync(publicManifestPath, JSON.stringify(publicManifest, null, 2));
 

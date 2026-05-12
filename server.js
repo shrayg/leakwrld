@@ -40,6 +40,17 @@ const {
   shorts: fallbackShorts,
 } = require('./server/catalog');
 const { generateReferralCode, normalizeReferralCode } = require('./server/referralCodes');
+const {
+  PROGRAM_RULES,
+  TIER_LADDER,
+  REVSHARE_LADDER,
+  TIER_RANK,
+  entitlementsFor,
+  nextTierGoal,
+  nextRevshareGoal,
+  effectiveTier,
+  trackCreditIp,
+} = require('./server/referralProgram');
 const adminHourly = require('./server/adminHourly');
 const adminDashboard = require('./server/adminDashboard');
 const adminUserActions = require('./server/adminUserActions');
@@ -674,9 +685,157 @@ function secondsToDuration(seconds) {
   return `${m}:${s}`;
 }
 
+/**
+ * Decide whether a new signup should count toward the referrer's totals.
+ *
+ *  Rules (in order):
+ *    1. Self-referral (referrer signed up from the same IP) → drop.
+ *    2. Same IP already credited the referrer before → drop (one credit per IP).
+ *    3. Otherwise → counted, IP added to the referrer's credit list.
+ *
+ *  Returns `{ counted, fraudReason, nextCreditIps }`. Caller persists the
+ *  `referral_credit_ips` JSON only when `counted` is true.
+ */
+async function evaluateReferralCredit(client, referrerId, signupIp) {
+  const r = await client.query(
+    'select signup_ip, referral_credit_ips from users where id = $1 limit 1',
+    [referrerId],
+  );
+  const row = r.rows[0];
+  if (!row) return { counted: false, fraudReason: 'referrer_missing', nextCreditIps: [] };
+  const ip = String(signupIp || '').trim();
+  if (!ip || ip === 'unknown') {
+    /** No IP captured — count it (better to miss a fraud case than reject a real user). */
+    return { counted: true, fraudReason: null, nextCreditIps: Array.isArray(row.referral_credit_ips) ? row.referral_credit_ips : [] };
+  }
+  if (row.signup_ip && String(row.signup_ip).trim() === ip) {
+    return { counted: false, fraudReason: 'same_ip_as_referrer', nextCreditIps: row.referral_credit_ips || [] };
+  }
+  const existing = Array.isArray(row.referral_credit_ips) ? row.referral_credit_ips : [];
+  const { list, duplicate } = trackCreditIp(existing, ip);
+  if (duplicate) {
+    return { counted: false, fraudReason: 'duplicate_ip_credit', nextCreditIps: existing };
+  }
+  return { counted: true, fraudReason: null, nextCreditIps: list };
+}
+
+/**
+ * Apply tier / revshare entitlements to a referrer after a new counted signup.
+ *
+ * Idempotent — only writes when the user *doesn't* already have the
+ * entitlement at the higher level. Each grant produces a `referral_rewards`
+ * row so we have a forever audit trail.
+ */
+async function applyReferralEntitlements(client, referrerId, referredId) {
+  const r = await client.query(
+    `select referral_signups_count, lifetime_tier, revshare_unlocked_at, revshare_rate_bps
+     from users where id = $1 limit 1`,
+    [referrerId],
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  const count = Number(row.referral_signups_count || 0);
+  const { lifetimeTier: targetTier, revshareRateBps: targetRate } = entitlementsFor(count);
+
+  const currentLifetime = row.lifetime_tier || null;
+  const currentRate = Number(row.revshare_rate_bps || 0);
+
+  const promoteTier =
+    targetTier && (TIER_RANK[targetTier] ?? 0) > (TIER_RANK[currentLifetime] ?? 0);
+  const promoteRate = targetRate > currentRate;
+  const unlockingRevshare = currentRate === 0 && targetRate > 0;
+
+  if (promoteTier) {
+    await client.query(
+      `update users
+         set lifetime_tier = $2,
+             tier_granted_at = coalesce(tier_granted_at, now()),
+             updated_at = now()
+       where id = $1`,
+      [referrerId, targetTier],
+    );
+    await client.query(
+      `insert into referral_rewards (referrer_user_id, referred_user_id, reward_type, tier_granted, notes)
+       values ($1, $2, 'lifetime_tier_grant', $3, $4)`,
+      [referrerId, referredId, targetTier, `Auto-granted at ${count} signups.`],
+    );
+  }
+
+  if (promoteRate) {
+    await client.query(
+      `update users
+         set revshare_rate_bps = $2,
+             revshare_unlocked_at = coalesce(revshare_unlocked_at, now()),
+             updated_at = now()
+       where id = $1`,
+      [referrerId, targetRate],
+    );
+    if (unlockingRevshare) {
+      await client.query(
+        `insert into referral_rewards (referrer_user_id, referred_user_id, reward_type, revshare_rate_bps, notes)
+         values ($1, $2, 'revshare_unlocked', $3, $4)`,
+        [referrerId, referredId, targetRate, `Unlocked at ${count} signups.`],
+      );
+    } else {
+      await client.query(
+        `insert into referral_rewards (referrer_user_id, referred_user_id, reward_type, revshare_rate_bps, notes)
+         values ($1, $2, 'revshare_unlocked', $3, $4)`,
+        [referrerId, referredId, targetRate, `Rate bumped to ${(targetRate / 100).toFixed(2)}% at ${count} signups.`],
+      );
+    }
+  }
+
+  return { count, lifetimeTier: promoteTier ? targetTier : currentLifetime, revshareRateBps: promoteRate ? targetRate : currentRate };
+}
+
+/**
+ * Accrue revshare on a referred user's payment.
+ *
+ *  Called from every payment-insertion path. No-op if:
+ *    - referred user has no referrer
+ *    - referrer hasn't unlocked revshare yet (< 10 signups)
+ *    - amount is zero / negative
+ */
+async function accrueReferralRevshare(client, paymentId, payingUserId, amountCents) {
+  if (!paymentId || !payingUserId || !Number.isFinite(Number(amountCents)) || Number(amountCents) <= 0) return;
+  const r = await client.query(
+    `select u.referred_by_user_id, ref.revshare_rate_bps, ref.revshare_unlocked_at
+       from users u
+       left join users ref on ref.id = u.referred_by_user_id
+      where u.id = $1
+      limit 1`,
+    [payingUserId],
+  );
+  const row = r.rows[0];
+  if (!row || !row.referred_by_user_id || !row.revshare_unlocked_at) return;
+  const rateBps = Number(row.revshare_rate_bps || 0);
+  if (rateBps <= 0) return;
+  const accrual = Math.floor((Math.max(0, Number(amountCents)) * rateBps) / 10000);
+  if (accrual <= 0) return;
+  await client.query(
+    `insert into referral_rewards
+       (referrer_user_id, referred_user_id, source_payment_id, reward_type,
+        revshare_rate_bps, amount_cents, status)
+     values ($1, $2, $3, 'revshare_accrual', $4, $5, 'pending_payout')`,
+    [row.referred_by_user_id, payingUserId, paymentId, rateBps, accrual],
+  );
+  await client.query(
+    `update users
+        set referral_earned_cents = referral_earned_cents + $2,
+            updated_at = now()
+      where id = $1`,
+    [row.referred_by_user_id, accrual],
+  );
+}
+
 function normalizeUser(row) {
   if (!row) return null;
-  const tier = normalizeAccountTier(row.tier);
+  /** Effective tier blends the manually-granted tier with the lifetime tier
+   *  earned via the referral program. The lifetime tier never decays so it
+   *  always wins ties — see server/referralProgram.js for the ladder. */
+  const baseTier = normalizeAccountTier(row.tier);
+  const lifetime = row.lifetime_tier ? normalizeAccountTier(row.lifetime_tier) : null;
+  const tier = lifetime ? effectiveTier(baseTier, lifetime) : baseTier;
   return {
     id: row.id,
     email: row.email,
@@ -684,11 +843,16 @@ function normalizeUser(row) {
     username: row.username,
     tier,
     rawTier: row.tier || 'free',
+    lifetimeTier: lifetime,
     tierLabel: accountTierLabel(tier),
     manifestTiers: userManifestTiers(tier),
     referralCode: row.referral_code,
     referralSignups: Number(row.referral_signups_count || 0),
     referredByUserId: row.referred_by_user_id || null,
+    revshareUnlockedAt: row.revshare_unlocked_at || null,
+    revshareRateBps: Number(row.revshare_rate_bps || 0),
+    referralEarnedCents: Number(row.referral_earned_cents || 0),
+    referralPaidCents: Number(row.referral_paid_cents || 0),
     watchTimeSeconds: Number(row.watch_time_seconds || 0),
     siteTimeSeconds: Number(row.site_time_seconds || 0),
     planLabel: row.plan_label || null,
@@ -741,6 +905,8 @@ async function currentUser(req) {
     found = await dbQuery(
       `select u.id, u.email, u.phone, u.username, u.tier, u.created_at,
               u.referral_code, u.referral_signups_count, u.referred_by_user_id,
+              u.lifetime_tier, u.revshare_unlocked_at, u.revshare_rate_bps,
+              u.referral_earned_cents, u.referral_paid_cents,
               u.watch_time_seconds, u.site_time_seconds, u.plan_label, u.last_active_at
        from sessions s
        join users u on u.id = s.user_id
@@ -877,22 +1043,42 @@ async function routeApi(req, res, url) {
         inferred,
       ]);
 
-      await client
-        .query(
+      const paymentCents =
+        Number(String(paid.paid_usd || paid.price_usd || paid.price || '0').replace(/[^0-9.]/g, '')) * 100 || 0;
+      let insertedPaymentId = null;
+      try {
+        const pmRow = await client.query(
           `insert into payments (user_id, provider, amount_cents, currency, plan_label, tier_granted, screenshot_url, notes)
-           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+           values ($1,$2,$3,$4,$5,$6,$7,$8)
+           returning id`,
           [
             user.id,
             'xyzpurchase',
-            Number(String(paid.paid_usd || paid.price_usd || paid.price || '0').replace(/[^0-9.]/g, '')) * 100 || 0,
+            paymentCents,
             paid.currency ? String(paid.currency) : 'USD',
             `sellauth:product:${productId}`,
             inferred,
             null,
             `sellauth_invoice_id=${invoiceId} status=${String(paid.status || '').slice(0, 48)} product_id=${productId}`,
           ],
-        )
-        .catch(() => {});
+        );
+        insertedPaymentId = pmRow.rows[0]?.id || null;
+      } catch (paymentErr) {
+        /** Soft-fail: legacy behavior was to swallow errors here so the user
+         *  still got their tier even if the analytics insert blew up. We
+         *  preserve that, just no longer silent — and we skip the revshare
+         *  accrual since we don't have a payment id. */
+        console.error('[redeem-payment-insert]', paymentErr);
+      }
+      if (insertedPaymentId) {
+        /** Referral revshare attribution — pays the referrer (if any) at
+         *  whatever rate they've unlocked. See `accrueReferralRevshare`. */
+        try {
+          await accrueReferralRevshare(client, insertedPaymentId, user.id, paymentCents);
+        } catch (accrueErr) {
+          console.error('[redeem-revshare]', accrueErr);
+        }
+      }
 
       await client.query(
         `insert into sellauth_redemptions (sellauth_invoice_id, user_id, email, tier_granted, unique_id, status, invoice_json)
@@ -937,8 +1123,22 @@ async function routeApi(req, res, url) {
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
     const phoneFinal = null;
-    const refNorm = normalizeReferralCode(body.referralCode || body.referral_code || '');
     const ip = clientIp(req) || 'unknown';
+    /** Referral attribution chain. Referral codes are NEVER user-typed —
+     *  every account's 6-char code is system-generated and the referrer is
+     *  identified only by the link the new user clicked. So we only consult:
+     *    1. `lw_ref` cookie — set on every request that carries `?ref=` in
+     *       the URL (incl. /r/:code). 30-day TTL on the user's browser.
+     *    2. `referral_visits` table by IP — fallback for cleared cookies,
+     *       different browsers on the same network, or "browsed for days
+     *       then signed up". Holds the LAST code seen for the IP.
+     *  Each layer is consulted only when the previous one is empty. */
+    const refFromCookie = normalizeReferralCode(parseCookies(req)[LW_REF_COOKIE]);
+    const refFromIp = !refFromCookie ? normalizeReferralCode(await lookupReferralByIp(ip)) : '';
+    const refNorm = refFromCookie || refFromIp;
+    /** Track which source attributed the signup — useful for analytics and
+     *  debugging which fallback layers are actually pulling weight. */
+    const refSource = refFromCookie ? 'cookie' : refFromIp ? 'ip' : null;
 
     if (authThrottleReject(res, signupThrottle, ip)) return;
 
@@ -974,6 +1174,8 @@ async function routeApi(req, res, url) {
             ) values ($1,$2,$3,$4,$5,$6,$7,$8, now(), 'local', 'free')
             returning id, email, phone, username, tier, created_at,
               referral_code, referral_signups_count, referred_by_user_id,
+              lifetime_tier, revshare_unlocked_at, revshare_rate_bps,
+              referral_earned_cents, referral_paid_cents,
               watch_time_seconds, site_time_seconds, plan_label, last_active_at`,
             [emailFinal, phoneFinal, username, passwordHash(password), code, referrerId, ip || null, ip || null],
           );
@@ -1014,15 +1216,52 @@ async function routeApi(req, res, url) {
 
       const newUser = inserted.rows[0];
       if (referrerId) {
+        /** Anti-fraud: same-IP referrals don't count, and each IP can only
+         *  give a referrer credit once. We still write the ledger row so the
+         *  link survives in admin views — `counted=false` tells the trigger
+         *  not to bump the visible total. */
+        const credit = await evaluateReferralCredit(client, referrerId, ip);
         await client.query(
-          `insert into referral_signups (referrer_user_id, referred_user_id, referral_code_used)
-           values ($1,$2,$3)`,
-          [referrerId, newUser.id, refNorm],
+          `insert into referral_signups
+             (referrer_user_id, referred_user_id, referral_code_used, counted, fraud_reason)
+           values ($1,$2,$3,$4,$5)`,
+          [referrerId, newUser.id, refNorm, credit.counted, credit.fraudReason],
         );
+        if (credit.counted) {
+          await client.query(
+            `update users
+                set referral_credit_ips = $2::jsonb,
+                    updated_at = now()
+              where id = $1`,
+            [referrerId, JSON.stringify(credit.nextCreditIps)],
+          );
+          /** Trigger has already bumped the count; now decide if a tier or
+           *  revshare unlock fired. Each grant is idempotent — no double
+           *  grants if the user crossed multiple thresholds at once. */
+          await applyReferralEntitlements(client, referrerId, newUser.id);
+        }
       }
 
       await client.query('commit');
       authThrottleClear(signupThrottle, ip);
+      /** Consume the referral artefacts now that this signup is done:
+       *    - Burn the cookie so it can't double-attribute on a 2nd account.
+       *    - Delete the IP row so a different person on the same NAT/wifi
+       *      who later signs up cold (no fresh referral click) doesn't keep
+       *      getting attributed to the same stale code.
+       *  Both are fire-and-forget; the signup itself is already committed. */
+      if (refSource === 'cookie' || refSource === 'ip') {
+        const expire = [`${LW_REF_COOKIE}=`, 'Path=/', 'SameSite=Lax', 'Max-Age=0'];
+        if (secureCookiesEnabled()) expire.push('Secure');
+        const prev = res.getHeader('Set-Cookie');
+        res.setHeader(
+          'Set-Cookie',
+          prev ? (Array.isArray(prev) ? prev.concat(expire.join('; ')) : [prev, expire.join('; ')]) : expire.join('; '),
+        );
+      }
+      if (ip && ip !== 'unknown') {
+        dbQuery('delete from referral_visits where ip = $1', [ip]).catch(() => {});
+      }
       const signupVisitor = parseVisitorUuid(body.visitorKey ?? body.visitor_key);
       const signupReferrer =
         body.referrer != null ? String(body.referrer).slice(0, 1024) : null;
@@ -1055,6 +1294,8 @@ async function routeApi(req, res, url) {
     const found = await dbQuery(
       `select id, email, phone, username, password_hash, tier, created_at,
               referral_code, referral_signups_count, referred_by_user_id,
+              lifetime_tier, revshare_unlocked_at, revshare_rate_bps,
+              referral_earned_cents, referral_paid_cents,
               watch_time_seconds, site_time_seconds, plan_label, last_active_at,
               banned_at
        from users
@@ -1357,6 +1598,124 @@ async function routeApi(req, res, url) {
     }
   }
 
+  /* ─── Public referral API ───────────────────────────────────────────────
+   *
+   *  /api/referral/program   — static rules (ladder, payouts, telegram).
+   *                            Available to guests so the "How it works"
+   *                            modal can render without an account.
+   *  /api/referral/status    — auth-only; your code, link, count, goals,
+   *                            entitlements, earnings.
+   *  /api/referral/leaderboard — public weekly top-10 by counted signups.
+   *  /api/me/referral/payout-handle — auth-only; save your Telegram handle.
+   */
+  if (url.pathname === '/api/referral/program' && method === 'GET') {
+    return sendJson(res, 200, {
+      ok: true,
+      memo: PROGRAM_RULES.memo,
+      tierLadder: TIER_LADDER,
+      revshareLadder: REVSHARE_LADDER,
+      telegramPayoutUrl: PROGRAM_RULES.telegramPayoutUrl(),
+      redditFastUrl: PROGRAM_RULES.redditFastUrl(),
+    });
+  }
+
+  if (url.pathname === '/api/referral/status' && method === 'GET') {
+    const me = await currentUser(req);
+    if (!me) return sendJson(res, 401, { error: 'Sign in required.' });
+    const count = Number(me.referralSignups || 0);
+    const origin =
+      String(process.env.LW_PUBLIC_BASE || '').trim() ||
+      (req.headers && req.headers.host ? `https://${req.headers.host}` : '');
+    const code = me.referralCode || '';
+    const shareUrl = code ? `${origin}/r/${code}` : '';
+    const longUrl = code && origin ? `${origin}/?ref=${code}` : '';
+    const tierGoal = nextTierGoal(count);
+    const revGoal = nextRevshareGoal(count);
+    return sendJson(res, 200, {
+      ok: true,
+      code,
+      url: shareUrl || longUrl,
+      shareUrl,
+      longUrl,
+      count,
+      goal: tierGoal.goal,
+      goalLabel: tierGoal.label,
+      nextTier: tierGoal.tier,
+      revshareUnlocked: !!me.revshareUnlockedAt,
+      revshareRateBps: Number(me.revshareRateBps || 0),
+      revshareNextGoal: revGoal.goal,
+      revshareNextRateBps: revGoal.rateBps,
+      lifetimeTier: me.lifetimeTier || null,
+      earnedCents: Number(me.referralEarnedCents || 0),
+      paidCents: Number(me.referralPaidCents || 0),
+      pendingCents: Math.max(0, Number(me.referralEarnedCents || 0) - Number(me.referralPaidCents || 0)),
+      telegramPayoutUrl: PROGRAM_RULES.telegramPayoutUrl(),
+    });
+  }
+
+  if (url.pathname === '/api/referral/leaderboard' && method === 'GET') {
+    /** Soft-fail when the DB is unreachable — the leaderboard is non-critical
+     *  UX. A 500 here would make the home page look broken; an empty list is
+     *  a strictly better default. */
+    if (!pool || databaseDisabledReason) {
+      return sendJson(res, 200, { ok: true, page: 0, totalPages: 1, entries: [], period: 'weekly' });
+    }
+    const periodRaw = String(url.searchParams.get('period') || 'weekly').toLowerCase();
+    const since = periodRaw === 'alltime' ? null : "now() - interval '7 days'";
+    const limit = 10;
+    const page = Math.max(0, Math.floor(Number(url.searchParams.get('page') || 0)) || 0);
+    const offset = page * limit;
+    try {
+      const where = since
+        ? `where rs.counted = true and rs.created_at > ${since}`
+        : 'where rs.counted = true';
+      const rows = await dbQuery(
+        `select u.username, count(*)::int as c
+         from referral_signups rs
+         join users u on u.id = rs.referrer_user_id
+         ${where}
+         group by u.id, u.username
+         having count(*) > 0
+         order by c desc, u.username asc
+         limit $1 offset $2`,
+        [limit, offset],
+      );
+      const totalRow = await dbQuery(
+        `select count(*)::int as c from (
+           select rs.referrer_user_id
+           from referral_signups rs
+           ${where}
+           group by rs.referrer_user_id
+           having count(*) > 0
+         ) t`,
+      );
+      const total = totalRow.rows[0]?.c || 0;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const entries = rows.rows.map((r, i) => ({
+        rank: offset + i + 1,
+        username: r.username,
+        count: Number(r.c || 0),
+      }));
+      return sendJson(res, 200, { ok: true, page, totalPages, entries, period: periodRaw });
+    } catch (err) {
+      console.error('[referral leaderboard]', err);
+      /** Same as above — never break the home page over a leaderboard query. */
+      return sendJson(res, 200, { ok: true, page: 0, totalPages: 1, entries: [], period: periodRaw });
+    }
+  }
+
+  if (url.pathname === '/api/me/referral/payout-handle' && method === 'POST') {
+    const me = await currentUser(req);
+    if (!me) return sendJson(res, 401, { error: 'Sign in required.' });
+    const body = await readJson(req);
+    const handle = String(body.handle || '').trim().slice(0, 64);
+    await dbQuery('update users set referral_payout_handle = $2, updated_at = now() where id = $1', [
+      me.id,
+      handle || null,
+    ]);
+    return sendJson(res, 200, { ok: true, handle });
+  }
+
   if (url.pathname === '/api/admin/referrals' && method === 'GET') {
     if (!adminHourly.verifyAdminCookie(req)) {
       return sendJson(res, 401, { error: 'Admin authentication required.' });
@@ -1371,6 +1730,117 @@ async function routeApi(req, res, url) {
     } catch (err) {
       console.error('[admin referrals]', err);
       return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  /* Admin: list referrers with a pending payout balance.
+   *   GET /api/admin/referral-payouts/pending
+   *   → [{ userId, username, email, telegramHandle, earnedCents, paidCents,
+   *        pendingCents, signups, rateBps }] */
+  if (url.pathname === '/api/admin/referral-payouts/pending' && method === 'GET') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    try {
+      const rows = await dbQuery(
+        `select id, username, email, referral_payout_handle,
+                referral_signups_count, revshare_rate_bps,
+                referral_earned_cents, referral_paid_cents,
+                (referral_earned_cents - referral_paid_cents) as pending_cents
+         from users
+         where referral_earned_cents > referral_paid_cents
+         order by (referral_earned_cents - referral_paid_cents) desc
+         limit 200`,
+      );
+      const entries = rows.rows.map((r) => ({
+        userId: r.id,
+        username: r.username,
+        email: r.email,
+        telegramHandle: r.referral_payout_handle,
+        signups: Number(r.referral_signups_count || 0),
+        rateBps: Number(r.revshare_rate_bps || 0),
+        earnedCents: Number(r.referral_earned_cents || 0),
+        paidCents: Number(r.referral_paid_cents || 0),
+        pendingCents: Number(r.pending_cents || 0),
+      }));
+      return sendJson(res, 200, { ok: true, entries });
+    } catch (err) {
+      console.error('[admin referral-pending]', err);
+      return sendJson(res, 500, { error: 'Query failed.' });
+    }
+  }
+
+  /* Admin: record a manual payout (Telegram-verified) to a referrer.
+   *   POST /api/admin/referral-payout
+   *   body: { userId, amountCents, notes? } */
+  if (url.pathname === '/api/admin/referral-payout' && method === 'POST') {
+    if (!adminHourly.verifyAdminCookie(req)) {
+      return sendJson(res, 401, { error: 'Admin authentication required.' });
+    }
+    if (!pool) return sendJson(res, 503, { error: 'Database not configured.' });
+    const body = await readJson(req);
+    const userId = String(body.userId || '').trim();
+    const amt = Math.max(0, Math.floor(Number(body.amountCents) || 0));
+    const notes = String(body.notes || '').slice(0, 480) || null;
+    if (!userId || amt <= 0) return sendJson(res, 400, { error: 'userId and amountCents > 0 required.' });
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const cur = await client.query(
+        'select referral_earned_cents, referral_paid_cents from users where id = $1 limit 1',
+        [userId],
+      );
+      if (!cur.rows[0]) {
+        await client.query('rollback');
+        return sendJson(res, 404, { error: 'User not found.' });
+      }
+      const earned = Number(cur.rows[0].referral_earned_cents || 0);
+      const paid = Number(cur.rows[0].referral_paid_cents || 0);
+      if (paid + amt > earned) {
+        await client.query('rollback');
+        return sendJson(res, 400, {
+          error: `Payout exceeds pending balance. Pending: ${(earned - paid) / 100} USD.`,
+        });
+      }
+      await client.query(
+        'update users set referral_paid_cents = referral_paid_cents + $2, updated_at = now() where id = $1',
+        [userId, amt],
+      );
+      await client.query(
+        `insert into referral_rewards (referrer_user_id, reward_type, amount_cents, status, notes)
+         values ($1, 'cash_payout', $2, 'paid', $3)`,
+        [userId, amt, notes],
+      );
+      /** Mark any pending accruals as paid, oldest first, up to the payout total. */
+      await client.query(
+        `update referral_rewards
+            set status = 'paid'
+          where id in (
+            select id from referral_rewards
+             where referrer_user_id = $1
+               and reward_type = 'revshare_accrual'
+               and status = 'pending_payout'
+             order by created_at asc
+             limit 9999
+          )
+            and (
+              select coalesce(sum(amount_cents),0)
+              from referral_rewards r2
+              where r2.referrer_user_id = $1
+                and r2.reward_type = 'revshare_accrual'
+                and r2.status = 'paid'
+            ) < $2`,
+        [userId, paid + amt],
+      );
+      await client.query('commit');
+      return sendJson(res, 200, { ok: true, paidCents: paid + amt });
+    } catch (err) {
+      await client.query('rollback').catch(() => {});
+      console.error('[admin referral-payout]', err);
+      return sendJson(res, 500, { error: 'Payout failed.' });
+    } finally {
+      client.release();
     }
   }
 
@@ -1746,7 +2216,7 @@ async function routeApi(req, res, url) {
     const user = await currentUser(req);
     const allowedTiers = userManifestTiers(user);
     const allowedTierSet = new Set(allowedTiers);
-    const limit = Math.min(260, Math.max(1, Number(url.searchParams.get('limit') || 180)));
+    const limit = Math.min(260, Math.max(1, Number(url.searchParams.get('limit') || 10)));
     const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
     const seed = String(url.searchParams.get('seed') || crypto.randomUUID()).slice(0, 96);
     const wantedCreators = new Set(
@@ -2034,9 +2504,22 @@ function contentType(filePath) {
   if (ext === '.svg') return 'image/svg+xml';
   if (ext === '.png') return 'image/png';
   if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
   if (ext === '.otf') return 'font/otf';
   if (ext === '.woff2') return 'font/woff2';
   return 'application/octet-stream';
+}
+
+/** Hashed build assets + fonts: long immutable cache. `/thumbnails/`: short TTL so replaced WebP thumbs propagate within a few hours. */
+function cacheControlForStaticFile(filePath) {
+  const n = String(filePath || '').replace(/\\/g, '/');
+  if (n.includes('/thumbnails/')) {
+    return 'public, max-age=10800'; /* 3 hours */
+  }
+  if (n.includes('/assets/') || n.includes('/fonts/')) {
+    return 'public, max-age=31536000, immutable';
+  }
+  return 'public, max-age=300';
 }
 
 async function sendStatic(req, res, url) {
@@ -2062,7 +2545,7 @@ async function sendStatic(req, res, url) {
     res.writeHead(200, {
       'Content-Type': contentType(normalized),
       'Content-Length': body.length,
-      'Cache-Control': normalized.includes('/assets/') || normalized.includes('/fonts/') ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
+      'Cache-Control': cacheControlForStaticFile(normalized),
       'X-Content-Type-Options': 'nosniff',
     });
     return res.end(method === 'HEAD' ? Buffer.alloc(0) : body);
@@ -2097,6 +2580,7 @@ async function proxyR2FromWorker(req, res, rawKey) {
   const targetUrl = `${R2_WORKER_ORIGIN}/${rawKey.split('/').map((seg) => encodeURIComponent(seg)).join('/')}`;
   const headers = {};
   if (req.headers.range) headers.Range = req.headers.range;
+  const t0 = Date.now();
   try {
     const upstream = await fetch(targetUrl, { method: req.method, headers, redirect: 'follow' });
     const passNames = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'cache-control'];
@@ -2113,9 +2597,18 @@ async function proxyR2FromWorker(req, res, rawKey) {
       return res.end();
     }
     if (!upstream.body) return res.end();
+    const elapsed = Date.now() - t0;
+    const slow = elapsed >= 2500 || upstream.status >= 400;
+    const sample = Math.random() < 0.067;
+    if (slow || sample) {
+      console.warn(
+        `[r2-worker-proxy] ${slow ? 'slow_or_error' : 'sample'} ms=${elapsed} status=${upstream.status} range=${req.headers.range ? '1' : '0'} key=${rawKey.slice(0, 80)}`,
+      );
+    }
     Readable.fromWeb(upstream.body).on('error', () => res.destroy()).pipe(res);
   } catch (err) {
-    console.error('[r2-worker-proxy]', err);
+    const elapsed = Date.now() - t0;
+    console.error('[r2-worker-proxy]', err, `after_ms=${elapsed}`);
     if (!res.headersSent) return sendJson(res, 502, { error: 'Media upstream unreachable' });
     res.destroy();
   }
@@ -2156,9 +2649,23 @@ async function streamR2(req, res, url) {
     : ext === '.webp' ? 'image/webp'
     : ext === '.gif' ? 'image/gif'
     : 'application/octet-stream';
+  const privateMedia = requiredTier && requiredTier !== 'free';
+  const imageThumb =
+    !privateMedia &&
+    ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext);
+  const rclonePublicCache = privateMedia
+    ? 'private, max-age=300'
+    : imageThumb
+      ? 'public, max-age=2592000, immutable'
+      : 'public, max-age=300';
+
   if (req.method === 'HEAD') {
     /** Cheap HEAD: don't actually fetch the body, just acknowledge. */
-    res.writeHead(200, { 'content-type': contentType, 'accept-ranges': 'none' });
+    res.writeHead(200, {
+      'content-type': contentType,
+      'accept-ranges': 'none',
+      'cache-control': rclonePublicCache,
+    });
     return res.end();
   }
   const { spawn } = require('node:child_process');
@@ -2167,10 +2674,9 @@ async function streamR2(req, res, url) {
   let aborted = false;
   child.stdout.on('data', (chunk) => {
     if (!headersSent) {
-      const privateMedia = requiredTier && requiredTier !== 'free';
       res.writeHead(200, {
         'content-type': contentType,
-        'cache-control': privateMedia ? 'private, max-age=300' : 'public, max-age=300',
+        'cache-control': rclonePublicCache,
         'accept-ranges': 'none',
       });
       headersSent = true;
@@ -2198,11 +2704,131 @@ async function streamR2(req, res, url) {
   });
 }
 
+const LW_REF_COOKIE = 'lw_ref';
+const LW_REF_MAX_AGE_DAYS = 30;
+
+/** In-memory de-dupe so we don't pummel the DB with one upsert per asset
+ *  request on the same page load. Keys = `${ip}|${code}`; entries expire
+ *  after 60s so retries (e.g. user reopening the same tab) still record. */
+const recentReferralVisits = new Map();
+const RECENT_VISIT_TTL_MS = 60_000;
+
+/** Persist a referral code → IP association so we can attribute a signup
+ *  even if the cookie has been cleared / a different browser is used on
+ *  the same network. Fire-and-forget — never blocks the request. */
+function recordReferralVisit(ip, code) {
+  if (!pool || databaseDisabledReason) return;
+  const normIp = String(ip || '').trim();
+  const normCode = normalizeReferralCode(code);
+  if (!normIp || normIp === 'unknown' || !normCode) return;
+  const key = `${normIp}|${normCode}`;
+  const now = Date.now();
+  const seen = recentReferralVisits.get(key);
+  if (seen && now - seen < RECENT_VISIT_TTL_MS) return;
+  recentReferralVisits.set(key, now);
+  /** Cheap GC — drop stale entries opportunistically so the map can't grow
+   *  unbounded under heavy traffic. */
+  if (recentReferralVisits.size > 4096) {
+    for (const [k, ts] of recentReferralVisits) {
+      if (now - ts > RECENT_VISIT_TTL_MS) recentReferralVisits.delete(k);
+    }
+  }
+  /** UPSERT: insert on first sight, otherwise update last_seen + (if a
+   *  different code) overwrite the code so the LATEST referral link the
+   *  user clicked wins at signup attribution. */
+  dbQuery(
+    `insert into referral_visits (ip, code)
+       values ($1, $2)
+       on conflict (ip) do update
+         set code = excluded.code,
+             last_seen_at = now(),
+             first_seen_at = case
+               when referral_visits.code = excluded.code then referral_visits.first_seen_at
+               else now()
+             end`,
+    [normIp, normCode],
+  ).catch((err) => {
+    /** Best-effort — log but never propagate. */
+    console.error('[recordReferralVisit]', err.message || err);
+  });
+}
+
+/** Look up the most recent referral code seen for an IP, in case neither the
+ *  body field nor the cookie carry a code at signup time. Returns null on
+ *  miss or DB failure. */
+async function lookupReferralByIp(ip) {
+  if (!pool || databaseDisabledReason) return null;
+  const normIp = String(ip || '').trim();
+  if (!normIp || normIp === 'unknown') return null;
+  try {
+    const r = await dbQuery(
+      'select code from referral_visits where ip = $1 limit 1',
+      [normIp],
+    );
+    return r.rows[0]?.code || null;
+  } catch (err) {
+    console.error('[lookupReferralByIp]', err.message || err);
+    return null;
+  }
+}
+
+/** Persist the referral code on first contact so attribution survives multiple
+ *  page navigations and tab switches before signup. 30-day TTL.
+ *  Also records the IP→code association in `referral_visits` (best-effort)
+ *  so attribution survives cookie clearing / cross-device on same network.
+ *  Safe to call on every request — bails when the param isn't present. */
+function captureReferralCookie(req, res, url) {
+  const raw = url.searchParams.get('ref');
+  const norm = normalizeReferralCode(raw);
+  if (!norm) return;
+  /** Always log the IP→code association, even if the cookie is already set —
+   *  refreshes `last_seen_at` so stale visits don't beat fresh ones. */
+  recordReferralVisit(clientIp(req), norm);
+  const existing = parseCookies(req)[LW_REF_COOKIE];
+  if (existing === norm) return;
+  const cookie = [
+    `${LW_REF_COOKIE}=${encodeURIComponent(norm)}`,
+    'Path=/',
+    'SameSite=Lax',
+    `Max-Age=${LW_REF_MAX_AGE_DAYS * 24 * 60 * 60}`,
+  ];
+  if (secureCookiesEnabled()) cookie.push('Secure');
+  const prev = res.getHeader('Set-Cookie');
+  res.setHeader(
+    'Set-Cookie',
+    prev ? (Array.isArray(prev) ? prev.concat(cookie.join('; ')) : [prev, cookie.join('; ')]) : cookie.join('; '),
+  );
+}
+
+/** /r/:code → 302 to home with ?ref=:code AND a fallback cookie set, so the
+ *  link looks less obviously affiliate-y and survives even if the user
+ *  copy-pastes the destination URL without the query string. The redirect
+ *  target also carries `?auth=signup` so the client auto-opens the signup
+ *  modal — referral links are the highest-intent traffic we get. */
+function handleReferralShortLink(req, res, url) {
+  const raw = decodeURIComponent(url.pathname.slice(3));
+  const norm = normalizeReferralCode(raw);
+  if (!norm) {
+    res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
+    return res.end();
+  }
+  /** Set the cookie + log the IP visit on the redirect response. */
+  captureReferralCookie(req, res, new URL(`/?ref=${norm}`, `http://${req.headers.host || `${HOST}:${PORT}`}`));
+  res.writeHead(302, {
+    Location: `/?ref=${norm}&auth=signup`,
+    'Cache-Control': 'no-store',
+  });
+  return res.end();
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
+    /** Capture ?ref= on EVERY hit so the cookie persists for downstream signups. */
+    captureReferralCookie(req, res, url);
     if (url.pathname.startsWith('/api/')) return await routeApi(req, res, url);
     if (url.pathname.startsWith('/r2/')) return await streamR2(req, res, url);
+    if (url.pathname.startsWith('/r/') && url.pathname.length > 3) return handleReferralShortLink(req, res, url);
     return await sendStatic(req, res, url);
   } catch (err) {
     const databaseDown = err.message === 'database_not_configured' || isDatabaseConnectionError(err);

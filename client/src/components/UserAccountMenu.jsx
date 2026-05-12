@@ -77,6 +77,14 @@ export function UserAccountMenu({ user, logout, variant = 'desktop', onAfterNavi
           <Link
             className="lw-user-menu-item"
             role="menuitem"
+            to="/refer"
+            onClick={wrapNavigate()}
+          >
+            Referrals &amp; earnings
+          </Link>
+          <Link
+            className="lw-user-menu-item"
+            role="menuitem"
             to="/checkout"
             onClick={wrapNavigate()}
           >

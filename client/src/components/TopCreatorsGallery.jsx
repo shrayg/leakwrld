@@ -26,11 +26,12 @@ export function TopCreatorsGallery({ creators, variant = 'default' }) {
   const creator = n ? creators[safeIndex] : null;
 
   useEffect(() => {
-    if (!creator) return;
+    if (!creator) return undefined;
     if (dwellRef.current.timerId) {
       clearTimeout(dwellRef.current.timerId);
       dwellRef.current = { index: null, timerId: null };
     }
+    const ac = new AbortController();
     const gen = (fetchGen.current += 1);
     setMediaBroken(false);
     setPreview({ key: null, kind: null, fallbackThumbnail: null });
@@ -38,12 +39,13 @@ export function TopCreatorsGallery({ creators, variant = 'default' }) {
       typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    apiGet(`/api/creators/${creator.slug}/random-preview?seed=${encodeURIComponent(seed)}`, {}).then(
+    apiGet(`/api/creators/${creator.slug}/random-preview?seed=${encodeURIComponent(seed)}`, {}, { signal: ac.signal }).then(
       (data) => {
-        if (gen !== fetchGen.current) return;
+        if (ac.signal.aborted || gen !== fetchGen.current) return;
         if (data && typeof data === 'object') setPreview(data);
       },
     );
+    return () => ac.abort();
   }, [creator?.slug, safeIndex]);
 
   useEffect(() => {
@@ -59,6 +61,9 @@ export function TopCreatorsGallery({ creators, variant = 'default' }) {
   const usePrimary = Boolean(primarySrc) && !mediaBroken;
   const url = usePrimary ? primarySrc : fallbackSrc;
   const isVideo = usePrimary && kind === 'video';
+  const isStaticThumb = typeof url === 'string' && url.includes('/thumbnails/');
+  const mediaFetchPriority =
+    (variant === 'hero' && safeIndex === 0) || isStaticThumb ? 'high' : 'low';
 
   const urlRef = useRef(url);
   urlRef.current = url;
@@ -128,6 +133,7 @@ export function TopCreatorsGallery({ creators, variant = 'default' }) {
                   autoPlay
                   loop
                   preload="metadata"
+                  fetchPriority={mediaFetchPriority}
                   onError={() => setMediaBroken(true)}
                 />
               ) : (
@@ -137,6 +143,7 @@ export function TopCreatorsGallery({ creators, variant = 'default' }) {
                   alt=""
                   loading="lazy"
                   decoding="async"
+                  fetchPriority={mediaFetchPriority}
                   onError={() => setMediaBroken(true)}
                 />
               )

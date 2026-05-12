@@ -28,6 +28,7 @@ import {
   TIER_LABELS,
 } from '../lib/media';
 import { recordEvent } from '../lib/analytics';
+import { pickR2ResourceTiming, recordMediaLoadTiming } from '../lib/mediaLoadTelemetry';
 import {
   manifestMediaLike,
   manifestMediaProgress,
@@ -42,6 +43,16 @@ const TIER_ORDER = ['free', 'tier1', 'tier2', 'tier3'];
 
 function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
   const ref = useRef(null);
+  const loadReportedRef = useRef(false);
+  const loadStartedAtRef = useRef(0);
+  const stallCountRef = useRef(0);
+
+  useEffect(() => {
+    loadReportedRef.current = false;
+    loadStartedAtRef.current = Date.now();
+    stallCountRef.current = 0;
+  }, [src]);
+
   useEffect(() => {
     const v = ref.current;
     if (!v) return;
@@ -80,17 +91,49 @@ function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
     const onPause = () => flush(true);
     const onEnded = () => flush(true);
 
-    v.addEventListener('loadedmetadata', sendDur);
+    const onMeta = () => {
+      sendDur();
+      if (!loadReportedRef.current) {
+        loadReportedRef.current = true;
+        const elapsed = Math.max(0, Date.now() - loadStartedAtRef.current);
+        recordMediaLoadTiming({
+          surface: 'creator_lightbox_video',
+          storageKey: item.key,
+          metadataMs: elapsed,
+          stallCount: stallCountRef.current,
+          ...pickR2ResourceTiming(v.currentSrc || src),
+        });
+      }
+    };
+
+    const onWaiting = () => {
+      stallCountRef.current += 1;
+    };
+
+    const onErr = () => {
+      recordMediaLoadTiming({
+        surface: 'creator_lightbox_video',
+        storageKey: item.key,
+        error: 'video_error',
+        code: v.error?.code,
+      });
+    };
+
+    v.addEventListener('loadedmetadata', onMeta);
     v.addEventListener('timeupdate', onTime);
     v.addEventListener('pause', onPause);
     v.addEventListener('ended', onEnded);
+    v.addEventListener('waiting', onWaiting);
+    v.addEventListener('error', onErr);
 
     return () => {
       flush(true);
-      v.removeEventListener('loadedmetadata', sendDur);
+      v.removeEventListener('loadedmetadata', onMeta);
       v.removeEventListener('timeupdate', onTime);
       v.removeEventListener('pause', onPause);
       v.removeEventListener('ended', onEnded);
+      v.removeEventListener('waiting', onWaiting);
+      v.removeEventListener('error', onErr);
     };
   }, [src, item.key, creatorSlug, playbackId]);
 
@@ -732,7 +775,13 @@ export function CreatorDetailPage() {
       <section className="lw-creator-hero">
         <div className={`lw-creator-hero-thumb accent-${accent}`}>
           {creator?.thumbnail ? (
-            <img src={creator.thumbnail} alt={`${creator.name} thumbnail`} loading="eager" />
+            <img
+              src={creator.thumbnail}
+              alt={`${creator.name} thumbnail`}
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+            />
           ) : (
             <Sparkles size={32} />
           )}

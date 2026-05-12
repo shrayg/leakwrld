@@ -4,6 +4,7 @@ import { Heart, Lock, Play, Sparkles, Unlock } from 'lucide-react';
 import { useCatalogShortTelemetry } from '../hooks/useCatalogShortTelemetry';
 import { formatCount } from '../lib/metrics';
 import { catalogMediaLike } from '../lib/mediaAnalytics';
+import { recordMediaLoadTiming } from '../lib/mediaLoadTelemetry';
 import { AdminCopyStorageKeyButton } from './AdminCopyStorageKeyButton';
 import { classifyMedia, mediaUrl } from '../lib/media';
 
@@ -20,7 +21,15 @@ export function CreatorCard({ creator, compact = false }) {
               alt={`${creator.name} thumbnail`}
               loading="lazy"
               decoding="async"
-              onError={() => setThumbBroken(true)}
+              fetchPriority="high"
+              onError={() => {
+                setThumbBroken(true);
+                recordMediaLoadTiming({
+                  surface: 'creator_card_thumb',
+                  url: String(creator.thumbnail || '').slice(0, 240),
+                  error: 'thumbnail_error',
+                });
+              }}
               className="lw-thumb-img"
               style={creator.thumbnailPosition ? { objectPosition: creator.thumbnailPosition } : undefined}
             />
@@ -83,6 +92,7 @@ export function ShortCard({ item, index, to, className = '' }) {
   const kind = item.kind || classifyMedia(item.name || item.title);
   const previewSrc = item.key ? mediaUrl(item.key) : '';
   const [previewBroken, setPreviewBroken] = useState(false);
+  const fetchPriority = index < 4 ? 'high' : 'low';
 
   const [views, setViews] = useState(Number(item.views) || 0);
   const [likes, setLikes] = useState(Number(item.likes) || 0);
@@ -141,7 +151,15 @@ export function ShortCard({ item, index, to, className = '' }) {
                 playsInline
                 preload="metadata"
                 crossOrigin="anonymous"
-                onError={() => setPreviewBroken(true)}
+                fetchPriority={fetchPriority}
+                onError={() => {
+                  setPreviewBroken(true);
+                  recordMediaLoadTiming({
+                    surface: 'short_card_preview',
+                    storageKey: item.key,
+                    error: 'video_preview_error',
+                  });
+                }}
               />
             ) : (
               <img
@@ -150,7 +168,15 @@ export function ShortCard({ item, index, to, className = '' }) {
                 alt=""
                 loading="lazy"
                 decoding="async"
-                onError={() => setPreviewBroken(true)}
+                fetchPriority={fetchPriority}
+                onError={() => {
+                  setPreviewBroken(true);
+                  recordMediaLoadTiming({
+                    surface: 'short_card_preview',
+                    storageKey: item.key,
+                    error: 'image_preview_error',
+                  });
+                }}
               />
             )
           ) : null}

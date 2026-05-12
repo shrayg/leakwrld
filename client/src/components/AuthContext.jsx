@@ -16,6 +16,10 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('signup');
+  /** Referral modal coordination — `share` is the standard share modal,
+   *  `fast` is the "Get referrals fast" Reddit playbook. Kept in AuthContext
+   *  so any component can pop them open without prop-drilling. */
+  const [referralModal, setReferralModal] = useState('closed');
 
   async function refresh() {
     setLoading(true);
@@ -42,6 +46,19 @@ export function AuthProvider({ children }) {
       /* ignore */
     }
   }, []);
+
+  const openReferral = useCallback(() => {
+    /** If the user isn't signed in, route them through signup first —
+     *  referral modal needs `referralCode` from the session. */
+    if (!user) {
+      setAuthModalMode('signup');
+      setAuthModalOpen(true);
+      return;
+    }
+    setReferralModal('share');
+  }, [user]);
+  const openFastModal = useCallback(() => setReferralModal('fast'), []);
+  const closeReferral = useCallback(() => setReferralModal('closed'), []);
 
   useEffect(() => {
     refresh();
@@ -79,6 +96,10 @@ export function AuthProvider({ children }) {
         setAuthModalMode,
         openAuthModal,
         closeAuthModal,
+        referralModal,
+        openReferral,
+        openFastModal,
+        closeReferral,
       }}
     >
       {children}

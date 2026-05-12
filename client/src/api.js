@@ -1,9 +1,15 @@
-export async function apiGet(path, fallback) {
+/**
+ * @param {string} path
+ * @param {unknown} fallback
+ * @param {{ signal?: AbortSignal }} [opts]
+ */
+export async function apiGet(path, fallback, opts = {}) {
   try {
     const response = await fetch(path, {
       credentials: 'same-origin',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
+      signal: opts.signal,
     });
     if (!response.ok) return fallback;
     return await response.json();

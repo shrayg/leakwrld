@@ -8,6 +8,8 @@ import { GridPagination } from '../components/GridPagination';
 import { TopCreatorsGallery } from '../components/TopCreatorsGallery';
 import { useHomeTopCreatorsPageSize, useHomeShortsPageSize } from '../hooks/useGridPageSize';
 import { formatBytes, formatCount } from '../lib/metrics';
+import { SHORTS_FEED_INITIAL_LIMIT } from '../lib/shortsFeed';
+import { HomeReferralTeaser } from '../components/referral/HomeReferralTeaser';
 
 export function HomePage() {
   const [creators, setCreators] = useState(CREATORS);
@@ -43,7 +45,7 @@ export function HomePage() {
     });
     const seed = shortsSeedRef.current;
     apiGet(
-      `/api/shorts/feed?limit=240&offset=0&seed=${encodeURIComponent(seed)}`,
+      `/api/shorts/feed?limit=${SHORTS_FEED_INITIAL_LIMIT}&offset=0&seed=${encodeURIComponent(seed)}`,
       { shorts: SHORTS, page: { seed } },
     ).then((data) => {
       const feedShorts = Array.isArray(data?.shorts) ? data.shorts : [];
@@ -72,6 +74,8 @@ export function HomePage() {
 
   return (
     <div className="space-y-8">
+      <HomeReferralTeaser />
+
       <div className="hidden space-y-4 lg:block">
         <section className="lw-hero lw-home-hero">
           <div className="lw-hero-media">

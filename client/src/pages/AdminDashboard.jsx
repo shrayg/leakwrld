@@ -402,6 +402,165 @@ function UserModerateModal({ user, onClose, onSaved }) {
   );
 }
 
+/**
+ * Admin → Referral payouts.
+ *
+ * Lists every user with a pending payout (earned > paid), shows their
+ * Telegram handle (if saved), and provides a one-click "mark paid"
+ * action that posts to /api/admin/referral-payout. The form mirrors what
+ * the user sees on /refer — same denominations, same verification flow.
+ */
+function AdminReferralPayouts() {
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState('');
+  const [busyId, setBusyId] = useState('');
+  const [amounts, setAmounts] = useState({});
+  const [notes, setNotes] = useState({});
+
+  const load = useCallback(async () => {
+    setErr('');
+    try {
+      const r = await fetch('/api/admin/referral-payouts/pending', {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+      const data = await r.json().catch(() => ({ ok: false }));
+      if (!data.ok) {
+        setErr(data.error || 'Failed to load.');
+        return;
+      }
+      setRows(Array.isArray(data.entries) ? data.entries : []);
+    } catch (e) {
+      setErr(String(e?.message || e));
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function pay(row) {
+    const enteredCents = Math.round(Number(amounts[row.userId] || 0) * 100);
+    const amount = enteredCents > 0 ? enteredCents : row.pendingCents;
+    if (!amount || amount <= 0) {
+      setErr('Enter a positive payout amount.');
+      return;
+    }
+    setBusyId(row.userId);
+    setErr('');
+    try {
+      const r = await fetch('/api/admin/referral-payout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          userId: row.userId,
+          amountCents: amount,
+          notes: notes[row.userId] || null,
+        }),
+      });
+      const data = await r.json().catch(() => ({ ok: false }));
+      if (!data.ok) {
+        setErr(data.error || 'Payout failed.');
+        return;
+      }
+      await load();
+      setAmounts((m) => ({ ...m, [row.userId]: '' }));
+      setNotes((m) => ({ ...m, [row.userId]: '' }));
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-semibold text-white">Pending referral payouts</h2>
+        <button type="button" className="lw-btn ghost" onClick={load}>
+          <RefreshCw size={14} /> Refresh
+        </button>
+      </div>
+      {err ? <p className="text-rose-300 text-sm">{err}</p> : null}
+      {rows === null ? (
+        <p className="text-white/55">Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-white/55">No pending payouts.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="lw-admin-table w-full">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Telegram</th>
+                <th>Signups</th>
+                <th>Rate</th>
+                <th>Earned</th>
+                <th>Paid</th>
+                <th>Pending</th>
+                <th>Pay ($)</th>
+                <th>Notes</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.userId}>
+                  <td>
+                    <div className="font-semibold">{r.username}</div>
+                    <div className="text-xs text-white/45">{r.email || ''}</div>
+                  </td>
+                  <td>{r.telegramHandle || <span className="text-white/35">—</span>}</td>
+                  <td>{r.signups}</td>
+                  <td>{(r.rateBps / 100).toFixed(0)}%</td>
+                  <td>{money(r.earnedCents)}</td>
+                  <td>{money(r.paidCents)}</td>
+                  <td className="font-bold text-amber-300">{money(r.pendingCents)}</td>
+                  <td>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder={(r.pendingCents / 100).toFixed(2)}
+                      value={amounts[r.userId] || ''}
+                      onChange={(e) =>
+                        setAmounts((m) => ({ ...m, [r.userId]: e.target.value }))
+                      }
+                      className="w-24 rounded bg-black/40 px-2 py-1 text-sm"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      placeholder="(optional)"
+                      value={notes[r.userId] || ''}
+                      onChange={(e) =>
+                        setNotes((m) => ({ ...m, [r.userId]: e.target.value }))
+                      }
+                      className="w-40 rounded bg-black/40 px-2 py-1 text-sm"
+                    />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="lw-btn primary"
+                      disabled={busyId === r.userId}
+                      onClick={() => pay(r)}
+                    >
+                      {busyId === r.userId ? 'Paying…' : 'Mark paid'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdminDashboard({ siteLabel, onLogout }) {
   const [tab, setTab] = useState('overview');
   const [chartRange, setChartRange] = useState('7d');
@@ -768,6 +927,7 @@ export function AdminDashboard({ siteLabel, onLogout }) {
           ['visits', 'Visits'],
           ['events', 'Events'],
           ['referrals', 'Referrals'],
+          ['payouts', 'Referral payouts'],
           ['payments', 'Payments'],
           ['media', 'Media stats'],
         ].map(([id, label]) => (
@@ -1353,6 +1513,8 @@ export function AdminDashboard({ siteLabel, onLogout }) {
       ) : null}
 
       {tab === 'media' && !dash && !dashErr ? <p className="text-white/55">Loading…</p> : null}
+
+      {tab === 'payouts' ? <AdminReferralPayouts /> : null}
 
       {tab === 'payments' ? (
         <div className="space-y-6">

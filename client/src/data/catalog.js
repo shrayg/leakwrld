@@ -101,7 +101,7 @@ const ALL_CREATORS = CREATOR_NAMES.map((name, index) => {
     viewsAllTime,
     heat: Math.max(42, 100 - Math.floor(rank / 2)),
     accent: ['pink', 'gold', 'cyan', 'green'][index % 4],
-    thumbnail: THUMBNAIL_SET.has(slug) ? `/thumbnails/${slug}.jpg` : null,
+    thumbnail: THUMBNAIL_SET.has(slug) ? `/thumbnails/${slug}.webp` : null,
     ...(CREATOR_THUMB_OVERRIDES[slug] || {}),
     ready: !!real,
   };

@@ -95,3 +95,8 @@ export function canAccessManifestTier(accountTier, manifestTier) {
 export function isLockedTier(tier, accountTier = 'free') {
   return !canAccessManifestTier(accountTier, tier);
 }
+
+/**
+ * Thumbnail strategy (see README “Thumbnail derivatives”): prefer small WebP sidecars + `srcset`
+ * in manifests instead of shipping full `mediaUrl(key)` bytes to grid tiles.
+ */
