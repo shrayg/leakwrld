@@ -303,6 +303,24 @@ function pickRandomPreviewFromManifest(items, allowedTierSet, rng) {
   return pool[idx] || null;
 }
 
+const MANIFEST_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
+
+function isManifestImageItem(it) {
+  const k = String(it?.kind || '').toLowerCase();
+  if (k === 'image') return true;
+  const ext = String(it?.ext || '').toLowerCase();
+  return MANIFEST_IMAGE_EXTS.has(ext);
+}
+
+/** Home hero gallery: stills only — never video (avoids heavy decode + flash). */
+function pickRandomImagePreviewFromManifest(items, allowedTierSet, rng) {
+  const allowed = (items || []).filter((it) => it && it.key && allowedTierSet.has(it.tier));
+  const images = allowed.filter(isManifestImageItem);
+  if (!images.length) return null;
+  const idx = Math.min(images.length - 1, Math.floor(rng() * images.length));
+  return images[idx] || null;
+}
+
 const R2_STATS_PATH = path.join(__dirname, 'data', 'r2-stats.json');
 let r2StatsCache = null;
 let r2StatsMtime = 0;
@@ -598,6 +616,43 @@ async function dbQuery(text, values = []) {
   } catch (err) {
     disableDatabaseForProcess(err);
     throw err;
+  }
+}
+
+/** Human-readable label for a catalog file (short cards / feed). */
+function clipDisplayTitle(fileName) {
+  const base = String(fileName || '')
+    .replace(/\.[^/.]+$/i, '')
+    .replace(/[-_]+/g, ' ')
+    .trim();
+  if (!base) return 'Short clip';
+  return base.length > 80 ? `${base.slice(0, 78)}…` : base;
+}
+
+/** Merge `media_items` stats into feed objects (batched) for likes sort / display. */
+async function attachMediaItemStatsForFeedItems(items) {
+  if (!pool || !items.length) return;
+  const keys = [...new Set(items.map((i) => i.key).filter(Boolean))];
+  for (let start = 0; start < keys.length; start += 400) {
+    const chunk = keys.slice(start, start + 400);
+    try {
+      const { rows } = await dbQuery(
+        `select id, storage_path, views, likes, duration_seconds
+         from media_items where storage_path = any($1::text[])`,
+        [chunk],
+      );
+      const byKey = new Map(rows.map((r) => [r.storage_path, r]));
+      for (const item of items) {
+        const s = byKey.get(item.key);
+        if (!s) continue;
+        item.id = s.id || item.id;
+        item.views = Number(s.views || 0);
+        item.likes = Number(s.likes || 0);
+        item.durationSeconds = Number(s.duration_seconds || 0);
+      }
+    } catch (err) {
+      console.error('[shorts feed bulk stats]', err.code || '', err.message || err);
+    }
   }
 }
 
@@ -2126,20 +2181,22 @@ async function routeApi(req, res, url) {
       });
     }
 
-    const pick = pickRandomPreviewFromManifest(manifest.items, allowedTierSet, rand);
+    const pick = pickRandomImagePreviewFromManifest(manifest.items, allowedTierSet, rand);
+    const fb = thumbnailFor(slug);
     if (!pick) {
       return sendJson(res, 200, {
         key: null,
         kind: null,
         tier: null,
-        fallbackThumbnail: thumbnailFor(slug),
+        fallbackThumbnail: fb,
       });
     }
     return sendJson(res, 200, {
       key: pick.key,
-      kind: pick.kind || 'other',
+      kind: pick.kind || 'image',
       tier: pick.tier,
       name: pick.name,
+      fallbackThumbnail: fb,
     });
   }
 
@@ -2251,7 +2308,7 @@ async function routeApi(req, res, url) {
           id: mediaStatsId(item.key),
           key: item.key,
           name: item.name,
-          title: creator.name,
+          title: clipDisplayTitle(item.name),
           creatorSlug: creator.slug,
           creatorName: creator.name,
           creatorRank: Number(creator.rank || 999),
@@ -2263,6 +2320,8 @@ async function routeApi(req, res, url) {
           views: 0,
           likes: 0,
           durationSeconds: 0,
+          /** Same-origin WebP for instant poster while R2 video buffers (esp. mobile). */
+          creatorThumbnail: thumbnailFor(creator.slug) || null,
         }));
       if (!videos.length) continue;
       creatorFilters.push({
@@ -2345,8 +2404,37 @@ async function routeApi(req, res, url) {
     if (wantedCategories.size) {
       feedPool = feedPool.filter((item) => item.categorySlugs?.some((slug) => wantedCategories.has(slug)));
     }
-    const randomized = seededShuffle(feedPool, seed);
-    const shorts = randomized.slice(offset, offset + limit);
+
+    const sortRaw = String(url.searchParams.get('sort') || 'random').toLowerCase();
+    const sortMode = ['random', 'trending', 'featured', 'top', 'likes'].includes(sortRaw) ? sortRaw : 'random';
+
+    const topScore = (v) =>
+      Number(v.sizeBytes || 0) +
+      Number(v.creatorHeat || 0) * 400000 +
+      (stableHash(`${seed}:tops:${v.key}`) % 400000);
+    const trendScore = (v) =>
+      Number(v.creatorHeat || 0) * 10000 +
+      (stableHash(`${seed}:trends:${v.key}`) % 10000) +
+      Math.min(2000, Number(v.sizeBytes || 0) / 250000);
+
+    let orderedPool = feedPool.slice();
+    if (sortMode === 'likes') {
+      await attachMediaItemStatsForFeedItems(orderedPool);
+      orderedPool.sort((a, b) => Number(b.likes || 0) - Number(a.likes || 0) || topScore(b) - topScore(a));
+    } else if (sortMode === 'top') {
+      orderedPool.sort((a, b) => topScore(b) - topScore(a));
+    } else if (sortMode === 'trending') {
+      orderedPool.sort((a, b) => trendScore(b) - trendScore(a));
+    } else if (sortMode === 'featured') {
+      orderedPool.sort((a, b) => topScore(b) - topScore(a));
+      const halfN = Math.max(1, Math.ceil(orderedPool.length * 0.5));
+      orderedPool = orderedPool.slice(0, halfN);
+      orderedPool = seededShuffle(orderedPool, `${seed}:featured`);
+    } else {
+      orderedPool = seededShuffle(orderedPool, seed);
+    }
+
+    const shorts = orderedPool.slice(offset, offset + limit);
     if (pool && shorts.length) {
       try {
         const stats = await dbQuery(
@@ -2363,6 +2451,7 @@ async function routeApi(req, res, url) {
           item.views = Number(stat.views || 0);
           item.likes = Number(stat.likes || 0);
           item.durationSeconds = Number(stat.duration_seconds || 0);
+          item.duration = secondsToDuration(item.durationSeconds);
         }
       } catch (err) {
         console.error('[shorts feed stats]', err.code || '', err.message || err);
@@ -2386,7 +2475,7 @@ async function routeApi(req, res, url) {
         fullAccessRaw,
         unlockableRaw: Math.max(0, fullAccessRaw - allowedAccessRaw),
       },
-      page: { offset, limit, total: randomized.length, returned: shorts.length, seed },
+      page: { offset, limit, total: orderedPool.length, returned: shorts.length, seed, sort: sortMode },
     });
   }
 

@@ -10,11 +10,13 @@ const DWELL_MS = 3000;
 /** @param {{ creators: unknown[], variant?: 'default' | 'hero' }} props */
 export function TopCreatorsGallery({ creators, variant = 'default' }) {
   const [index, setIndex] = useState(0);
-  const [preview, setPreview] = useState({ key: null, kind: null, fallbackThumbnail: null });
-  const [mediaBroken, setMediaBroken] = useState(false);
+  const [preview, setPreview] = useState({ key: null, kind: null, name: null, fallbackThumbnail: null });
+  const [overlayBroken, setOverlayBroken] = useState(false);
+  const [overlayLoaded, setOverlayLoaded] = useState(false);
   const fetchGen = useRef(0);
   /** One dwell timer per slide; do not reset when `url` upgrades from thumb → random-preview. */
   const dwellRef = useRef({ index: null, timerId: null });
+  const dwellArmUrlRef = useRef('');
 
   const n = creators?.length || 0;
 
@@ -33,8 +35,15 @@ export function TopCreatorsGallery({ creators, variant = 'default' }) {
     }
     const ac = new AbortController();
     const gen = (fetchGen.current += 1);
-    setMediaBroken(false);
-    setPreview({ key: null, kind: null, fallbackThumbnail: null });
+    setOverlayBroken(false);
+    setOverlayLoaded(false);
+    /** Keep the grid thumbnail visible immediately — no empty-tile flash while `/random-preview` returns. */
+    setPreview({
+      key: null,
+      kind: null,
+      name: null,
+      fallbackThumbnail: creator.thumbnail || null,
+    });
     const seed =
       typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
@@ -42,31 +51,37 @@ export function TopCreatorsGallery({ creators, variant = 'default' }) {
     apiGet(`/api/creators/${creator.slug}/random-preview?seed=${encodeURIComponent(seed)}`, {}, { signal: ac.signal }).then(
       (data) => {
         if (ac.signal.aborted || gen !== fetchGen.current) return;
-        if (data && typeof data === 'object') setPreview(data);
+        if (data && typeof data === 'object') {
+          setPreview({
+            key: data.key || null,
+            kind: data.kind || null,
+            name: data.name || null,
+            fallbackThumbnail: data.fallbackThumbnail || creator.thumbnail || null,
+          });
+        }
       },
     );
     return () => ac.abort();
-  }, [creator?.slug, safeIndex]);
+  }, [creator?.slug, creator?.thumbnail, safeIndex]);
 
   useEffect(() => {
-    setMediaBroken(false);
+    setOverlayBroken(false);
+    setOverlayLoaded(false);
   }, [preview?.key]);
 
-  const kind = preview?.key
-    ? preview.kind || classifyMedia(preview.name || '')
-    : 'image';
-  const primarySrc = preview?.key ? mediaUrl(preview.key) : '';
-  const fallbackSrc = preview?.fallbackThumbnail || creator?.thumbnail || '';
+  const baseSrc = preview?.fallbackThumbnail || creator?.thumbnail || '';
+  const rawKind = preview?.key ? preview.kind || classifyMedia(preview.name || '') : 'image';
+  /** API is image-only for this endpoint; never treat as video in the hero. */
+  const overlayIsImage = Boolean(preview?.key) && rawKind !== 'video';
+  const overlaySrc = overlayIsImage && preview?.key ? mediaUrl(preview.key) : '';
+  const showOverlay = Boolean(overlaySrc) && !overlayBroken;
 
-  const usePrimary = Boolean(primarySrc) && !mediaBroken;
-  const url = usePrimary ? primarySrc : fallbackSrc;
-  const isVideo = usePrimary && kind === 'video';
-  const isStaticThumb = typeof url === 'string' && url.includes('/thumbnails/');
   const mediaFetchPriority =
-    (variant === 'hero' && safeIndex === 0) || isStaticThumb ? 'high' : 'low';
+    (variant === 'hero' && safeIndex === 0) || (typeof baseSrc === 'string' && baseSrc.includes('/thumbnails/'))
+      ? 'high'
+      : 'low';
 
-  const urlRef = useRef(url);
-  urlRef.current = url;
+  dwellArmUrlRef.current = baseSrc || overlaySrc || '';
 
   useEffect(() => {
     if (n <= 1 || !creator) return undefined;
@@ -86,7 +101,7 @@ export function TopCreatorsGallery({ creators, variant = 'default' }) {
 
     const armDwell = () => {
       if (cancelled) return;
-      if (!urlRef.current) {
+      if (!dwellArmUrlRef.current) {
         framesWaited += 1;
         if (framesWaited > 120) {
           return;
@@ -117,38 +132,37 @@ export function TopCreatorsGallery({ creators, variant = 'default' }) {
   return (
     <div className={rootClass}>
       <div className={`lw-top-gallery-viewport accent-${creator.accent || 'pink'}`}>
-        <div key={safeIndex} className="lw-top-gallery-slide-layer">
+        <div key={creator.slug} className="lw-top-gallery-slide-layer">
           <Link
             to={`/creators/${creator.slug}`}
             className="lw-hero-tile lw-top-gallery-tile"
             aria-label={`Open ${creator.name}`}
           >
-            {url ? (
-              isVideo ? (
-                <video
-                  className="lw-hero-tile-img"
-                  src={url}
-                  muted
-                  playsInline
-                  autoPlay
-                  loop
-                  preload="metadata"
-                  fetchPriority={mediaFetchPriority}
-                  onError={() => setMediaBroken(true)}
-                />
-              ) : (
+            <div className="lw-hero-tile-media-stack">
+              {baseSrc ? (
                 <img
-                  className="lw-hero-tile-img"
-                  src={url}
+                  className="lw-hero-tile-img lw-hero-tile-img--base"
+                  src={baseSrc}
                   alt=""
-                  loading="lazy"
+                  loading={variant === 'hero' && safeIndex === 0 ? 'eager' : 'lazy'}
                   decoding="async"
                   fetchPriority={mediaFetchPriority}
-                  onError={() => setMediaBroken(true)}
                 />
-              )
-            ) : null}
-            {!isVideo && preview?.key ? (
+              ) : null}
+              {showOverlay ? (
+                <img
+                  className={`lw-hero-tile-img lw-hero-tile-img--overlay ${overlayLoaded ? 'is-loaded' : ''}`}
+                  src={overlaySrc}
+                  alt=""
+                  loading="eager"
+                  decoding="async"
+                  fetchPriority={overlaySrc && baseSrc ? 'high' : mediaFetchPriority}
+                  onLoad={() => setOverlayLoaded(true)}
+                  onError={() => setOverlayBroken(true)}
+                />
+              ) : null}
+            </div>
+            {showOverlay && preview?.key ? (
               <AdminCopyStorageKeyButton storageKey={preview.key} variant="hero" />
             ) : null}
             <div className="lw-hero-tile-meta">

@@ -15,6 +15,7 @@ export const SHORTS_FEED_PAGE_SIZE = SHORTS_FEED_INITIAL_LIMIT;
  *   allCategorySlugs: string[],
  *   selectedCreators: Set<string> | null,
  *   selectedCategories: Set<string> | null,
+ *   sort?: 'random' | 'trending' | 'featured' | 'top' | 'likes',
  * }} p
  */
 export function buildShortsFeedQueryString(p) {
@@ -37,6 +38,11 @@ export function buildShortsFeedQueryString(p) {
   }
   if (sct != null && sct.size > 0 && allCat.length > 0 && sct.size < allCat.length) {
     qs.set('categories', [...sct].map((s) => String(s).trim().toLowerCase()).filter(Boolean).sort().join(','));
+  }
+
+  const sort = p.sort != null ? String(p.sort).trim().toLowerCase() : '';
+  if (sort && /^(random|trending|featured|top|likes)$/.test(sort)) {
+    qs.set('sort', sort);
   }
 
   return qs.toString();

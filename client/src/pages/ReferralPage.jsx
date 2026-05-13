@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../components/AuthContext';
 import { GoldPremiumFx } from '../components/referral/GoldPremiumFx';
+import { RedditMark, XMark } from '../components/referral/BrandMarks';
 import { CREATORS } from '../data/catalog';
 import { TIPS, WARNINGS } from '../data/referralPlaybook';
 import {
@@ -224,16 +225,25 @@ function HeroSection({ user, link, code, share, program, copiedId, onCopyLink, o
           </div>
           <div className="lw-refpage-share">
             <a className="lw-refpage-share-btn" href={share.redditPost} target="_blank" rel="noopener noreferrer">
-              <span>Reddit</span>
-              <span className="lw-refpage-share-sub">Submit post</span>
+              <RedditMark size={28} className="lw-refpage-share-icon lw-refpage-share-icon--reddit" />
+              <span className="lw-refpage-share-text">
+                <span className="lw-refpage-share-title">Reddit</span>
+                <span className="lw-refpage-share-sub">Submit post</span>
+              </span>
             </a>
             <a className="lw-refpage-share-btn" href={share.redditComment} target="_blank" rel="noopener noreferrer">
-              <span>Reddit</span>
-              <span className="lw-refpage-share-sub">Comment text</span>
+              <RedditMark size={28} className="lw-refpage-share-icon lw-refpage-share-icon--reddit" />
+              <span className="lw-refpage-share-text">
+                <span className="lw-refpage-share-title">Reddit</span>
+                <span className="lw-refpage-share-sub">Comment text</span>
+              </span>
             </a>
             <a className="lw-refpage-share-btn" href={share.xPost} target="_blank" rel="noopener noreferrer">
-              <span>X / Twitter</span>
-              <span className="lw-refpage-share-sub">New post</span>
+              <XMark size={26} className="lw-refpage-share-icon lw-refpage-share-icon--x" />
+              <span className="lw-refpage-share-text">
+                <span className="lw-refpage-share-title">X / Twitter</span>
+                <span className="lw-refpage-share-sub">New post</span>
+              </span>
             </a>
           </div>
         </div>

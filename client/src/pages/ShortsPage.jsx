@@ -74,7 +74,7 @@ function clampIndex(value, length) {
   return Math.max(0, Math.min(length - 1, value));
 }
 
-function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted }) {
+function ShortVideoSlide({ item, isActive, isAdjacent, offset, dragOffset, isDragging, muted }) {
   const videoRef = useRef(null);
   const playbackId = useMemo(() => mediaPlaybackSessionId(), [item.key]);
   const [playing, setPlaying] = useState(false);
@@ -159,13 +159,6 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
       window.removeEventListener('touchend', onUserGesture);
     };
   }, [isActive, muted, item.key, isImage]);
-
-  useEffect(() => {
-    if (isImage) return;
-    const video = videoRef.current;
-    if (!video || isActive) return;
-    video.load();
-  }, [isActive, item.key, isImage]);
 
   useEffect(() => {
     if (!isImage || !isActive) return;
@@ -346,7 +339,8 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
     recordMediaLoadTiming({ surface: 'shorts_image', storageKey: item.key, error: 'image_error' });
   }, [item.key]);
 
-  const videoPreload = isActive ? 'auto' : 'none';
+  /** `metadata` on prev/next keeps first frames warm without the blank flash from `video.load()` on swipe. */
+  const videoPreload = isActive ? 'auto' : isAdjacent ? 'metadata' : 'none';
   const showBlocking = isActive && !ready && !loadError && !timedOut;
   const showRecover = isActive && (loadError || timedOut);
 
@@ -363,6 +357,7 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
           alt=""
           loading={isActive ? 'eager' : 'lazy'}
           decoding="async"
+          fetchPriority={isActive ? 'high' : 'low'}
           onLoad={onImageLoad}
           onError={onImageError}
         />
@@ -371,7 +366,9 @@ function ShortVideoSlide({ item, isActive, offset, dragOffset, isDragging, muted
           ref={videoRef}
           className="lw-short-video"
           src={mediaSrc}
+          poster={item.creatorThumbnail || undefined}
           preload={videoPreload}
+          fetchPriority={isActive ? 'high' : 'low'}
           autoPlay={isActive}
           playsInline
           loop
@@ -585,6 +582,8 @@ export function ShortsPage() {
     typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('s') : null,
   );
   const pointerRef = useRef(null);
+  const dragRafRef = useRef(0);
+  const pendingDragYRef = useRef(null);
   const wheelLockRef = useRef(0);
   const requestSeq = useRef(0);
   const playerShellRef = useRef(null);
@@ -866,13 +865,25 @@ export function ShortsPage() {
 
   function onPointerMove(e) {
     if (!pointerRef.current || pointerRef.current.id !== e.pointerId) return;
-    setDragOffset(Math.max(-160, Math.min(160, e.clientY - pointerRef.current.startY)));
+    const y = Math.round(Math.max(-160, Math.min(160, e.clientY - pointerRef.current.startY)));
+    pendingDragYRef.current = y;
+    if (dragRafRef.current) return;
+    dragRafRef.current = requestAnimationFrame(() => {
+      dragRafRef.current = 0;
+      const next = pendingDragYRef.current;
+      if (next != null) setDragOffset(next);
+    });
   }
 
   function onPointerUp(e) {
     if (!pointerRef.current || pointerRef.current.id !== e.pointerId) return;
     const delta = e.clientY - pointerRef.current.startY;
     pointerRef.current = null;
+    if (dragRafRef.current) {
+      cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = 0;
+    }
+    pendingDragYRef.current = null;
     setIsDragging(false);
     setDragOffset(0);
     if (delta < -64) navigateShort(1);
@@ -996,6 +1007,7 @@ export function ShortsPage() {
                   key={item.id}
                   item={item}
                   isActive={offset === 0}
+                  isAdjacent={offset !== 0}
                   offset={offset}
                   dragOffset={dragOffset}
                   isDragging={isDragging}

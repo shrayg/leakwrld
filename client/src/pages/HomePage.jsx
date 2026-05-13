@@ -11,10 +11,18 @@ import { formatBytes, formatCount } from '../lib/metrics';
 import { SHORTS_FEED_INITIAL_LIMIT } from '../lib/shortsFeed';
 import { HomeReferralTeaser } from '../components/referral/HomeReferralTeaser';
 
+const SHORTS_SORT_OPTIONS = [
+  { id: 'top', label: 'Top' },
+  { id: 'featured', label: 'Featured' },
+  { id: 'likes', label: 'Most likes' },
+  { id: 'trending', label: 'Trending' },
+];
+
 export function HomePage() {
   const [creators, setCreators] = useState(CREATORS);
   const [shorts, setShorts] = useState(SHORTS);
   const [shortsSeed, setShortsSeed] = useState('');
+  const [shortsSort, setShortsSort] = useState('featured');
   const shortsSeedRef = useRef(
     typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
@@ -43,18 +51,28 @@ export function HomePage() {
       const rows = Array.isArray(data?.creators) && data.creators.length ? data.creators : CREATORS;
       setCreators(rows.map((creator, index) => ({ ...creator, rank: index + 1 })));
     });
-    const seed = shortsSeedRef.current;
-    apiGet(
-      `/api/shorts/feed?limit=${SHORTS_FEED_INITIAL_LIMIT}&offset=0&seed=${encodeURIComponent(seed)}`,
-      { shorts: SHORTS, page: { seed } },
-    ).then((data) => {
+    apiGet('/api/stats', fallbackStats).then((data) => setStats({ ...fallbackStats, ...data }));
+  }, [fallbackStats]);
+
+  useEffect(() => {
+    const seed =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    shortsSeedRef.current = seed;
+    const qs = new URLSearchParams({
+      limit: String(SHORTS_FEED_INITIAL_LIMIT),
+      offset: '0',
+      seed,
+      sort: shortsSort,
+    }).toString();
+    apiGet(`/api/shorts/feed?${qs}`, { shorts: SHORTS, page: { seed } }).then((data) => {
       const feedShorts = Array.isArray(data?.shorts) ? data.shorts : [];
       if (feedShorts.length) setShorts(feedShorts);
       else setShorts(SHORTS);
       setShortsSeed(String(data?.page?.seed || seed));
     });
-    apiGet('/api/stats', fallbackStats).then((data) => setStats({ ...fallbackStats, ...data }));
-  }, [fallbackStats]);
+  }, [shortsSort]);
 
   const creatorTotalPages = Math.max(1, Math.ceil(creators.length / creatorPageSize));
   const creatorPageClamped = Math.min(creatorPage, creatorTotalPages);
@@ -167,10 +185,23 @@ export function HomePage() {
       </section>
 
       <section className="lw-section">
-        <div className="lw-section-head">
+        <div className="lw-section-head lw-section-head--shorts">
           <div>
             <span className="lw-eyebrow">Shorts</span>
             <h2>Short previews</h2>
+            <div className="lw-home-shorts-sort" role="group" aria-label="Sort shorts preview">
+              {SHORTS_SORT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`lw-home-shorts-pill ${shortsSort === opt.id ? 'is-active' : ''}`}
+                  aria-pressed={shortsSort === opt.id}
+                  onClick={() => setShortsSort(opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
           <Link to="/shorts" className="lw-link">
             Open shorts
@@ -183,10 +214,11 @@ export function HomePage() {
               key={item.id}
               item={item}
               index={index}
+              forHomeRow
               className="lw-home-short-card"
               to={`/shorts?v=${encodeURIComponent(item.id)}${
                 shortsSeed ? `&s=${encodeURIComponent(shortsSeed)}` : ''
-              }`}
+              }${shortsSort !== 'random' ? `&sort=${encodeURIComponent(shortsSort)}` : ''}`}
             />
           ))}
         </div>

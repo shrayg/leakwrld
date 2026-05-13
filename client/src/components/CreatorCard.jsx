@@ -86,19 +86,21 @@ export function CreatorCard({ creator, compact = false }) {
   );
 }
 
-export function ShortCard({ item, index, to, className = '' }) {
+export function ShortCard({ item, index, to, className = '', forHomeRow = false }) {
   const premium = item.tier !== 'free';
   const accent = index % 4 === 0 ? 'gold' : index % 3 === 0 ? 'cyan' : 'pink';
   const telemetry = useCatalogShortTelemetry(item);
   const kind = item.kind || classifyMedia(item.name || item.title);
   const previewSrc = item.key ? mediaUrl(item.key) : '';
   const [previewBroken, setPreviewBroken] = useState(false);
-  const fetchPriority = index < 4 ? 'high' : 'low';
+  const fetchPriority = forHomeRow || index < 4 ? 'high' : 'low';
   const [previewRootRef, previewNear] = useNearViewport({
-    disabled: index < 4,
-    rootMargin: '200px',
+    disabled: forHomeRow || index < 4,
+    rootMargin: '320px',
   });
-  const loadPreview = index < 4 || previewNear;
+  /** Home row: always load real media (same-origin `/r2`); catalog defers off-screen clips. */
+  const loadPreview = forHomeRow || index < 4 || previewNear;
+  const videoPreload = kind === 'video' ? (forHomeRow || index < 8 ? 'auto' : 'metadata') : undefined;
 
   const [views, setViews] = useState(Number(item.views) || 0);
   const [likes, setLikes] = useState(Number(item.likes) || 0);
@@ -155,8 +157,7 @@ export function ShortCard({ item, index, to, className = '' }) {
                 src={previewSrc}
                 muted
                 playsInline
-                preload="metadata"
-                crossOrigin="anonymous"
+                preload={videoPreload || 'metadata'}
                 fetchPriority={fetchPriority}
                 onError={() => {
                   setPreviewBroken(true);
@@ -172,7 +173,7 @@ export function ShortCard({ item, index, to, className = '' }) {
                 className="lw-short-preview-media"
                 src={previewSrc}
                 alt=""
-                loading="lazy"
+                loading={forHomeRow || index < 8 ? 'eager' : 'lazy'}
                 decoding="async"
                 fetchPriority={fetchPriority}
                 onError={() => {
@@ -186,23 +187,25 @@ export function ShortCard({ item, index, to, className = '' }) {
               />
             )
           ) : null}
-          <span className="lw-rank">{item.duration}</span>
+          <span className="lw-rank">{item.duration || '—'}</span>
           <span className="lw-play pointer-events-none" aria-hidden>
             <Play size={22} fill="currentColor" />
           </span>
           {premium ? (
-            <span className="lw-tier-chip">
-              <Lock size={12} />
+            <span className="lw-short-preview-tier lw-tier-chip lw-tier-chip--premium-lock">
+              <Lock size={12} aria-hidden />
               Premium
             </span>
           ) : (
-            <span className="lw-tier-chip free">Free</span>
+            <span className="lw-short-preview-tier lw-tier-chip free">Free</span>
           )}
           {kind === 'image' && item.key ? <AdminCopyStorageKeyButton storageKey={item.key} variant="short" /> : null}
         </div>
         <div className="p-3">
-          <h3 className="truncate text-[14px] font-semibold text-white">{item.title}</h3>
-          <p className="mt-1 text-[12px] text-[var(--color-text-muted)]">{item.creatorName}</p>
+          <h3 className="truncate text-[14px] font-semibold text-white" title={item.title}>
+            {item.title || 'Short'}
+          </h3>
+          <p className="mt-1 truncate text-[11px] uppercase tracking-wide text-white/45">{item.creatorName}</p>
           <div className="mt-3 flex items-center justify-between text-[11px] text-white/60">
             <span>{formatCount(views)} views</span>
             <span>{formatCount(likes)} likes</span>
@@ -211,7 +214,7 @@ export function ShortCard({ item, index, to, className = '' }) {
       </Link>
       <button
         type="button"
-        className="lw-icon-btn absolute right-3 top-3 z-10 border border-white/15 bg-black/40 text-white shadow-md backdrop-blur-sm"
+        className="lw-icon-btn lw-short-card-like border border-white/15 bg-black/40 text-white shadow-md backdrop-blur-sm"
         aria-label={liked ? 'Liked' : 'Like short'}
         aria-pressed={liked}
         onClick={onLike}

@@ -731,7 +731,29 @@ input {
   outline: none;
 }
 
-.lw-top-gallery-viewport .lw-hero-tile-img {
+.lw-hero-tile-media-stack {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: #211f20;
+}
+
+.lw-hero-tile-media-stack .lw-hero-tile-img--base {
+  z-index: 0;
+}
+
+.lw-hero-tile-media-stack .lw-hero-tile-img--overlay {
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 420ms ease;
+}
+
+.lw-hero-tile-media-stack .lw-hero-tile-img--overlay.is-loaded {
+  opacity: 1;
+}
+
+.lw-top-gallery-viewport .lw-hero-tile-img:not(.lw-hero-tile-img--overlay) {
   transition: none;
 }
 
@@ -1212,7 +1234,7 @@ input {
 .lw-short-preview-media {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1230,6 +1252,8 @@ input {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 2;
+  pointer-events: none;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 42%),
     linear-gradient(0deg, rgba(0, 0, 0, 0.48), transparent 52%);
@@ -1269,19 +1293,44 @@ input {
   font-size: 12px;
 }
 
+.lw-short-preview .lw-rank,
+.lw-short-preview .lw-play {
+  z-index: 5;
+}
+
 .lw-rank {
   position: absolute;
   top: 10px;
   left: 10px;
 }
 
-/** ShortCard uses a single bare lw-tier-chip; pin it to the top-right. CreatorCard
- *  wraps two chips in `.lw-tier-chips` which handles its own absolute positioning. */
-.lw-thumb > .lw-tier-chip,
-.lw-short-preview > .lw-tier-chip {
+/** CreatorCard tier chips stay top-right. ShortCard tier label sits bottom-right (clear of like). */
+.lw-thumb > .lw-tier-chip {
   position: absolute;
   top: 10px;
   right: 10px;
+}
+
+.lw-short-preview > .lw-short-preview-tier {
+  position: absolute;
+  top: auto;
+  bottom: 10px;
+  right: 10px;
+  left: auto;
+  z-index: 4;
+}
+
+.lw-tier-chip--premium-lock {
+  border: 1px solid rgba(255, 180, 190, 0.75);
+  background: rgba(220, 38, 38, 0.94);
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(160, 20, 35, 0.5);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lw-tier-chip--premium-lock svg {
+  color: #ffe8ea;
 }
 
 .lw-tier-chip {
@@ -1656,7 +1705,7 @@ body.lw-shorts-active-body {
   position: absolute;
   inset: 0;
   background: #000;
-  transition: transform 260ms cubic-bezier(0.2, 0.82, 0.2, 1);
+  transition: transform 340ms cubic-bezier(0.22, 0.82, 0.2, 1);
   will-change: transform;
 }
 
@@ -2737,6 +2786,40 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 }
 
 /* Homepage shorts strip — breakpoints match Tailwind `sm:2 lg:3 xl:6` */
+.lw-section-head--shorts {
+  align-items: flex-start;
+}
+
+.lw-home-shorts-sort {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.lw-home-shorts-pill {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 245, 251, 0.82);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.lw-home-shorts-pill:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
+.lw-home-shorts-pill.is-active {
+  border-color: rgba(242, 104, 184, 0.55);
+  background: rgba(242, 104, 184, 0.2);
+  color: #fff;
+}
+
 .lw-home-shorts-grid {
   display: grid;
   grid-auto-flow: column;
@@ -2770,6 +2853,13 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 
 .lw-home-short-card {
   max-width: 230px;
+}
+
+.lw-home-short-card .lw-short-card-like {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
 }
 
 /* ===== Creator detail page ===== */
@@ -3574,12 +3664,12 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 /* ─── Home: referral teaser strip + hero card + leaderboard row ────────── */
 
 .lw-ref-teaser {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 18px;
+  column-gap: clamp(20px, 4vw, 40px);
+  row-gap: 18px;
+  padding: 22px clamp(18px, 3vw, 28px);
   border-radius: 14px;
   border: 1px solid rgba(255, 216, 107, 0.22);
   background:
@@ -3587,17 +3677,31 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
     radial-gradient(circle at 100% 100%, rgba(242, 104, 184, 0.16), transparent 60%),
     rgba(48, 47, 47, 0.92);
 }
-.lw-ref-teaser-main { flex: 1 1 360px; min-width: 0; }
+@media (max-width: 720px) {
+  .lw-ref-teaser {
+    grid-template-columns: 1fr;
+  }
+}
+.lw-ref-teaser-main { min-width: 0; }
 .lw-ref-teaser-heading {
-  margin: 0 0 4px;
-  font-size: 18px;
+  margin: 0 0 12px;
+  font-size: clamp(17px, 2.1vw, 21px);
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+.lw-ref-teaser-heading-kicker {
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  text-shadow: 0 0 28px rgba(255, 255, 255, 0.12);
 }
 .lw-ref-teaser-sub {
   margin: 0;
+  max-width: 52ch;
   color: var(--color-text-muted);
   font-size: 14px;
+  line-height: 1.55;
 }
 .lw-ref-teaser-bar-wrap {
   display: flex;
@@ -3614,7 +3718,14 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 .lw-ref-teaser-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 12px;
+}
+@media (max-width: 720px) {
+  .lw-ref-teaser-actions {
+    justify-content: flex-start;
+  }
 }
 
 .lw-ref-home-row {
@@ -3982,14 +4093,16 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 }
 .lw-ref-share-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
   margin-bottom: 16px;
 }
 .lw-ref-share-btn {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 10px;
   padding: 10px 14px;
   background: rgba(255, 255, 255, 0.06);
   border-radius: 10px;
@@ -4000,8 +4113,21 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   transition: background 150ms ease;
 }
 .lw-ref-share-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.lw-ref-share-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  min-width: 0;
+}
+.lw-ref-share-icon {
+  flex-shrink: 0;
+}
+.lw-ref-share-icon--x {
+  color: #fff;
+}
 .lw-ref-share-platform { color: #ffd86b; }
-.lw-ref-share-action { font-size: 12px; color: var(--color-text-muted); }
+.lw-ref-share-action { font-size: 12px; color: var(--color-text-muted); font-weight: 500; }
 .lw-ref-modal-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -4633,8 +4759,9 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
 }
 .lw-refpage-share-btn {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
   padding: 10px 12px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.36);
@@ -4644,8 +4771,24 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   transition: border-color 120ms ease, transform 120ms ease;
 }
 .lw-refpage-share-btn:hover { border-color: rgba(255, 216, 107, 0.38); transform: translateY(-1px); }
-.lw-refpage-share-btn span:first-child { font-weight: 700; font-size: 13px; }
-.lw-refpage-share-sub { font-size: 11px; color: var(--color-text-muted); }
+.lw-refpage-share-icon {
+  flex-shrink: 0;
+}
+.lw-refpage-share-icon--x {
+  color: #fff;
+}
+.lw-refpage-share-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.lw-refpage-share-title {
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.lw-refpage-share-sub { font-size: 11px; color: var(--color-text-muted); line-height: 1.2; }
 .lw-refpage-guest-cta {
   display: flex;
   flex-direction: column;

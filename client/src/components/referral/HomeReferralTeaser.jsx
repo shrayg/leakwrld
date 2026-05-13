@@ -52,7 +52,9 @@ export function HomeReferralTeaser() {
         <h2 className="lw-ref-teaser-heading">
           {!isAuthed ? (
             <>
-              <GoldPremiumFx>Free premium</GoldPremiumFx> + cash is just one share away
+              <GoldPremiumFx>Free premium access</GoldPremiumFx>
+              {' '}and <GoldPremiumFx>earn up to $1,000+</GoldPremiumFx>
+              <span className="lw-ref-teaser-heading-kicker"> — one share away.</span>
             </>
           ) : maxedOut ? (
             <>
@@ -69,8 +71,8 @@ export function HomeReferralTeaser() {
           )}
         </h2>
         <p className="lw-ref-teaser-sub">
-          Two perks at once: <strong className="lw-ref-gold">lifetime tier access</strong> as signups roll in,{' '}
-          and <strong className="lw-ref-gold">cash earnings</strong> once you cross 10 referrals.
+          Share once: <strong className="lw-ref-gold">lifetime vault tiers</strong> unlock as referrals add up, then{' '}
+          <strong className="lw-ref-gold">paid revshare</strong> kicks in from your 10th signup.
         </p>
         {isAuthed && !maxedOut ? (
           <div className="lw-ref-teaser-bar-wrap">

@@ -7,6 +7,7 @@ import {
   copyText,
   fetchReferralStatus,
 } from '../../lib/referral';
+import { RedditMark, XMark } from './BrandMarks';
 
 /** Hardcoded for now — the user explicitly said "just use this link for now,
  *  I'm going to think more tomorrow." We'll wire a per-user / per-subreddit
@@ -20,27 +21,6 @@ const FAST_REDDIT_URL =
 /** Pre-written comment users paste under their submitted Reddit post. */
 function buildFastComment(link) {
   return `${link || 'https://leakwrld.com/r/YOURCODE'} you won't find better than this`;
-}
-
-/** Inline Reddit snoo mark — lucide doesn't ship a Reddit icon, and we want
- *  a recognizable orange circle on the "OPEN THIS REDDIT" CTA. Tiny SVG so
- *  no font/icon-pack bloat. */
-function RedditMark({ size = 22 }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 32 32"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx="16" cy="16" r="16" fill="#FF4500" />
-      <path
-        fill="#fff"
-        d="M26 16.2c0-1.2-1-2.2-2.2-2.2-.6 0-1.1.2-1.5.6-1.5-1-3.4-1.6-5.5-1.7l1.1-3.5 3 .7c0 .9.7 1.6 1.6 1.6.9 0 1.6-.7 1.6-1.6 0-.9-.7-1.6-1.6-1.6-.6 0-1.2.4-1.5.9l-3.4-.8c-.2 0-.4.1-.5.3l-1.3 4.1c-2.1.1-4.1.7-5.5 1.7-.4-.4-.9-.6-1.5-.6-1.2 0-2.2 1-2.2 2.2 0 .8.4 1.5 1.1 1.9 0 .2 0 .4 0 .6 0 3 3.7 5.5 8.3 5.5s8.3-2.5 8.3-5.5c0-.2 0-.4 0-.6.7-.4 1.2-1.1 1.2-1.9zM10.5 17.7c0-.9.7-1.6 1.6-1.6.9 0 1.6.7 1.6 1.6 0 .9-.7 1.6-1.6 1.6-.9 0-1.6-.7-1.6-1.6zm9.1 4.3c-1 1-3 1.1-3.6 1.1s-2.6-.1-3.6-1.1c-.2-.2-.2-.4 0-.6.2-.2.4-.2.6 0 .6.6 2 .9 3 .9s2.4-.2 3-.9c.2-.2.4-.2.6 0 .2.2.2.4 0 .6zm-.2-2.8c-.9 0-1.6-.7-1.6-1.6 0-.9.7-1.6 1.6-1.6.9 0 1.6.7 1.6 1.6 0 .9-.7 1.6-1.6 1.6z"
-      />
-    </svg>
-  );
 }
 
 /**
@@ -147,16 +127,25 @@ function ShareModal({ link, status, share, onClose, onCopy, onOpenFast, toast })
 
         <div className="lw-ref-share-grid">
           <a className="lw-ref-share-btn" href={share.redditPost} target="_blank" rel="noopener noreferrer">
-            <span className="lw-ref-share-platform">Reddit</span>
-            <span className="lw-ref-share-action">Post</span>
+            <RedditMark size={26} className="lw-ref-share-icon lw-ref-share-icon--reddit" />
+            <span className="lw-ref-share-btn-text">
+              <span className="lw-ref-share-platform">Reddit</span>
+              <span className="lw-ref-share-action">Post</span>
+            </span>
           </a>
           <a className="lw-ref-share-btn" href={share.redditComment} target="_blank" rel="noopener noreferrer">
-            <span className="lw-ref-share-platform">Reddit</span>
-            <span className="lw-ref-share-action">Comment</span>
+            <RedditMark size={26} className="lw-ref-share-icon lw-ref-share-icon--reddit" />
+            <span className="lw-ref-share-btn-text">
+              <span className="lw-ref-share-platform">Reddit</span>
+              <span className="lw-ref-share-action">Comment</span>
+            </span>
           </a>
           <a className="lw-ref-share-btn" href={share.xPost} target="_blank" rel="noopener noreferrer">
-            <span className="lw-ref-share-platform">X</span>
-            <span className="lw-ref-share-action">Post</span>
+            <XMark size={24} className="lw-ref-share-icon lw-ref-share-icon--x" />
+            <span className="lw-ref-share-btn-text">
+              <span className="lw-ref-share-platform">X</span>
+              <span className="lw-ref-share-action">Post</span>
+            </span>
           </a>
         </div>
 
