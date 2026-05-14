@@ -176,7 +176,7 @@ async function main() {
         const thumbName = `${rowIdFromStorageKey(r.key)}.webp`;
         const thumbPath = fs.existsSync(path.join(THUMB_DIR, thumbName)) ? thumbName : null;
         values.push(
-          `($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++})`,
+          `($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++})`,
         );
         params.push(
           newVersion,
