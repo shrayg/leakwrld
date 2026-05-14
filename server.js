@@ -1047,14 +1047,6 @@ async function serveThumbCache(req, res, url) {
   return res.end(method === 'HEAD' ? undefined : buf);
 }
 
-function defaultHlsMasterKey(storageKey) {
-  const k = String(storageKey || '');
-  if (!k || !/\.(mp4|m4v|mov|webm|mkv)$/i.test(k)) return null;
-  const i = k.lastIndexOf('/');
-  if (i < 0) return null;
-  return `${k.slice(0, i)}/hls/master.m3u8`;
-}
-
 async function routeApi(req, res, url) {
   const method = (req.method || 'GET').toUpperCase();
 
@@ -2372,26 +2364,26 @@ async function routeApi(req, res, url) {
             if (it.locked) return it;
             const row = meta.get(it.key);
             const thumbUrl = row?.thumb_path ? `/cache/thumbs/${row.thumb_path}` : null;
-            const hlsMasterKey = row?.hls_master_key || defaultHlsMasterKey(it.key);
+            const hlsMasterKey = row?.hls_master_key || null;
             return { ...it, thumbUrl, hlsMasterKey };
           });
         } else {
           items = items.map((it) => {
             if (it.locked) return it;
-            return { ...it, thumbUrl: null, hlsMasterKey: defaultHlsMasterKey(it.key) };
+            return { ...it, thumbUrl: null, hlsMasterKey: null };
           });
         }
       } catch (err) {
         console.warn('[creator media catalog]', err.message || err);
         items = items.map((it) => {
           if (it.locked) return it;
-          return { ...it, thumbUrl: null, hlsMasterKey: defaultHlsMasterKey(it.key) };
+          return { ...it, thumbUrl: null, hlsMasterKey: null };
         });
       }
     } else {
       items = items.map((it) => {
         if (it.locked) return it;
-        return { ...it, thumbUrl: null, hlsMasterKey: defaultHlsMasterKey(it.key) };
+        return { ...it, thumbUrl: null, hlsMasterKey: null };
       });
     }
 

@@ -30,6 +30,8 @@
     "media:sync:slug": "node scripts/r2-build-media-manifests.mjs --slug=",
     "thumbs:convert": "node scripts/convert-public-thumbnails-to-webp.mjs",
     "thumbs:convert:force": "node scripts/convert-public-thumbnails-to-webp.mjs --force",
+    "media:thumbs:cache": "node scripts/media-thumb-cache.mjs",
+    "media:thumbs:cache:force": "node scripts/media-thumb-cache.mjs --force",
     "catalog:rebuild": "node scripts/catalog-rebuild.mjs",
     "catalog:rebuild:force": "node scripts/catalog-rebuild.mjs --force",
     "media:pipeline": "node scripts/r2-media-pipeline.mjs",

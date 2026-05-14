@@ -17,6 +17,7 @@
  *   node scripts/r2-media-pipeline.mjs --dry-run
  *   node scripts/r2-media-pipeline.mjs --skip-rename
  *   node scripts/r2-media-pipeline.mjs --skip-thumbs
+ *   node scripts/r2-media-pipeline.mjs --skip-video-thumbs   # skip per-clip WebP cache (see media:thumbs:cache)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -77,6 +78,7 @@ function parseArgs(argv) {
     dryRun: argv.includes('--dry-run'),
     skipRename: argv.includes('--skip-rename'),
     skipThumbs: argv.includes('--skip-thumbs'),
+    skipVideoThumbs: argv.includes('--skip-video-thumbs'),
     skipCount: argv.includes('--skip-count'),
   };
 }
@@ -266,6 +268,13 @@ async function main() {
 
   console.log('=== media:sync (rclone + manifests) ===');
   runNpmScript('media:sync');
+
+  if (!args.skipVideoThumbs) {
+    console.log('\n=== media:thumbs:cache (per-video WebP → data/thumb-cache) ===');
+    runNpmScript('media:thumbs:cache');
+  } else {
+    console.log('\n[skip] media:thumbs:cache — --skip-video-thumbs');
+  }
 
   if (process.env.DATABASE_URL) {
     console.log('\n=== catalog:rebuild (Postgres precalc) ===');

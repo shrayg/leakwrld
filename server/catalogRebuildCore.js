@@ -65,19 +65,6 @@ function loadMediaManifest(mediaDir, slug) {
   }
 }
 
-function mediaStatsId(storageKey) {
-  const { createHash } = require('crypto');
-  return createHash('sha1').update(String(storageKey || ''), 'utf8').digest('hex').slice(0, 16);
-}
-
-function defaultHlsMasterKey(storageKey) {
-  const k = String(storageKey || '');
-  if (!k || !/\.(mp4|m4v|mov|webm|mkv)$/i.test(k)) return null;
-  const i = k.lastIndexOf('/');
-  if (i < 0) return null;
-  return `${k.slice(0, i)}/hls/master.m3u8`;
-}
-
 /**
  * @param {object} opts
  * @param {Array<{slug:string,name:string,rank:number,heat:number,category:string}>} opts.readyCreators
@@ -98,7 +85,6 @@ function buildCatalogRows({ readyCreators, mediaDir, thumbnailFor, ingestSeed, s
     const videos = feedMedia.map((item) => {
       const st = statsByKey?.get(item.key) || {};
       return {
-        id: mediaStatsId(item.key),
         key: item.key,
         name: item.name,
         title: clipDisplayTitle(item.name),
@@ -114,7 +100,8 @@ function buildCatalogRows({ readyCreators, mediaDir, thumbnailFor, ingestSeed, s
         likes: Number(st.likes || 0),
         durationSeconds: Number(st.duration_seconds ?? st.durationSeconds ?? 0),
         creatorThumbnail: thumbnailFor(creator.slug) || null,
-        hlsMasterKey: defaultHlsMasterKey(item.key),
+        /** Only set when manifests (or DB) record real HLS sidecars; guessing breaks signed HLS playback. */
+        hlsMasterKey: null,
       };
     });
     if (!videos.length) continue;

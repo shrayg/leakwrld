@@ -22,9 +22,40 @@ const {
   loadMediaManifest,
   isShortsFeedMedia,
 } = require('../server/catalogRebuildCore.js');
+const { rowIdFromStorageKey } = require('../server/mediaAnalytics.js');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
+
+const THUMB_DIR = process.env.THUMB_CACHE_DIR
+  ? path.resolve(String(process.env.THUMB_CACHE_DIR))
+  : path.join(ROOT, 'data', 'thumb-cache');
+
+/** When video WebP cache grows, bump fingerprint so catalog picks up new thumb_path rows. */
+function fingerprintVideoThumbCache(dir) {
+  const h = crypto.createHash('sha256');
+  if (!fs.existsSync(dir)) {
+    return h.update('no-thumb-dir').digest('hex');
+  }
+  let n = 0;
+  try {
+    const files = fs.readdirSync(dir).filter((f) => /^m_[a-f0-9]{28}\.webp$/i.test(f));
+    files.sort();
+    for (const f of files) {
+      try {
+        const st = fs.statSync(path.join(dir, f));
+        h.update(`${f}:${st.size}:${st.mtimeMs}\n`);
+      } catch {
+        h.update(`${f}:err\n`);
+      }
+      n += 1;
+    }
+    h.update(`count=${n}`);
+  } catch {
+    h.update('readdir-fail');
+  }
+  return h.digest('hex');
+}
 
 function loadLocalEnv(filePath) {
   try {
@@ -89,7 +120,9 @@ async function loadStats(pool, keys) {
 
 async function main() {
   const slugs = readyCreators.map((c) => c.slug);
-  const fp = fingerprintManifests(MEDIA_DIR, slugs);
+  const fpManifest = fingerprintManifests(MEDIA_DIR, slugs);
+  const fpThumbs = fingerprintVideoThumbCache(THUMB_DIR);
+  const fp = crypto.createHash('sha256').update(fpManifest).update('\n').update(fpThumbs).digest('hex');
   const pool = new pg.Pool({ connectionString: url, max: 4 });
   const client = await pool.connect();
   try {
@@ -140,6 +173,8 @@ async function main() {
       const params = [];
       let p = 1;
       for (const r of slice) {
+        const thumbName = `${rowIdFromStorageKey(r.key)}.webp`;
+        const thumbPath = fs.existsSync(path.join(THUMB_DIR, thumbName)) ? thumbName : null;
         values.push(
           `($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++})`,
         );
@@ -164,7 +199,7 @@ async function main() {
           r.top_rank,
           r.likes_rank,
           r.featured_shuffle_position,
-          null,
+          thumbPath,
           r.views,
           r.likes,
           r.durationSeconds,
