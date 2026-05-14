@@ -20,6 +20,7 @@ import { useAuth } from '../components/AuthContext';
 import { UserAccountMenu } from '../components/UserAccountMenu';
 import { recordEvent } from '../lib/analytics';
 import { mediaUrl, normalizeAccountTier, TIER_LABELS } from '../lib/media';
+import { attachAdaptiveVideo, fetchSignedMediaUrl } from '../lib/signedPlayback';
 import {
   manifestMediaLike,
   manifestMediaProgress,
@@ -97,11 +98,13 @@ function ShortVideoSlide({ item, isActive, isAdjacent, offset, dragOffset, isDra
   }, [loadError]);
 
   const baseMediaSrc = useMemo(() => mediaUrl(item.key), [item.key]);
+  const posterStill = item.thumbUrl || item.creatorThumbnail || '';
+  const imageDisplaySrc = item.thumbUrl || baseMediaSrc;
   const mediaSrc = useMemo(() => {
-    if (!retryNonce) return baseMediaSrc;
-    const sep = baseMediaSrc.includes('?') ? '&' : '?';
-    return `${baseMediaSrc}${sep}lwRetry=${retryNonce}`;
-  }, [baseMediaSrc, retryNonce]);
+    if (!retryNonce) return imageDisplaySrc;
+    const sep = imageDisplaySrc.includes('?') ? '&' : '?';
+    return `${imageDisplaySrc}${sep}lwRetry=${retryNonce}`;
+  }, [imageDisplaySrc, retryNonce]);
 
   useEffect(() => {
     setReady(false);
@@ -111,6 +114,39 @@ function ShortVideoSlide({ item, isActive, isAdjacent, offset, dragOffset, isDra
     stallCountRef.current = 0;
     metaReportedRef.current = false;
   }, [item.id, item.key]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || isImage) return undefined;
+    const fallback = baseMediaSrc;
+    if (!isActive) {
+      v.src = fallback;
+      return undefined;
+    }
+    let cancelled = false;
+    let detach = () => {};
+    (async () => {
+      try {
+        const cfg = await getSiteConfig();
+        if (cancelled) return;
+        if (!cfg.mediaSigningEnabled) {
+          v.src = fallback;
+          return;
+        }
+        const preferHls = Boolean(item.hlsMasterKey);
+        const signed = await fetchSignedMediaUrl(item.key, { format: preferHls ? 'hls' : 'mp4' });
+        if (cancelled) return;
+        detach = await attachAdaptiveVideo(v, signed || fallback);
+      } catch {
+        if (!cancelled) v.src = fallback;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      detach();
+      if (v) v.src = fallback;
+    };
+  }, [isActive, isImage, item.key, item.hlsMasterKey, baseMediaSrc, retryNonce]);
 
   useEffect(() => {
     if (!isActive) return undefined;
@@ -228,7 +264,7 @@ function ShortVideoSlide({ item, isActive, isAdjacent, offset, dragOffset, isDra
       if (!metaReportedRef.current) {
         metaReportedRef.current = true;
         const elapsed = Math.max(0, Date.now() - loadStartedAtRef.current);
-        const timing = pickR2ResourceTiming(video.currentSrc || mediaSrc);
+        const timing = pickR2ResourceTiming(video.currentSrc || baseMediaSrc);
         recordMediaLoadTiming({
           surface: 'shorts_video',
           storageKey: item.key,
@@ -283,7 +319,7 @@ function ShortVideoSlide({ item, isActive, isAdjacent, offset, dragOffset, isDra
       video.removeEventListener('waiting', onWaiting);
       video.removeEventListener('error', onVideoError);
     };
-  }, [isActive, item, playbackId, isImage, mediaSrc]);
+  }, [isActive, item, playbackId, isImage, baseMediaSrc]);
 
   const togglePlayback = useCallback(() => {
     if (!isActive || isImage) return;
@@ -365,14 +401,14 @@ function ShortVideoSlide({ item, isActive, isAdjacent, offset, dragOffset, isDra
         <video
           ref={videoRef}
           className="lw-short-video"
-          src={mediaSrc}
-          poster={item.creatorThumbnail || undefined}
+          poster={posterStill || undefined}
           preload={videoPreload}
           fetchPriority={isActive ? 'high' : 'low'}
           autoPlay={isActive}
           playsInline
           loop
           muted={muted}
+          crossOrigin="anonymous"
         />
       )}
       {showRecover ? (

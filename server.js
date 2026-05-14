@@ -57,6 +57,8 @@ const adminUserActions = require('./server/adminUserActions');
 const mediaAnalytics = require('./server/mediaAnalytics');
 const { getSupabaseAdminClient, supabaseEnabled } = require('./server/supabaseClient');
 const { resolveCountryCode } = require('./server/geoCountry');
+const { buildSignedMediaUrl, signingSecret } = require('./server/mediaSign');
+const shortsFeedDb = require('./server/shortsFeedFromDb');
 
 const thumbnailLookup = new Map(fallbackCreators.map((c) => [c.slug, c.thumbnail]));
 const creatorBySlug = new Map(fallbackCreators.map((c) => [c.slug, c]));
@@ -353,6 +355,14 @@ const SKIP_QUEUE_PRICE_CENTS = Math.max(0, Number(process.env.SKIP_QUEUE_PRICE_C
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
 /** VPS production: proxy `/r2/*` to Cloudflare Worker HTTPS origin (public URL, not a secret). */
 const R2_WORKER_ORIGIN = String(process.env.R2_WORKER_ORIGIN || '').trim().replace(/\/+$/, '');
+/** Browser playback (signed URLs) — defaults to Worker origin; set MEDIA_PUBLIC_ORIGIN for media subdomain. */
+const MEDIA_PUBLIC_ORIGIN = String(process.env.MEDIA_PUBLIC_ORIGIN || R2_WORKER_ORIGIN || '')
+  .trim()
+  .replace(/\/+$/, '');
+const THUMB_CACHE_DIR = process.env.THUMB_CACHE_DIR
+  ? path.resolve(String(process.env.THUMB_CACHE_DIR))
+  : path.join(__dirname, 'data', 'thumb-cache');
+const MEDIA_SIGN_TTL_SEC = Math.max(120, Math.min(86400, Number(process.env.MEDIA_SIGN_TTL_SEC || 3600)));
 
 function clientIp(req) {
   const xff = req.headers['x-forwarded-for'];
@@ -1007,6 +1017,44 @@ function validateSignup(body) {
   return null;
 }
 
+async function serveThumbCache(req, res, url) {
+  const method = (req.method || 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') {
+    res.writeHead(405, { 'Content-Type': 'text/plain' });
+    return res.end('Method not allowed');
+  }
+  const raw = url.pathname.replace(/^\/cache\/thumbs\//, '');
+  if (!raw || raw.includes('..') || raw.includes('/') || raw.includes('\\')) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    return res.end('Bad path');
+  }
+  if (!/^[a-zA-Z0-9._-]+\.webp$/i.test(raw)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    return res.end('Bad file');
+  }
+  const filePath = path.join(THUMB_CACHE_DIR, raw);
+  const buf = await fs.promises.readFile(filePath).catch(() => null);
+  if (!buf) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    return res.end('Not found');
+  }
+  res.writeHead(200, {
+    'Content-Type': 'image/webp',
+    'Content-Length': buf.length,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  return res.end(method === 'HEAD' ? undefined : buf);
+}
+
+function defaultHlsMasterKey(storageKey) {
+  const k = String(storageKey || '');
+  if (!k || !/\.(mp4|m4v|mov|webm|mkv)$/i.test(k)) return null;
+  const i = k.lastIndexOf('/');
+  if (i < 0) return null;
+  return `${k.slice(0, i)}/hls/master.m3u8`;
+}
+
 async function routeApi(req, res, url) {
   const method = (req.method || 'GET').toUpperCase();
 
@@ -1018,6 +1066,59 @@ async function routeApi(req, res, url) {
   if (url.pathname === '/api/session' && method === 'GET') {
     const user = await currentUser(req);
     return sendJson(res, 200, { authed: !!user, user });
+  }
+
+  if (url.pathname === '/api/site-config' && method === 'GET') {
+    let catalogPrecalc = false;
+    let catalogVersion = 0;
+    if (pool) {
+      try {
+        const cv = await shortsFeedDb.getCatalogVersion(pool);
+        catalogVersion = cv.catalogVersion;
+        catalogPrecalc = cv.rowCount > 0;
+      } catch {
+        /* migration may not be applied */
+      }
+    }
+    const sec = signingSecret();
+    return sendJson(res, 200, {
+      mediaPublicOrigin: MEDIA_PUBLIC_ORIGIN || '',
+      mediaSigningEnabled: Boolean(sec && MEDIA_PUBLIC_ORIGIN),
+      catalogPrecalc,
+      catalogVersion,
+    });
+  }
+
+  if (url.pathname === '/api/media/sign' && method === 'GET') {
+    const sec = signingSecret();
+    if (!sec || !MEDIA_PUBLIC_ORIGIN) {
+      return sendJson(res, 503, { error: 'Set MEDIA_SIGNING_SECRET (or SESSION_SECRET) and MEDIA_PUBLIC_ORIGIN / R2_WORKER_ORIGIN.' });
+    }
+    const rawKey = String(url.searchParams.get('key') || '').trim();
+    let objectKey;
+    try {
+      objectKey = decodeURIComponent(rawKey);
+    } catch {
+      return sendJson(res, 400, { error: 'Invalid key.' });
+    }
+    if (!objectKey || objectKey.includes('..') || objectKey.startsWith('/')) {
+      return sendJson(res, 400, { error: 'Invalid key.' });
+    }
+    const user = await currentUser(req);
+    const required = r2ManifestTierFromKey(objectKey);
+    if (required && required !== 'free') {
+      if (!userManifestTiers(user).includes(required)) {
+        return sendJson(res, 403, { error: 'Upgrade required for this media.' });
+      }
+    }
+    let signKey = objectKey;
+    if (String(url.searchParams.get('format') || '').toLowerCase() === 'hls') {
+      const i = objectKey.lastIndexOf('/');
+      if (i > 0) signKey = `${objectKey.slice(0, i)}/hls/master.m3u8`;
+    }
+    const signed = buildSignedMediaUrl(MEDIA_PUBLIC_ORIGIN, signKey, MEDIA_SIGN_TTL_SEC);
+    if (!signed) return sendJson(res, 500, { error: 'Could not sign URL.' });
+    return sendJson(res, 200, { url: signed, expiresInSec: MEDIA_SIGN_TTL_SEC });
   }
 
   if (url.pathname === '/api/redeem' && method === 'POST') {
@@ -2256,6 +2357,44 @@ async function routeApi(req, res, url) {
       };
     });
 
+    const thumbKeys = items.filter((it) => !it.locked && it.key).map((it) => it.key);
+    if (pool && thumbKeys.length) {
+      try {
+        const cv = await shortsFeedDb.getCatalogVersion(pool);
+        if (cv.catalogVersion > 0) {
+          const { rows } = await dbQuery(
+            `select storage_key, thumb_path, hls_master_key from catalog_shorts
+             where catalog_version = $1 and storage_key = any($2::text[])`,
+            [cv.catalogVersion, thumbKeys],
+          );
+          const meta = new Map(rows.map((r) => [r.storage_key, r]));
+          items = items.map((it) => {
+            if (it.locked) return it;
+            const row = meta.get(it.key);
+            const thumbUrl = row?.thumb_path ? `/cache/thumbs/${row.thumb_path}` : null;
+            const hlsMasterKey = row?.hls_master_key || defaultHlsMasterKey(it.key);
+            return { ...it, thumbUrl, hlsMasterKey };
+          });
+        } else {
+          items = items.map((it) => {
+            if (it.locked) return it;
+            return { ...it, thumbUrl: null, hlsMasterKey: defaultHlsMasterKey(it.key) };
+          });
+        }
+      } catch (err) {
+        console.warn('[creator media catalog]', err.message || err);
+        items = items.map((it) => {
+          if (it.locked) return it;
+          return { ...it, thumbUrl: null, hlsMasterKey: defaultHlsMasterKey(it.key) };
+        });
+      }
+    } else {
+      items = items.map((it) => {
+        if (it.locked) return it;
+        return { ...it, thumbUrl: null, hlsMasterKey: defaultHlsMasterKey(it.key) };
+      });
+    }
+
     return sendJson(res, 200, {
       creator: c,
       totals: manifest.totals,
@@ -2288,6 +2427,55 @@ async function routeApi(req, res, url) {
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean),
     );
+    const sortRaw = String(url.searchParams.get('sort') || 'random').toLowerCase();
+    const sortMode = ['random', 'trending', 'featured', 'top', 'likes'].includes(sortRaw) ? sortRaw : 'random';
+
+    if (pool) {
+      try {
+        const cv = await shortsFeedDb.getCatalogVersion(pool);
+        if (cv.catalogVersion > 0 && cv.rowCount > 0) {
+          const pre = await shortsFeedDb.shortsFeedFromPrecalc(pool, {
+            catalogVersion: cv.catalogVersion,
+            allowedTiers,
+            limit,
+            offset,
+            sortMode,
+            wantedCategories,
+            wantedCreators,
+            mediaStatsId,
+          });
+          if (pre) {
+            return sendJson(res, 200, {
+              shorts: pre.shorts,
+              filters: {
+                creators: pre.creatorFilters.sort((a, b) => a.name.localeCompare(b.name)),
+                categories: pre.categories,
+              },
+              access: {
+                userTier: user?.tier || 'free',
+                userTierLabel: accountTierLabel(user?.tier || 'free'),
+                manifestTiers: allowedTiers,
+                allowedRaw: pre.allowedAccessRaw,
+                fullAccessRaw: pre.fullAccessRaw,
+                unlockableRaw: Math.max(0, pre.fullAccessRaw - pre.allowedAccessRaw),
+              },
+              page: {
+                offset,
+                limit,
+                total: pre.total,
+                returned: pre.shorts.length,
+                seed,
+                sort: sortMode,
+                catalogVersion: cv.catalogVersion,
+              },
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[shorts feed precalc]', err.code || '', err.message || err);
+      }
+    }
+
     const creatorFilters = [];
     const categoryCounts = new Map();
     const buckets = [];
@@ -2405,9 +2593,7 @@ async function routeApi(req, res, url) {
       feedPool = feedPool.filter((item) => item.categorySlugs?.some((slug) => wantedCategories.has(slug)));
     }
 
-    const sortRaw = String(url.searchParams.get('sort') || 'random').toLowerCase();
-    const sortMode = ['random', 'trending', 'featured', 'top', 'likes'].includes(sortRaw) ? sortRaw : 'random';
-
+    let orderedPool = feedPool.slice();
     const topScore = (v) =>
       Number(v.sizeBytes || 0) +
       Number(v.creatorHeat || 0) * 400000 +
@@ -2417,7 +2603,6 @@ async function routeApi(req, res, url) {
       (stableHash(`${seed}:trends:${v.key}`) % 10000) +
       Math.min(2000, Number(v.sizeBytes || 0) / 250000);
 
-    let orderedPool = feedPool.slice();
     if (sortMode === 'likes') {
       await attachMediaItemStatsForFeedItems(orderedPool);
       orderedPool.sort((a, b) => Number(b.likes || 0) - Number(a.likes || 0) || topScore(b) - topScore(a));
@@ -2915,6 +3100,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
     /** Capture ?ref= on EVERY hit so the cookie persists for downstream signups. */
     captureReferralCookie(req, res, url);
+    if (url.pathname.startsWith('/cache/thumbs/')) return await serveThumbCache(req, res, url);
     if (url.pathname.startsWith('/api/')) return await routeApi(req, res, url);
     if (url.pathname.startsWith('/r2/')) return await streamR2(req, res, url);
     if (url.pathname.startsWith('/r/') && url.pathname.length > 3) return handleReferralShortLink(req, res, url);

@@ -7,18 +7,21 @@ import {
   copyText,
   fetchReferralStatus,
 } from '../../lib/referral';
+import { CREATORS } from '../../data/catalog';
 import { RedditMark, XMark } from './BrandMarks';
 
-/** Hardcoded for now — the user explicitly said "just use this link for now,
- *  I'm going to think more tomorrow." We'll wire a per-user / per-subreddit
- *  rotation later. Keeping it inline (not in env) on purpose so the placeholder
- *  is obvious to anyone reading the code. */
-const FAST_REDDIT_URL =
-  'https://www.reddit.com/r/omeglecockshockreal/submit/?type=LINK' +
-  '&url=https%3A%2F%2Fwww.redgifs.com%2Fwatch%2Feverymountainoustadpole' +
-  '&title=ome.tv+omegle+monkey+app+win+%7C+pornyard.xyz+full+video';
+/** Reddit post search: random catalog creator + "leaks" — new URL every call. */
+function randomCreatorLeaksSearchUrl() {
+  const names = CREATORS.map((c) => (c && c.name ? String(c.name) : '')).filter(Boolean);
+  if (!names.length) {
+    return 'https://www.reddit.com/search/?q=leaks&type=posts&t=week';
+  }
+  const name = names[Math.floor(Math.random() * names.length)];
+  const q = encodeURIComponent(`${name} leaks`);
+  return `https://www.reddit.com/search/?q=${q}&type=posts&t=week`;
+}
 
-/** Pre-written comment users paste under their submitted Reddit post. */
+/** Paste under threads where people ask where to find leaks. */
 function buildFastComment(link) {
   return `${link || 'https://leakwrld.com/r/YOURCODE'} you won't find better than this`;
 }
@@ -188,14 +191,18 @@ function ShareModal({ link, status, share, onClose, onCopy, onOpenFast, toast })
 }
 
 function FastModal({ link, onClose, toast, setToast }) {
-  /** Pre-baked comment text — same shape as pornyard's flow but pointed at
-   *  the current user's short link. We copy the whole string in one shot
-   *  so the user just pastes after clicking REPLY on Reddit. */
   const comment = buildFastComment(link);
+
+  function openRedditSearch() {
+    const url = randomCreatorLeaksSearchUrl();
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
 
   async function copyComment() {
     const ok = await copyText(comment);
-    setToast(ok ? 'Comment copied — paste it on Reddit.' : 'Copy failed — long-press to copy.');
+    setToast(
+      ok ? 'Comment copied — paste as a reply where people ask for leaks.' : 'Copy failed — long-press to copy.',
+    );
   }
 
   return (
@@ -219,20 +226,24 @@ function FastModal({ link, onClose, toast, setToast }) {
           GET REFERRALS FAST
         </h2>
 
-        <a
-          className="lw-fast-reddit-btn"
-          href={FAST_REDDIT_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        <button type="button" className="lw-fast-reddit-btn" onClick={openRedditSearch}>
           <RedditMark size={26} />
-          <span>OPEN THIS REDDIT</span>
-        </a>
+          <span>OPEN REDDIT SEARCH</span>
+        </button>
 
         <ol className="lw-fast-steps">
-          <li>Click the link above</li>
-          <li>Click &lsquo;POST&rsquo;</li>
-          <li>Reply to the post with your referral link</li>
+          <li>
+            Click the button — we open Reddit with a random <strong>creator name + &ldquo;leaks&rdquo;</strong>{' '}
+            search. Each click picks a new creator from our catalog.
+          </li>
+          <li>
+            Find posts where people ask where to find leaks, hit <strong>Reply</strong>, and paste your line
+            below (copy first).
+          </li>
+          <li>
+            <strong>More thoughtful comments across different threads usually beats one spammy dump</strong> — but
+            don&rsquo;t overdo it; Reddit filters and shadowbans kick in fast if you blast duplicates.
+          </li>
         </ol>
 
         <div className="lw-fast-comment">
@@ -250,7 +261,9 @@ function FastModal({ link, onClose, toast, setToast }) {
           </button>
         </div>
 
-        <p className="lw-fast-foot">this gives you 5 referrals per hour</p>
+        <p className="lw-fast-foot">
+          Tip: the more genuine replies you leave, the more signups you tend to see — stay human and pace yourself.
+        </p>
 
         <div className="lw-ref-toast" aria-live="polite">
           {toast}

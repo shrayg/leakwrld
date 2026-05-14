@@ -24,6 +24,7 @@ export default defineConfig({
        *  (which streams from R2 via rclone) and by the Cloudflare Worker
        *  in production. Both paths are transparent to the client. */
       '/r2': { target: 'http://127.0.0.1:3002', changeOrigin: true },
+      '/cache': { target: 'http://127.0.0.1:3002', changeOrigin: true },
     },
   },
   resolve: {

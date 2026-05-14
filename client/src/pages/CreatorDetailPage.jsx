@@ -36,13 +36,14 @@ import {
   manifestMediaSessionStart,
   mediaPlaybackSessionId,
 } from '../lib/mediaAnalytics';
+import { attachAdaptiveVideo, fetchSignedMediaUrl } from '../lib/signedPlayback';
 import { AdminCopyStorageKeyButton } from '../components/AdminCopyStorageKeyButton';
 import { GridPagination } from '../components/GridPagination';
 import { useCatalogGridPageSize } from '../hooks/useGridPageSize';
 
 const TIER_ORDER = ['free', 'tier1', 'tier2', 'tier3'];
 
-function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
+function TrackedVideo({ item, creatorSlug, playbackId, className }) {
   const ref = useRef(null);
   const loadReportedRef = useRef(false);
   const loadStartedAtRef = useRef(0);
@@ -52,11 +53,32 @@ function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
     loadReportedRef.current = false;
     loadStartedAtRef.current = Date.now();
     stallCountRef.current = 0;
-  }, [src]);
+  }, [item.key]);
 
   useEffect(() => {
     const v = ref.current;
-    if (!v) return;
+    if (!v) return undefined;
+    const fallback = mediaUrl(item.key);
+    let detach = () => {};
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getSiteConfig } = await import('../lib/siteConfig');
+        const cfg = await getSiteConfig();
+        if (cancelled) return;
+        if (!cfg.mediaSigningEnabled) {
+          v.src = fallback;
+        } else {
+          const preferHls = Boolean(item.hlsMasterKey);
+          const signed = await fetchSignedMediaUrl(item.key, { format: preferHls ? 'hls' : 'mp4' });
+          if (cancelled) return;
+          detach = await attachAdaptiveVideo(v, signed || fallback);
+        }
+      } catch {
+        if (!cancelled) v.src = fallback;
+      }
+    })();
+
     let lastCheckpoint = 0;
     let metaSent = false;
 
@@ -102,7 +124,7 @@ function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
           storageKey: item.key,
           metadataMs: elapsed,
           stallCount: stallCountRef.current,
-          ...pickR2ResourceTiming(v.currentSrc || src),
+          ...pickR2ResourceTiming(v.currentSrc || fallback),
         });
       }
     };
@@ -128,7 +150,10 @@ function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
     v.addEventListener('error', onErr);
 
     return () => {
+      cancelled = true;
       flush(true);
+      detach();
+      v.src = fallback;
       v.removeEventListener('loadedmetadata', onMeta);
       v.removeEventListener('timeupdate', onTime);
       v.removeEventListener('pause', onPause);
@@ -136,12 +161,11 @@ function TrackedVideo({ src, item, creatorSlug, playbackId, className }) {
       v.removeEventListener('waiting', onWaiting);
       v.removeEventListener('error', onErr);
     };
-  }, [src, item.key, creatorSlug, playbackId]);
+  }, [item.key, item.hlsMasterKey, creatorSlug, playbackId]);
 
   return (
     <video
       ref={ref}
-      src={src}
       controls
       autoPlay
       playsInline
@@ -287,10 +311,12 @@ function MediaTileStats({ item }) {
   );
 }
 
-function MediaTile({ item, onOpen, accent, accountTier }) {
+function MediaTile({ item, onOpen, accent, accountTier, fallbackThumb }) {
   const locked = item.locked || isLockedTier(item.tier, accountTier);
   const kind = item.kind || classifyMedia(item.name);
   const src = mediaUrl(item.key);
+  const tileImg = item.thumbUrl || src;
+  const tilePoster = item.thumbUrl || fallbackThumb || '';
   const [tileRef, tileNear] = useNearViewport({
     disabled: locked,
     rootMargin: '260px',
@@ -316,7 +342,7 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
           aria-label="View image"
         >
           {tileNear ? (
-            <img src={src} alt="" loading="lazy" decoding="async" />
+            <img src={tileImg} alt="" loading="lazy" decoding="async" />
           ) : (
             <div className="lw-media-tile-poster" aria-hidden />
           )}
@@ -346,6 +372,7 @@ function MediaTile({ item, onOpen, accent, accountTier }) {
           <video
             className="lw-media-tile-video-el"
             src={src}
+            poster={tilePoster || undefined}
             muted
             playsInline
             preload="metadata"
@@ -550,7 +577,6 @@ function Lightbox({ items, index, creatorSlug, onClose, onNavigate }) {
       <div className="lw-lightbox-stage" onClick={(e) => e.stopPropagation()}>
         {kind === 'video' ? (
           <TrackedVideo
-            src={src}
             item={item}
             creatorSlug={creatorSlug}
             playbackId={playbackId}
@@ -558,7 +584,7 @@ function Lightbox({ items, index, creatorSlug, onClose, onNavigate }) {
           />
         ) : (
           <>
-            <img src={src} alt="" className="lw-lightbox-image" />
+            <img src={item.thumbUrl || src} alt="" className="lw-lightbox-image" />
             {kind === 'image' ? <AdminCopyStorageKeyButton storageKey={item.key} variant="lightbox" /> : null}
           </>
         )}
@@ -889,7 +915,14 @@ export function CreatorDetailPage() {
       ) : (
         <section className="lw-media-grid">
           {items.map((item) => (
-            <MediaTile key={item.key} item={item} onOpen={openLightbox} accent={accent} accountTier={accountTier} />
+            <MediaTile
+              key={item.key}
+              item={item}
+              onOpen={openLightbox}
+              accent={accent}
+              accountTier={accountTier}
+              fallbackThumb={creator?.thumbnail || null}
+            />
           ))}
         </section>
       )}

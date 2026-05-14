@@ -267,6 +267,13 @@ async function main() {
   console.log('=== media:sync (rclone + manifests) ===');
   runNpmScript('media:sync');
 
+  if (process.env.DATABASE_URL) {
+    console.log('\n=== catalog:rebuild (Postgres precalc) ===');
+    runNpmScript('catalog:rebuild');
+  } else {
+    console.log('\n[skip] catalog:rebuild — DATABASE_URL not set');
+  }
+
   if (!args.skipThumbs) {
     console.log('\n=== thumbs:convert ===');
     runNpmScript('thumbs:convert');

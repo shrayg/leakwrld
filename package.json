@@ -11,7 +11,7 @@
     "build:client": "vite build --config client/vite.config.js",
     "serve": "npm run build && node server.js",
     "db:schema": "psql \"$DATABASE_URL\" -f database/schema.sql",
-    "db:migrate": "psql \"$DATABASE_URL\" -f database/migrations/001_platform_analytics.sql && psql \"$DATABASE_URL\" -f database/migrations/002_phone_and_indexes.sql && psql \"$DATABASE_URL\" -f database/migrations/004_media_storage_path_index.sql && psql \"$DATABASE_URL\" -f database/migrations/005_media_like_dedupe.sql && psql \"$DATABASE_URL\" -f database/migrations/006_backfill_media_likes_from_events.sql && psql \"$DATABASE_URL\" -f database/migrations/007_referral_program.sql && psql \"$DATABASE_URL\" -f database/migrations/008_referral_visits.sql",
+    "db:migrate": "psql \"$DATABASE_URL\" -f database/migrations/001_platform_analytics.sql && psql \"$DATABASE_URL\" -f database/migrations/002_phone_and_indexes.sql && psql \"$DATABASE_URL\" -f database/migrations/004_media_storage_path_index.sql && psql \"$DATABASE_URL\" -f database/migrations/005_media_like_dedupe.sql && psql \"$DATABASE_URL\" -f database/migrations/006_backfill_media_likes_from_events.sql && psql \"$DATABASE_URL\" -f database/migrations/007_referral_program.sql && psql \"$DATABASE_URL\" -f database/migrations/008_referral_visits.sql && psql \"$DATABASE_URL\" -f database/migrations/009_catalog_precalc.sql",
     "db:migrate:referrals": "psql \"$DATABASE_URL\" -f database/migrations/007_referral_program.sql && psql \"$DATABASE_URL\" -f database/migrations/008_referral_visits.sql",
     "db:reset-seeded-media-metrics": "psql \"$DATABASE_URL\" -f database/migrations/003_reset_media_engagement.sql",
     "db:backfill-referrals": "node scripts/backfill-referral-codes.mjs",
@@ -30,7 +30,10 @@
     "media:sync:slug": "node scripts/r2-build-media-manifests.mjs --slug=",
     "thumbs:convert": "node scripts/convert-public-thumbnails-to-webp.mjs",
     "thumbs:convert:force": "node scripts/convert-public-thumbnails-to-webp.mjs --force",
+    "catalog:rebuild": "node scripts/catalog-rebuild.mjs",
+    "catalog:rebuild:force": "node scripts/catalog-rebuild.mjs --force",
     "media:pipeline": "node scripts/r2-media-pipeline.mjs",
+    "media:transcode:hls": "node scripts/media-transcode-hls.mjs",
     "media:pipeline:dry": "node scripts/r2-media-pipeline.mjs --dry-run",
     "worker:dev": "wrangler dev --config worker/wrangler.jsonc",
     "worker:deploy": "wrangler deploy --config worker/wrangler.jsonc"
@@ -41,6 +44,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
     "geoip-lite": "^2.0.2",
+    "hls.js": "^1.6.15",
     "lucide-react": "^1.8.0",
     "pg": "^8.16.3",
     "react": "^18.3.1",

@@ -76,6 +76,15 @@ Copy **`.env`** in the repo root (gitignored — create from scratch or sync fro
 | `PUBLIC_SITE_URL` | Shown with the admin Discord message (e.g. `http://45.156.87.83` or your domain) so you can tell localhost vs production. |
 | `ADMIN_SESSION_SECRET` | Optional separate HMAC secret for the admin cookie; defaults to `SESSION_SECRET`. |
 | `ONLINE_CAPACITY`, `SKIP_QUEUE_PRICE_CENTS` | Queue endpoint |
+| `MEDIA_SIGNING_SECRET` | Optional dedicated HMAC secret for **signed playback URLs** (defaults to `SESSION_SECRET`). Must match **`wrangler secret put MEDIA_SIGNING_SECRET`** on the R2 Worker. |
+| `MEDIA_PUBLIC_ORIGIN` | Public **https** origin for signed media (usually same as `R2_WORKER_ORIGIN`). Exposed to the browser via `/api/site-config`. |
+| `MEDIA_SIGN_TTL_SEC` | Signed URL lifetime in seconds (default `3600`, max `86400`). |
+
+**Catalog precalc (Postgres):** run migration `009_catalog_precalc.sql` (`npm run db:migrate`), then **`npm run catalog:rebuild`** after `media:sync` so `/api/shorts/feed` reads from `catalog_shorts` instead of rebuilding manifests per request.
+
+**Thumbnails on disk:** Node serves **`/cache/thumbs/*`** from `data/thumb-cache/` (override with env `THUMB_CACHE_DIR` if you add it later). In production, point **nginx** `alias` at the same directory for zero-copy static delivery.
+
+**HLS ladder:** `npm run media:transcode:hls` (see `scripts/media-transcode-hls.mjs`) writes `…/hls/master.m3u8` next to each MP4; upload to R2, then `catalog:rebuild -- --force`. The Worker rewrites `.m3u8` playlists so child segments load with the same `exp`/`sig` model.
 
 **`/admin`:** Password login + optional Discord notification (webhook env). Uses cookie `lw_admin` (independent of member login). Anyone with the webhook URL can see passwords — treat Discord channel access as sensitive.
 
