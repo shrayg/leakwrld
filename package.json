@@ -38,7 +38,8 @@
     "media:transcode:hls": "node scripts/media-transcode-hls.mjs",
     "media:pipeline:dry": "node scripts/r2-media-pipeline.mjs --dry-run",
     "worker:dev": "wrangler dev --config worker/wrangler.jsonc",
-    "worker:deploy": "wrangler deploy --config worker/wrangler.jsonc"
+    "worker:deploy": "wrangler deploy --config worker/wrangler.jsonc",
+    "deploy:vps": "bash scripts/deploy-vps.sh"
   },
   "engines": {
     "node": "20.x"
