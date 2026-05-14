@@ -26,11 +26,12 @@
  *   node scripts/r2-build-media-manifests.mjs --slug=amouranth  # one creator
  *   node scripts/r2-build-media-manifests.mjs --include-empty  # also write empty manifests
  *
- * R2 access uses RCLONE_CONFIG_R2_* env vars set in your shell session.
+ * R2 access: loads `.env` from repo root and sets `RCLONE_CONFIG_R2_*` from
+ * `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID` when needed (same as media pipeline).
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +51,48 @@ const OUT_DIR = join(repoRoot, 'client', 'public', 'media');
 const SUMMARY_PATH = join(repoRoot, 'data', 'media-summary.json');
 const CLIENT_SUMMARY_PATH = join(repoRoot, 'client', 'src', 'data', 'media-summary.json');
 
+let rcloneListErrorLogged = false;
+
+function loadLocalEnv(filePath) {
+  try {
+    const raw = readFileSync(filePath, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || process.env[key] != null) continue;
+      let value = trimmed.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value;
+    }
+  } catch {
+    /* optional */
+  }
+}
+
+function ensureRcloneEnvFromR2() {
+  if (String(process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID || '').trim()) return;
+  const accessKey = String(process.env.R2_ACCESS_KEY_ID || '').trim();
+  const secretKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();
+  const accountId = String(process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const endpoint = String(
+    process.env.RCLONE_CONFIG_R2_ENDPOINT || process.env.R2_ENDPOINT || '',
+  ).trim() || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : '');
+  if (!accessKey || !secretKey || !endpoint) return;
+  process.env.RCLONE_CONFIG_R2_TYPE = process.env.RCLONE_CONFIG_R2_TYPE || 's3';
+  process.env.RCLONE_CONFIG_R2_PROVIDER = process.env.RCLONE_CONFIG_R2_PROVIDER || 'Cloudflare';
+  process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID = accessKey;
+  process.env.RCLONE_CONFIG_R2_SECRET_ACCESS_KEY = secretKey;
+  process.env.RCLONE_CONFIG_R2_ENDPOINT = endpoint;
+}
+
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const VIDEO_EXTS = new Set(['.mp4', '.mov', '.mkv', '.webm', '.m4v']);
 
@@ -67,7 +110,17 @@ function rcloneListWithSize(prefix) {
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
   });
-  if (r.status !== 0) return [];
+  if (r.error || r.status !== 0) {
+    if (!rcloneListErrorLogged) {
+      rcloneListErrorLogged = true;
+      const err = String(r.stderr || r.stdout || '').trim().slice(0, 500);
+      const sig = r.error ? r.error.message : `exit ${r.status}`;
+      console.error(
+        `[media:sync] rclone lsl failed (${sig}). Install rclone on PATH, and set R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY + R2_ACCOUNT_ID in .env (or RCLONE_CONFIG_R2_*). stderr: ${err || '(empty)'}`,
+      );
+    }
+    return [];
+  }
   /** rclone lsl format: "    <size> YYYY-MM-DD HH:MM:SS.fff <name>" */
   return r.stdout
     .split(/\r?\n/)
@@ -146,6 +199,15 @@ function djb2(str) {
 }
 
 async function main() {
+  loadLocalEnv(join(repoRoot, '.env'));
+  ensureRcloneEnvFromR2();
+  if (!String(process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID || '').trim()) {
+    console.error(
+      '[media:sync] Missing R2 credentials. Add to .env: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID (or set RCLONE_CONFIG_R2_*). Repo .env is loaded automatically.',
+    );
+    process.exit(1);
+  }
+
   const targets = args.slug ? creators.filter((c) => c.slug === args.slug) : creators;
   if (targets.length === 0) {
     console.error(`No creators matched ${args.slug ? `slug=${args.slug}` : '(empty)'}`);
@@ -170,7 +232,9 @@ async function main() {
     const sec = ((Date.now() - t0) / 1000).toFixed(1);
 
     if (built.realObjects === 0 && !args.includeEmpty) {
-      console.log(`  ${creator.slug.padEnd(20)} skip  (no real objects, only .keep) in ${sec}s`);
+      console.log(
+        `  ${creator.slug.padEnd(20)} skip  (no media under ${REMOTE}/${creator.slug}/{{free..tier3}} — empty tiers, or rclone could not list; see errors above) in ${sec}s`,
+      );
       totalSkipped += 1;
       continue;
     }
