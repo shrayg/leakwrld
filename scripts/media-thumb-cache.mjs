@@ -6,7 +6,9 @@
  * reusing the same creator thumbnail for every clip.
  *
  * Requires on PATH: rclone, ffmpeg (libwebp in ffmpeg recommended).
- * Requires RCLONE_CONFIG_R2_* (same as media:sync) — copies from r2:leakwrld/<key>.
+ * Requires R2 credentials in `.env` — same as `media:sync`:
+ *   `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`
+ * or explicit `RCLONE_CONFIG_R2_*` (see env.r2.example).
  *
  *   npm run media:thumbs:cache
  *   npm run media:thumbs:cache -- --force
@@ -119,12 +121,31 @@ function ffmpegPngFromVideo(videoPath, outPng) {
   return r.status === 0 && fs.existsSync(outPng) && fs.statSync(outPng).size > 32;
 }
 
+function ensureRcloneEnvFromR2() {
+  if (String(process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID || '').trim()) return;
+  const accessKey = String(process.env.R2_ACCESS_KEY_ID || '').trim();
+  const secretKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();
+  const accountId = String(process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const endpoint = String(
+    process.env.RCLONE_CONFIG_R2_ENDPOINT || process.env.R2_ENDPOINT || '',
+  ).trim() || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : '');
+  if (!accessKey || !secretKey || !endpoint) return;
+  process.env.RCLONE_CONFIG_R2_TYPE = process.env.RCLONE_CONFIG_R2_TYPE || 's3';
+  process.env.RCLONE_CONFIG_R2_PROVIDER = process.env.RCLONE_CONFIG_R2_PROVIDER || 'Cloudflare';
+  process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID = accessKey;
+  process.env.RCLONE_CONFIG_R2_SECRET_ACCESS_KEY = secretKey;
+  process.env.RCLONE_CONFIG_R2_ENDPOINT = endpoint;
+}
+
 async function main() {
   loadLocalEnv(path.join(ROOT, '.env'));
+  ensureRcloneEnvFromR2();
   const { force, slug } = parseArgs(process.argv.slice(2));
 
   if (!process.env.RCLONE_CONFIG_R2_ACCESS_KEY_ID) {
-    console.error('[media:thumbs:cache] Set RCLONE_CONFIG_R2_ACCESS_KEY_ID (and related rclone R2 env) like media:sync.');
+    console.error(
+      '[media:thumbs:cache] Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID (or RCLONE_CONFIG_R2_*) in .env — same as media:sync.',
+    );
     process.exit(1);
   }
 
