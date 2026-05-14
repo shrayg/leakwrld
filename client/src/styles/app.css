@@ -3669,7 +3669,7 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   align-items: center;
   column-gap: clamp(20px, 4vw, 40px);
   row-gap: 18px;
-  padding: 22px clamp(18px, 3vw, 28px);
+  padding: 36px clamp(18px, 3vw, 28px) 22px;
   border-radius: 14px;
   border: 1px solid rgba(255, 216, 107, 0.22);
   background:

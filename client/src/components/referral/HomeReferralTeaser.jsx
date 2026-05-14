@@ -63,10 +63,16 @@ export function HomeReferralTeaser() {
             </>
           ) : (
             <>
-              <GoldPremiumFx>{goalLabel}</GoldPremiumFx> is{' '}
-              {remaining === 0
-                ? 'ready to claim'
-                : `${remaining} ${remaining === 1 ? 'signup' : 'signups'} away`}
+              <GoldPremiumFx>Earn real money</GoldPremiumFx> when people use your link —{' '}
+              <GoldPremiumFx>{goalLabel}</GoldPremiumFx>
+              {remaining === 0 ? (
+                <> is ready to claim.</>
+              ) : (
+                <>
+                  {' '}
+                  is {remaining} {remaining === 1 ? 'signup' : 'signups'} away.
+                </>
+              )}
             </>
           )}
         </h2>
