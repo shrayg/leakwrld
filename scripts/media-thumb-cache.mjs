@@ -171,13 +171,26 @@ async function main() {
   }
 
   const unique = [...new Set(keys)];
-  console.log(`[media:thumbs:cache] ${unique.length} media object(s) → ${cacheDir}`);
+  const total = unique.length;
+  console.log(`[media:thumbs:cache] ${total} media object(s) → ${cacheDir}`);
+  console.log(
+    '[media:thumbs:cache] Progress prints every 25 items (and first/last). Failures log immediately. Large files can take minutes each.',
+  );
 
   let ok = 0;
   let skip = 0;
   let fail = 0;
+  const t0 = Date.now();
+  let idx = 0;
 
   for (const key of unique) {
+    idx += 1;
+    if (idx === 1 || idx % 25 === 0 || idx === total) {
+      const elapsedSec = Math.round((Date.now() - t0) / 1000);
+      console.log(
+        `[media:thumbs:cache] ${idx}/${total} wrote=${ok} skipped=${skip} failed=${fail} (${elapsedSec}s)`,
+      );
+    }
     const dest = thumbDestPath(cacheDir, key);
     if (!force && fs.existsSync(dest) && fs.statSync(dest).size > 32) {
       skip += 1;
