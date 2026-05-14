@@ -53,6 +53,12 @@ const CREATOR_NAMES = [
   'Katiana Kay',
   'Summerxiris',
   'Waifumia',
+  'Yumi Eto',
+  'Lexi Marvel',
+  'Honeybeepott',
+  'Brooke Monk',
+  'Overtime Megan',
+  'Bbyanni',
 ];
 
 export const CATEGORIES = [
