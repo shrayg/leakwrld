@@ -2411,6 +2411,24 @@ a.lw-shorts-filter-trigger.lw-shorts-top-upgrade-link:hover {
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
+}
+
+.lw-plan-current-pill {
+  border-radius: 6px;
+  border: 1px solid rgba(255, 216, 107, 0.5);
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffd86b;
+  background: rgba(255, 216, 107, 0.12);
+}
+
+.lw-plan--current-tier {
+  outline: 1px solid rgba(255, 216, 107, 0.4);
+  outline-offset: 2px;
 }
 
 .lw-plan-tier-badge {

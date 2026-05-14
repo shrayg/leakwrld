@@ -1,6 +1,7 @@
 import { Check, Crown, Gift, Lock, Zap } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet, money } from '../api';
+import { useAuth } from '../components/AuthContext';
 import { recordEvent } from '../lib/analytics';
 import {
   displayBytes,
@@ -9,6 +10,7 @@ import {
   formatBytes,
   formatCount,
 } from '../lib/metrics';
+import { planPurchaseState } from '../lib/subscriptionTiers';
 
 /** Shown first; not returned by `/api/checkout/plans` (paid tiers only). */
 const FREE_PLAN = {
@@ -90,6 +92,7 @@ const MATRIX_ROWS = [
 ];
 
 export function CheckoutPage() {
+  const { user } = useAuth();
   const [plans, setPlans] = useState(fallbackPlans);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [pendingCheckoutTier, setPendingCheckoutTier] = useState(/** @type {null | string} */ (null));
@@ -122,6 +125,8 @@ export function CheckoutPage() {
   }, [plans]);
 
   function openCheckoutPrompt(tierKey) {
+    const planTier = tierKey === 'ultimate' ? 3 : tierKey === 'premium' ? 2 : tierKey === 'basic' ? 1 : 0;
+    if (!planTier || planPurchaseState(planTier, user?.tier) !== 'upgrade') return;
     setPendingCheckoutTier(String(tierKey || 'basic'));
     recordEvent('checkout_pre_redirect_open', { category: 'commerce', path: '/checkout', payload: { tier: tierKey } });
   }
@@ -155,14 +160,28 @@ export function CheckoutPage() {
           const theme = planThemeClass[plan.key] || '';
           const isFree = plan.key === 'free';
           const isUltimate = plan.key === 'ultimate';
+          const purchaseState = isFree ? null : planPurchaseState(plan.tier, user?.tier);
+          const isCurrentTier = purchaseState === 'current';
+          const ctaClass =
+            plan.key === 'ultimate'
+              ? 'lw-btn lw-plan-cta lw-plan-cta--ultimate w-full justify-center'
+              : plan.key === 'premium'
+                ? 'lw-btn lw-plan-cta lw-plan-cta--premium w-full justify-center'
+                : plan.key === 'basic'
+                  ? 'lw-btn lw-plan-cta lw-plan-cta--basic w-full justify-center'
+                  : 'lw-btn ghost lw-plan-cta w-full justify-center';
           return (
-            <article key={plan.key} className={`lw-plan ${theme}`.trim()}>
+            <article
+              key={plan.key}
+              className={`lw-plan ${theme}${isCurrentTier ? ' lw-plan--current-tier' : ''}`.trim()}
+            >
               <div className="lw-plan-head flex items-center justify-between">
                 <span className="lw-plan-icon">
                   <Icon size={20} />
                 </span>
                 <div className="lw-plan-head-badges">
                   {isUltimate ? <span className="lw-plan-ribbon">Best value</span> : null}
+                  {isCurrentTier ? <span className="lw-plan-current-pill">Your tier</span> : null}
                   <span className="lw-plan-tier-badge">Tier {plan.tier}</span>
                 </div>
               </div>
@@ -180,27 +199,21 @@ export function CheckoutPage() {
                 >
                   Included with your account
                 </button>
-              ) : (
+              ) : purchaseState === 'upgrade' ? (
                 <button
                   type="button"
-                  className={
-                    plan.key === 'ultimate'
-                      ? 'lw-btn lw-plan-cta lw-plan-cta--ultimate w-full justify-center'
-                      : plan.key === 'premium'
-                        ? 'lw-btn lw-plan-cta lw-plan-cta--premium w-full justify-center'
-                        : plan.key === 'basic'
-                          ? 'lw-btn lw-plan-cta lw-plan-cta--basic w-full justify-center'
-                          : 'lw-btn ghost lw-plan-cta w-full justify-center'
-                  }
-                  onClick={() =>
-                    openCheckoutPrompt(plan.key)
-                  }
+                  className={ctaClass}
+                  onClick={() => openCheckoutPrompt(plan.key)}
                 >
                   {plan.key === 'ultimate'
                     ? `Buy Ultimate • ${money(plan.priceCents)}/mo`
                     : plan.key === 'premium'
                       ? `Buy Premium • ${money(plan.priceCents)}/mo`
                       : `Buy Basic • ${money(plan.priceCents)}/mo`}
+                </button>
+              ) : (
+                <button type="button" className={`${ctaClass}`.trim()} disabled>
+                  {purchaseState === 'current' ? 'This is your tier' : 'Included in your plan'}
                 </button>
               )}
             </article>

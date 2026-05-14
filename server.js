@@ -102,6 +102,26 @@ function normalizeAccountTier(tier) {
   return ACCOUNT_TIER_ALIASES[key] || 'free';
 }
 
+/** Numeric rank for paid checkout / redeem (admin outranks ultimate). */
+function subscriptionPaidRank(tier) {
+  const t = normalizeAccountTier(tier);
+  if (t === 'admin') return 4;
+  if (t === 'ultimate') return 3;
+  if (t === 'premium') return 2;
+  if (t === 'basic') return 1;
+  return 0;
+}
+
+/** Never downgrade: redeeming a lower tier invoice keeps the higher subscription. */
+function mergeRedeemPurchaseTier(currentEffectiveTier, purchasedTier) {
+  const cur = normalizeAccountTier(currentEffectiveTier);
+  const pur = normalizeAccountTier(purchasedTier);
+  if (cur === 'admin' || pur === 'admin') return 'admin';
+  const rCur = subscriptionPaidRank(cur);
+  const rPur = subscriptionPaidRank(pur);
+  return rPur > rCur ? pur : cur;
+}
+
 function userManifestTiers(user) {
   const tier = normalizeAccountTier(user?.tier || user);
   if (tier === 'admin' || tier === 'ultimate') return MANIFEST_TIER_ACCESS;
@@ -1185,10 +1205,11 @@ async function routeApi(req, res, url) {
         return sendJson(res, 409, { error: 'That invoice has already been redeemed.' });
       }
 
+      const mergedTier = mergeRedeemPurchaseTier(user.tier, inferred);
       await client.query('update users set email = $2, tier = $3, updated_at = now() where id = $1', [
         user.id,
         emailRaw,
-        inferred,
+        mergedTier,
       ]);
 
       const paymentCents =
@@ -1252,7 +1273,13 @@ async function routeApi(req, res, url) {
     }
 
     const refreshed = await currentUser(req);
-    return sendJson(res, 200, { ok: true, user: refreshed, tier: inferred, invoiceId });
+    return sendJson(res, 200, {
+      ok: true,
+      user: refreshed,
+      tier: refreshed?.tier,
+      invoiceId,
+      purchasedTier: inferred,
+    });
   }
 
   if (url.pathname === '/api/auth/signup' && method === 'POST') {
