@@ -316,7 +316,8 @@ function MediaTile({ item, onOpen, accent, accountTier, fallbackThumb }) {
   const kind = item.kind || classifyMedia(item.name);
   const src = mediaUrl(item.key);
   const tileImg = item.thumbUrl || src;
-  const tilePoster = item.thumbUrl || fallbackThumb || '';
+  /** Per-video WebP only — never reuse creator profile art on every tile (confusing duplicates). */
+  const tilePoster = item.thumbUrl || '';
   const [tileRef, tileNear] = useNearViewport({
     disabled: locked,
     rootMargin: '260px',

@@ -98,7 +98,8 @@ function ShortVideoSlide({ item, isActive, isAdjacent, offset, dragOffset, isDra
   }, [loadError]);
 
   const baseMediaSrc = useMemo(() => mediaUrl(item.key), [item.key]);
-  const posterStill = item.thumbUrl || item.creatorThumbnail || '';
+  /** Videos: unique frame via preload when no thumbUrl; don't paste creator avatar on every clip. */
+  const posterStill = isImage ? item.thumbUrl || item.creatorThumbnail || '' : item.thumbUrl || '';
   const imageDisplaySrc = item.thumbUrl || baseMediaSrc;
   const mediaSrc = useMemo(() => {
     if (!retryNonce) return imageDisplaySrc;

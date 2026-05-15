@@ -58,6 +58,7 @@ const mediaAnalytics = require('./server/mediaAnalytics');
 const { getSupabaseAdminClient, supabaseEnabled } = require('./server/supabaseClient');
 const { resolveCountryCode } = require('./server/geoCountry');
 const { buildSignedMediaUrl, signingSecret } = require('./server/mediaSign');
+const { thumbUrlForKey } = require('./server/thumbUrl');
 const shortsFeedDb = require('./server/shortsFeedFromDb');
 
 const thumbnailLookup = new Map(fallbackCreators.map((c) => [c.slug, c.thumbnail]));
@@ -2363,27 +2364,39 @@ async function routeApi(req, res, url) {
           items = items.map((it) => {
             if (it.locked) return it;
             const row = meta.get(it.key);
-            const thumbUrl = row?.thumb_path ? `/cache/thumbs/${row.thumb_path}` : null;
+            const thumbUrl = thumbUrlForKey(it.key, THUMB_CACHE_DIR, row?.thumb_path);
             const hlsMasterKey = row?.hls_master_key || null;
             return { ...it, thumbUrl, hlsMasterKey };
           });
         } else {
           items = items.map((it) => {
             if (it.locked) return it;
-            return { ...it, thumbUrl: null, hlsMasterKey: null };
+            return {
+              ...it,
+              thumbUrl: thumbUrlForKey(it.key, THUMB_CACHE_DIR),
+              hlsMasterKey: null,
+            };
           });
         }
       } catch (err) {
         console.warn('[creator media catalog]', err.message || err);
         items = items.map((it) => {
           if (it.locked) return it;
-          return { ...it, thumbUrl: null, hlsMasterKey: null };
+          return {
+            ...it,
+            thumbUrl: thumbUrlForKey(it.key, THUMB_CACHE_DIR),
+            hlsMasterKey: null,
+          };
         });
       }
     } else {
       items = items.map((it) => {
         if (it.locked) return it;
-        return { ...it, thumbUrl: null, hlsMasterKey: null };
+        return {
+          ...it,
+          thumbUrl: thumbUrlForKey(it.key, THUMB_CACHE_DIR),
+          hlsMasterKey: null,
+        };
       });
     }
 
@@ -2437,8 +2450,12 @@ async function routeApi(req, res, url) {
             mediaStatsId,
           });
           if (pre) {
+            const shortsWithThumbs = pre.shorts.map((s) => ({
+              ...s,
+              thumbUrl: thumbUrlForKey(s.key, THUMB_CACHE_DIR) || s.thumbUrl || null,
+            }));
             return sendJson(res, 200, {
-              shorts: pre.shorts,
+              shorts: shortsWithThumbs,
               filters: {
                 creators: pre.creatorFilters.sort((a, b) => a.name.localeCompare(b.name)),
                 categories: pre.categories,
@@ -2612,6 +2629,9 @@ async function routeApi(req, res, url) {
     }
 
     const shorts = orderedPool.slice(offset, offset + limit);
+    for (const item of shorts) {
+      if (item.key) item.thumbUrl = thumbUrlForKey(item.key, THUMB_CACHE_DIR);
+    }
     if (pool && shorts.length) {
       try {
         const stats = await dbQuery(
